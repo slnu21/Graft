@@ -160,7 +160,9 @@ class PlaceCenterOrFail(_Dummy):
         y = int(ctx.rng.integers(0, h - ph + 1))
         placed = np.zeros((h, w), dtype=np.uint8)
         placed[y : y + ph, x : x + pw] = ctx.patch_mask
-        pl = Placement(center=(x + pw // 2, y + ph // 2), bbox=(x, y, pw, ph), tries=1)
+        pl = Placement(
+            center=(x + pw // 2, y + ph // 2), bbox=(x, y, pw, ph), offset=(x, y), tries=1
+        )
         return replace(ctx, placement=pl, placed_mask=placed).with_log(
             "placement", {"bbox": list(pl.bbox)}
         )
