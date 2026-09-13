@@ -85,6 +85,7 @@ class Pipeline:
         ctx = Context.initial(image_rng(rec.seed, index), target)
 
         ctx = self.stages["roi"].apply(ctx)
+        roi_log = dict(ctx.log.get("roi", {}))  # begin_defect()가 log를 비우므로 여기서 붙잡아 둔다
         if trace:
             steps.append(TraceStep("roi", None, ctx))
 
@@ -114,11 +115,13 @@ class Pipeline:
             if trace:
                 steps.append(TraceStep(stage_key, None, ctx))
 
-        return self._finish(ctx, index, n_defects, n_ok), steps
+        return self._finish(ctx, index, n_defects, n_ok, roi_log), steps
 
     # ------------------------------------------------------------------
 
-    def _finish(self, ctx: Context, index: int, n_defects: int, n_ok: int) -> GraftResult:
+    def _finish(
+        self, ctx: Context, index: int, n_defects: int, n_ok: int, roi_log: Mapping[str, Any]
+    ) -> GraftResult:
         h, w = ctx.target.image.shape[:2]
         gt = ctx.gt_mask if ctx.gt_mask is not None else np.zeros((h, w), dtype=np.uint8)
         status: str = "ok" if n_ok > 0 else "skipped"
@@ -133,6 +136,7 @@ class Pipeline:
                 "gray": ctx.target.gray,
                 "um_per_px": ctx.target.um_per_px,
             },
+            "roi": dict(roi_log),
             "defects_requested": n_defects,
             "defects": [dict(d) for d in ctx.defect_logs],
             "degrade": dict(ctx.log.get("degrade", {})),

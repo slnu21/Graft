@@ -43,8 +43,15 @@ class TargetImage:
 
 @dataclass(frozen=True)
 class Placement:
-    center: tuple[int, int]  # (x, y) 대상 좌표
-    bbox: BBox  # 패치 마스크의 대상 내 bbox
+    """패치가 대상 어디에 놓였나. ``offset``이 근본값(패치 캔버스 → 대상 좌표 변환), ``bbox``·``center``는 그로부터 유도.
+
+    패치 **캔버스**(회전 bbox·소스 크롭 여유 포함)는 이미지 밖으로 걸쳐도 된다 — 마스크만 ROI 안·테두리 여유 안이면 채택.
+    blend는 ``composite[y, x] ↔ patch[y - oy, x - ox]``로 대응시키고 캔버스 창은 이미지에 맞춰 잘라 쓴다.
+    """
+
+    center: tuple[int, int]  # (x, y) 대상 좌표 — 패치 마스크 bbox의 중심
+    bbox: BBox  # 패치 마스크의 대상 내 bbox (x, y, w, h)
+    offset: tuple[int, int]  # (ox, oy) 패치 캔버스 좌상단의 대상 좌표 (음수 가능)
     tries: int
     shrink_rounds: int = 0
 
