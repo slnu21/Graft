@@ -28,7 +28,7 @@ pipeline:
     margin_px: 8
     max_tries: 50
     shrink_on_fail: {factor: 0.8, rounds: 3}
-  blend: {method: poisson, poisson_mode: mixed, feather_px: 3}
+  blend: {method: poisson, poisson_mode: mixed, mask_dilate_px: 5, feather_px: 3}
   harmonize: {method: stats, strength: 0.5, ring_px: 12}
   degrade:
     method: camera

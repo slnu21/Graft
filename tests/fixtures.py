@@ -16,7 +16,7 @@ import cv2
 import numpy as np
 from pydantic import BaseModel
 
-from anograft.core.types import Context, DefectSource, Instance, PlacedDefect, TargetImage
+from anograft.core.types import Context, DefectSource, PlacedDefect, TargetImage
 
 
 def disk_image(size: int = 128, *, invert: bool = False, radius: int | None = None) -> np.ndarray:
@@ -82,7 +82,7 @@ def context(
 
 
 # ---------------------------------------------------------------------------
-# 파이프라인 통합 테스트용 더미 스테이지 — 아직 구현 안 된 스테이지 자리를 채운다 (구현되면 실물로 교체)
+# 파이프라인 통합 테스트용 더미 — 아직 구현 안 된 스테이지 자리(source: first-run에서 은행 로더로 교체)
 # ---------------------------------------------------------------------------
 
 
@@ -104,52 +104,3 @@ class SourceFixture(_Dummy):
         sources: list[DefectSource] = self.deps["sources"]
         src = sources[int(ctx.rng.integers(len(sources)))]
         return replace(ctx, source=src).with_log("source", {"source_id": src.id, "class": src.cls})
-
-
-class PasteBlendDummy(_Dummy):
-    """마스크 내부를 패치로 치환 — ``Placement.offset`` 규약대로 캔버스 창을 잘라 쓴다."""
-
-    stage = "blend"
-    methods = ("paste",)
-
-    def apply(self, ctx: Context) -> Context:
-        assert ctx.patch is not None and ctx.patch_mask is not None and ctx.placement is not None
-        ox, oy = ctx.placement.offset
-        ph, pw = ctx.patch_mask.shape
-        h, w = ctx.composite.shape[:2]
-        x0, y0 = max(ox, 0), max(oy, 0)
-        x1, y1 = min(ox + pw, w), min(oy + ph, h)
-        out = ctx.composite.copy()
-        win = out[y0:y1, x0:x1]
-        pm = ctx.patch_mask[y0 - oy : y1 - oy, x0 - ox : x1 - ox] > 0
-        win[pm] = ctx.patch[y0 - oy : y1 - oy, x0 - ox : x1 - ox][pm]
-        return replace(ctx, composite=out).with_log("blend", {"method": "paste"})
-
-
-class NoopStage(_Dummy):
-    stage = "harmonize"
-    methods = ("none",)
-
-    def apply(self, ctx: Context) -> Context:
-        return ctx.with_log(self.stage, {"method": "none"})
-
-
-class DegradeNoop(NoopStage):
-    stage = "degrade"
-
-
-class GtFromPlacedDummy(_Dummy):
-    stage = "gtmask"
-    methods = ("source",)
-
-    def apply(self, ctx: Context) -> Context:
-        h, w = ctx.target.image.shape[:2]
-        union = np.zeros((h, w), dtype=np.uint8)
-        instances = []
-        for p in ctx.placed:
-            x, y, bw, bh = cv2.boundingRect(p.mask)
-            instances.append(Instance(p.cls, 0, p.mask, (x, y, bw, bh), int((p.mask > 0).sum())))
-            union = np.maximum(union, p.mask)
-        return replace(ctx, gt_mask=union, instances=tuple(instances)).with_log(
-            "gtmask", {"policy": "source"}
-        )

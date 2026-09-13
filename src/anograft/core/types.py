@@ -63,6 +63,7 @@ class PlacedDefect:
     cls: str
     source_id: str
     mask: np.ndarray  # HxW uint8 0/255 (대상 크기)
+    defect_index: int = -1  # 결함 루프 순번 k — 사이드카 defects[k].gt 로 되돌아간다
 
 
 @dataclass(frozen=True)
@@ -74,6 +75,7 @@ class Instance:
     mask: np.ndarray  # HxW uint8 0/255 (대상 크기)
     bbox: BBox
     area_px: int
+    defect_index: int = -1  # 어느 결함에서 왔나 (PlacedDefect.defect_index)
 
 
 @dataclass(frozen=True)
@@ -129,7 +131,8 @@ class Context:
         """결함 루프 한 바퀴 종료 — 현재 log를 defect_logs에 봉인하고, 배치까지 성공했으면 placed에 추가한다."""
         placed = self.placed
         if self.placed_mask is not None and self.source is not None:
-            placed = (*placed, PlacedDefect(self.source.cls, self.source.id, self.placed_mask))
+            k = len(self.defect_logs)  # 지금 봉인하는 로그의 순번 = 이 결함의 k
+            placed = (*placed, PlacedDefect(self.source.cls, self.source.id, self.placed_mask, k))
         return replace(self, defect_logs=(*self.defect_logs, dict(self.log)), log={}, placed=placed)
 
 

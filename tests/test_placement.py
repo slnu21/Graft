@@ -10,9 +10,9 @@ import numpy as np
 import pytest
 
 from anograft.core import recipe as R
+from anograft.core import registry
 from anograft.core.pipeline import Pipeline
 from anograft.core.roi import distance_to_edge, roi_otsu
-from anograft.core.stages.geometry import AffineGeometry
 from anograft.core.stages.placement import (
     SampledPlacement,
     allowed_centers,
@@ -22,17 +22,7 @@ from anograft.core.stages.placement import (
 )
 from anograft.core.stages.roi import OtsuRoi
 from anograft.core.types import Context, PlacedDefect, TargetImage
-from tests.fixtures import (
-    DegradeNoop,
-    GtFromPlacedDummy,
-    NoopStage,
-    PasteBlendDummy,
-    SourceFixture,
-    context,
-    disk_image,
-    disk_target,
-    line_defect,
-)
+from tests.fixtures import SourceFixture, context, disk_image, disk_target, line_defect
 
 
 def _square_patch(size: int = 9, inner: int = 5) -> tuple[np.ndarray, np.ndarray]:
@@ -249,7 +239,7 @@ def test_empty_roi_has_no_candidates() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 통합 — 실제 roi·geometry·placement + 더미 나머지
+# 통합 — 실제 스테이지(source만 픽스처)로 hard-paste 경로
 # ---------------------------------------------------------------------------
 
 
@@ -272,17 +262,13 @@ def _pipeline(defects: tuple[int, int] = (2, 2), distribution: str = "uniform") 
         }
     )
     pipe = rec.pipeline
-    deps = {"sources": [line_defect(16, 3), line_defect(10, 5, cls="dent")]}
-    stages = {
-        "roi": OtsuRoi(pipe.placement.roi, deps),
-        "source": SourceFixture(pipe.source, deps),
-        "geometry": AffineGeometry(pipe.geometry, deps),
-        "placement": SampledPlacement(pipe.placement, deps),
-        "blend": PasteBlendDummy(pipe.blend, deps),
-        "harmonize": NoopStage(pipe.harmonize, deps),
-        "degrade": DegradeNoop(pipe.degrade, deps),
-        "gtmask": GtFromPlacedDummy(pipe.gtmask, deps),
+    deps = {
+        "sources": [line_defect(16, 3), line_defect(10, 5, cls="dent")],
+        "class_ids": {"scratch": 0, "dent": 1},
     }
+    stages = {key: registry.build(key, getattr(pipe, key), deps) for key in R.STAGE_KEYS[1:]}
+    stages["roi"] = OtsuRoi(pipe.placement.roi, deps)
+    stages["source"] = SourceFixture(pipe.source, deps)
     return Pipeline(rec, stages)
 
 
@@ -301,9 +287,12 @@ def test_pipeline_places_two_disjoint_defects_inside_disk() -> None:
     sc = r.sidecar
     assert sc["roi"]["method"] == "otsu" and sc["roi"]["area_px"] == int(roi.sum())
     for d in sc["defects"]:
-        assert set(d) == {"source", "geometry", "placement", "blend", "harmonize"}
+        assert set(d) == {"source", "geometry", "placement", "blend", "harmonize", "gt"}
         assert d["geometry"]["method"] == "affine" and "failed" not in d["placement"]
         assert d["placement"]["offset"] and d["placement"]["bbox"]
+        assert d["blend"] == {"method": "paste"} and d["harmonize"] == {"method": "none"}
+        assert d["gt"]["area_px"] > 0 and len(d["gt"]["bbox"]) == 4
+    assert sc["degrade"] == {"method": "none"} and sc["gtmask"]["policy"] == "source"
 
 
 def test_pipeline_is_deterministic_and_varies_by_index() -> None:
