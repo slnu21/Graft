@@ -10,7 +10,6 @@ import numpy as np
 import pytest
 
 from anograft.core import recipe as R
-from anograft.core import registry
 from anograft.core.pipeline import Pipeline
 from anograft.core.roi import distance_to_edge, roi_otsu
 from anograft.core.stages.placement import (
@@ -20,9 +19,8 @@ from anograft.core.stages.placement import (
     draw_index,
     shrink_patch,
 )
-from anograft.core.stages.roi import OtsuRoi
 from anograft.core.types import Context, PlacedDefect, TargetImage
-from tests.fixtures import SourceFixture, context, disk_image, disk_target, line_defect
+from tests.fixtures import context, disk_image, disk_target, line_defect, memory_bank, pipeline_deps
 
 
 def _square_patch(size: int = 9, inner: int = 5) -> tuple[np.ndarray, np.ndarray]:
@@ -239,7 +237,7 @@ def test_empty_roi_has_no_candidates() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 통합 — 실제 스테이지(source만 픽스처)로 hard-paste 경로
+# 통합 — 실물 스테이지 전부(source는 메모리 은행)로 hard-paste 경로
 # ---------------------------------------------------------------------------
 
 
@@ -261,15 +259,8 @@ def _pipeline(defects: tuple[int, int] = (2, 2), distribution: str = "uniform") 
             },
         }
     )
-    pipe = rec.pipeline
-    deps = {
-        "sources": [line_defect(16, 3), line_defect(10, 5, cls="dent")],
-        "class_ids": {"scratch": 0, "dent": 1},
-    }
-    stages = {key: registry.build(key, getattr(pipe, key), deps) for key in R.STAGE_KEYS[1:]}
-    stages["roi"] = OtsuRoi(pipe.placement.roi, deps)
-    stages["source"] = SourceFixture(pipe.source, deps)
-    return Pipeline(rec, stages)
+    bank = memory_bank([line_defect(16, 3), line_defect(10, 5, cls="dent")])
+    return Pipeline.from_recipe(rec, pipeline_deps(rec, bank))
 
 
 def test_pipeline_places_two_disjoint_defects_inside_disk() -> None:

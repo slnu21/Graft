@@ -56,7 +56,16 @@ class Pipeline:
 
     @classmethod
     def from_recipe(cls, recipe: Recipe, deps: Mapping[str, Any] | None = None) -> Pipeline:
-        """레지스트리에서 각 스테이지의 method 구현을 찾아 조립한다. 미구현이면 ``StageNotImplementedError``."""
+        """레지스트리에서 각 스테이지의 method 구현을 찾아 조립한다. 미구현이면 ``StageNotImplementedError``.
+
+        ``deps`` 계약 — core는 파일을 읽지 않으므로 호출자(``runner``·GUI·테스트)가 넣어 준다. 전부 선택이고
+        없으면 해당 스테이지가 fail-soft로 건너뛰거나 폴백한다:
+
+        - ``bank``: ``classes``·``by_class(cls)``를 가진 은행 (``bank.Bank`` 또는 ``Bank.from_sources``) → source
+        - ``class_probs``: ``{cls: p}`` (``Recipe.class_probabilities(bank)``) → source 의 클래스 추첨
+        - ``class_ids``: ``{cls: id}`` (``bank.class_ids`` — 은행 classes 순서) → source 로그 · gtmask 인스턴스
+        - ``read_mask``: ``Path -> HxW uint8`` (``imgio.read_mask``) → roi ``mask_dir``
+        """
         deps = dict(deps or {})
         pipe = recipe.pipeline
         stages: dict[str, registry.Stage] = {}
@@ -67,22 +76,31 @@ class Pipeline:
 
     # ------------------------------------------------------------------
 
-    def run_one(self, target: TargetImage, index: int) -> GraftResult:
-        result, _ = self._run(target, index, trace=False)
+    def run_one(
+        self, target: TargetImage, index: int, *, rng: np.random.Generator | None = None
+    ) -> GraftResult:
+        """이미지 ``index`` 한 장. ``rng``를 주면 그 스트림을 이어 쓴다 — 실행기가 ``image_rng(seed, i)``로 먼저
+        대상을 뽑고(설계 §7) 같은 스트림을 넘기는 경로. 안 주면 여기서 ``image_rng(seed, index)``를 만든다."""
+        result, _ = self._run(target, index, trace=False, rng=rng)
         return result
 
     def run_one_traced(
-        self, target: TargetImage, index: int
+        self, target: TargetImage, index: int, *, rng: np.random.Generator | None = None
     ) -> tuple[GraftResult, list[TraceStep]]:
         """스테이지별 중간 Context를 함께 돌려준다 — GUI 신호 체인·디버깅용."""
-        return self._run(target, index, trace=True)
+        return self._run(target, index, trace=True, rng=rng)
 
     def _run(
-        self, target: TargetImage, index: int, *, trace: bool
+        self,
+        target: TargetImage,
+        index: int,
+        *,
+        trace: bool,
+        rng: np.random.Generator | None = None,
     ) -> tuple[GraftResult, list[TraceStep]]:
         steps: list[TraceStep] = []
         rec = self.recipe
-        ctx = Context.initial(image_rng(rec.seed, index), target)
+        ctx = Context.initial(rng if rng is not None else image_rng(rec.seed, index), target)
 
         ctx = self.stages["roi"].apply(ctx)
         roi_log = dict(ctx.log.get("roi", {}))  # begin_defect()가 log를 비우므로 여기서 붙잡아 둔다

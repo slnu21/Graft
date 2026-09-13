@@ -3,20 +3,24 @@
 - ``disk_target(size, gray)``: 어두운 배경 + 밝은 원판(물체는 중앙, 배경은 테두리 — Otsu ``auto``의 전제).
 - ``line_defect(length, width)``: 밝은 선 결함 크롭 + 마스크 (``DefectSource``).
 - ``context(...)``: 스테이지 단위 테스트용 Context 생성.
+- ``memory_bank(...)`` + ``pipeline_deps(recipe, bank)``: 디스크 없는 실물 ``Bank`` — 통합 테스트는 실제 ``BankSource``로 돈다.
+- ``blob_image`` · ``fake_yolo_dataset(root)``: 어두운 판 위 밝은 얼룩 + YOLO 박스/폴리곤 라벨 — 임포터·CLI e2e 픽스처.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import replace
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any
 
 import cv2
 import numpy as np
-from pydantic import BaseModel
+import yaml
 
+from anograft.bank import Bank
+from anograft.core.recipe import Recipe
 from anograft.core.types import Context, DefectSource, PlacedDefect, TargetImage
+from anograft.io import imgio
 
 
 def disk_image(size: int = 128, *, invert: bool = False, radius: int | None = None) -> np.ndarray:
@@ -82,25 +86,105 @@ def context(
 
 
 # ---------------------------------------------------------------------------
-# 파이프라인 통합 테스트용 더미 — 아직 구현 안 된 스테이지 자리(source: first-run에서 은행 로더로 교체)
+# 실물 은행 (디스크 없음) — 파이프라인 통합 테스트
 # ---------------------------------------------------------------------------
 
 
-class _Dummy:
-    requires: ClassVar[tuple[str, ...]] = ()
+def memory_bank(sources: Iterable[DefectSource] | None = None) -> Bank:
+    """기본: scratch(선 18×4) + dent(선 10×6). ``Bank.from_sources`` — classes 순서 = id."""
+    srcs = (
+        list(sources)
+        if sources is not None
+        else [line_defect(18, 4), line_defect(10, 6, cls="dent")]
+    )
+    # 같은 id("<cls>/000")가 겹치지 않게 클래스별로 번호를 매긴다
+    fixed: list[DefectSource] = []
+    seen: dict[str, int] = {}
+    for s in srcs:
+        n = seen.get(s.cls, 0)
+        seen[s.cls] = n + 1
+        fixed.append(
+            DefectSource(
+                f"{s.cls}/{n:03d}",
+                s.cls,
+                s.image,
+                s.mask,
+                s.um_per_px,
+                s.tags,
+                s.origin,
+                s.mask_origin,
+            )
+        )
+    return Bank.from_sources(fixed, classes=sorted(seen))
 
-    def __init__(self, cfg: BaseModel, deps: Mapping[str, Any]) -> None:
-        self.cfg = cfg
-        self.deps = dict(deps)
+
+def pipeline_deps(recipe: Recipe, bank: Bank) -> dict[str, Any]:
+    """``runner.build_deps``와 같은 모양(core 테스트가 io를 끌어오지 않게 여기서 만든다)."""
+    return {
+        "bank": bank,
+        "class_ids": bank.class_ids,
+        "class_probs": recipe.class_probabilities(bank),
+        "read_mask": imgio.read_mask,
+    }
 
 
-class SourceFixture(_Dummy):
-    """``deps["sources"]``(DefectSource 목록)에서 rng로 하나."""
+# ---------------------------------------------------------------------------
+# YOLO 데이터셋 픽스처 — 임포터·CLI e2e
+# ---------------------------------------------------------------------------
 
-    stage = "source"
-    methods = ("bank",)
 
-    def apply(self, ctx: Context) -> Context:
-        sources: list[DefectSource] = self.deps["sources"]
-        src = sources[int(ctx.rng.integers(len(sources)))]
-        return replace(ctx, source=src).with_log("source", {"source_id": src.id, "class": src.cls})
+def blob_image(
+    size: int = 96, blobs: Iterable[tuple[int, int, int]] = (), *, gray: bool = False
+) -> np.ndarray:
+    """어두운 판(60) 위 밝은 얼룩(220) — ``(cx, cy, r)``. 배경 테두리 20px은 더 어둡게(20)해 Otsu ROI가 판을 고르게 한다."""
+    img = np.full((size, size, 3), 20, dtype=np.uint8)
+    cv2.rectangle(img, (14, 14), (size - 15, size - 15), (60, 60, 60), -1)
+    for cx, cy, r in blobs:
+        cv2.circle(img, (cx, cy), r, (220, 220, 220), -1)
+    return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if gray else img
+
+
+def yolo_box(cx: int, cy: int, r: int, size: int, slack: int = 1) -> str:
+    x0, y0, x1, y1 = cx - r - slack, cy - r - slack, cx + r + slack, cy + r + slack
+    return f"{(x0 + x1) / 2 / size:.6f} {(y0 + y1) / 2 / size:.6f} {(x1 - x0) / size:.6f} {(y1 - y0) / size:.6f}"
+
+
+def fake_yolo_dataset(
+    root: Path, *, size: int = 96, names: tuple[str, ...] = ("spot", "crack")
+) -> dict[str, Any]:
+    """``images/``·``labels/``·``data.yaml``. 결함 3장(박스 4개 + 폴리곤 1개), 정상 2장(빈 파일 1 · 파일 없음 1), 하위 폴더 1장.
+
+    반환: ``{"images": Path, "labels": Path, "names": Path, "normals": [Path], "boxes": {stem: [(cid, cx, cy, r)]}}``.
+    """
+    images, labels = root / "images", root / "labels"
+    (images / "sub").mkdir(parents=True)
+    (labels / "sub").mkdir(parents=True)
+    boxes: dict[str, list[tuple[int, int, int, int]]] = {
+        "d0": [(0, 40, 40, 8)],
+        "d1": [(0, 30, 60, 6), (1, 66, 30, 7)],
+        "sub/d2": [(1, 48, 48, 9)],
+    }
+    for stem, bl in boxes.items():
+        imgio.write_image(
+            images / f"{stem}.png", blob_image(size, [(cx, cy, r) for _c, cx, cy, r in bl])
+        )
+        lines = [f"{c} {yolo_box(cx, cy, r, size)}" for c, cx, cy, r in bl]
+        if stem == "d1":  # 폴리곤 한 줄 추가: 삼각형 (class 1)
+            tri = [(20, 20), (34, 20), (27, 34)]
+            lines.append("1 " + " ".join(f"{x / size:.6f} {y / size:.6f}" for x, y in tri))
+        (labels / f"{stem}.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    normals: list[Path] = []
+    imgio.write_image(images / "n0.png", blob_image(size))
+    (labels / "n0.txt").write_text("", encoding="utf-8")  # 빈 라벨 파일
+    normals.append(images / "n0.png")
+    imgio.write_image(images / "n1.png", blob_image(size, gray=True)[:, :])  # 라벨 파일 없음 + 흑백
+    normals.append(images / "n1.png")
+    names_path = root / "data.yaml"
+    names_path.write_text(yaml.safe_dump({"names": list(names)}), encoding="utf-8")
+    return {
+        "images": images,
+        "labels": labels,
+        "names": names_path,
+        "normals": normals,
+        "boxes": boxes,
+    }
