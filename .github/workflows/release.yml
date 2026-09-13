@@ -1,0 +1,31 @@
+name: Release
+# 태그 push(v*) 시 PyPI publish. PyPI Trusted Publishing(OIDC) 사용 — API 토큰 불필요.
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write   # Trusted Publishing (OIDC)
+      contents: read    # checkout 용 — job-level permissions 는 기본값을 대체하므로 명시
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - name: Build
+        run: |
+          python -m pip install --upgrade build twine
+          python -m build
+          python -m twine check dist/*
+      - name: Verify wheel installs & imports (catches missing __init__.py)
+        run: |
+          python -m pip install --no-deps dist/*.whl
+          python -c "import anograft; print('import OK', anograft.__version__)"
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true   # 이미 올라간 버전이면 실패 대신 건너뜀(재실행 안전)

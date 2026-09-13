@@ -1,0 +1,31 @@
+# === 하네스 로컬 컨텍스트 ===
+.claude/
+CLAUDE.md
+docs/
+.worktrees/
+.atlas/
+
+# === python ===
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# === IDE / OS ===
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# === Graft 산출물 ===
+out/
+bank/
+*.lock
+!requirements-lock.txt
+

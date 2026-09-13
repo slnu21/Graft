@@ -1,0 +1,16 @@
+# pip freeze 2026-09-13 (Python 3.12, Windows). Exact reproduction: pip install -r requirements-lock.txt
+annotated-types==0.8.0
+colorama==0.4.6
+iniconfig==2.3.0
+numpy==2.5.3
+opencv-python-headless==4.14.0.94
+packaging==26.3
+pluggy==1.6.0
+pydantic==2.13.5
+pydantic_core==2.46.5
+Pygments==2.21.0
+pytest==8.4.2
+PyYAML==6.0.3
+ruff==0.16.7
+typing-inspection==0.4.4
+typing_extensions==4.16.0

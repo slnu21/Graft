@@ -1,0 +1,70 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "anograft"
+version = "0.1.0"
+description = "Graft — 라벨링한 실제 결함을 정상 이미지에 이식해 정답 마스크·재현 정보가 붙은 학습용 이상 데이터셋을 만든다 / Graft real labeled defects onto normal images to build reproducible anomaly datasets with ground-truth masks"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "slnu21" }]
+keywords = ["anomaly-detection", "synthetic-data", "defect", "industrial-vision", "opencv", "yolo"]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Image Processing",
+]
+# 순수 wheel만 — 컴파일러·GPU 없이 어느 PC에서든 pip로 설치돼야 한다. 추가는 확인 게이트.
+dependencies = [
+  "numpy>=1.26,<3",
+  "opencv-python-headless>=4.8,<5",
+  "pydantic>=2.5,<3",
+  "pyyaml>=6,<7",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<9", "ruff>=0.5"]
+# v1.0 선택 플러그인(SAM·확산). 없으면 해당 프리셋이 비활성 + 이유 노출 (fail-soft).
+torch = []
+
+[project.scripts]
+anograft = "anograft.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/slnu21/Graft"
+Repository = "https://github.com/slnu21/Graft"
+Issues = "https://github.com/slnu21/Graft/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# 프리셋은 패키지 안에 실어야 pip 설치만으로 동작한다. 예시 레시피는 repo 루트 recipes/.
+[tool.setuptools.package-data]
+anograft = ["presets/*.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+extend-exclude = ["docs", ".venv"]
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "RUF"]
+ignore = [
+  "RUF001", "RUF002", "RUF003",  # 한국어 주석·문자열의 유사 문자 경고
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]

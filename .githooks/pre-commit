@@ -1,0 +1,23 @@
+#!/bin/sh
+# main-guard: refuse functional commits directly on 'main'.
+# Work happens on develop-<slug> branches (/work); they merge into main via
+# `git merge --no-ff` (/devlog, /release). Merges are exempted below.
+
+# Allow merge commits (release/devlog --no-ff merges into main).
+gitdir=$(git rev-parse --git-dir 2>/dev/null)
+if [ -n "$gitdir" ] && [ -f "$gitdir/MERGE_HEAD" ]; then
+  exit 0
+fi
+
+branch=$(git symbolic-ref --short HEAD 2>/dev/null)
+if [ "$branch" = "main" ]; then
+  if [ "$ALLOW_MAIN_COMMIT" = "1" ]; then
+    echo "[main-guard] ALLOW_MAIN_COMMIT=1 - allowing commit on main."
+    exit 0
+  fi
+  echo "[main-guard] Direct commit to 'main' is blocked."
+  echo "  Start a work unit with /work (creates develop-<slug>)."
+  echo "  Override once with: ALLOW_MAIN_COMMIT=1 git commit ..."
+  exit 1
+fi
+exit 0
