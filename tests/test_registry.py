@@ -87,6 +87,41 @@ def test_register_build_and_unavailable() -> None:
         registry.unregister("blend", "__test__")
 
 
+def _default_cfg(stage: str, method: str) -> BaseModel:
+    """스키마 union에서 method의 variant를 찾아 기본값으로 생성(필수 키가 있으면 최소값을 채운다)."""
+    if stage == "gtmask":
+        return R.GtMaskConfig(policy=method)  # type: ignore[arg-type]
+    ann = (
+        R.SampledPlacementConfig.model_fields["roi"].annotation
+        if stage == "roi"
+        else R.PipelineConfig.model_fields[stage].annotation
+    )
+    for variant in registry._union_variants(ann):
+        if variant.model_fields["method"].default == method:
+            required = {"path": Path(".")}  # mask_dir
+            kw = {k: v for k, v in required.items() if k in variant.model_fields}
+            return variant(**kw)
+    raise AssertionError(f"{stage}.{method} variant 없음")
+
+
+def test_every_registered_method_builds_and_runs_on_bare_context() -> None:
+    """설계 §11: 등록된 모든 (stage, method)가 기본 설정으로 생성되고 항등 입력에서 예외 없이 돈다."""
+    img = np.full((24, 32, 3), 90, dtype=np.uint8)
+    ctx = Context.initial(np.random.default_rng(0), TargetImage(Path("t.png"), img, False))
+    ran = 0
+    for (stage, method), _cls in sorted(registry.registered().items(), key=lambda kv: kv[0]):
+        if method == "__test__":
+            continue
+        st = registry.build(stage, _default_cfg(stage, method), {})
+        out = st.apply(ctx)
+        assert stage in out.log, f"{stage}.{method} 가 log에 자기 키를 안 남김"
+        assert np.array_equal(out.composite, img) or stage == "degrade"
+        ran += 1
+    assert (
+        ran >= 13
+    )  # v0.1 구현분: geometry1 roi3 placement1 blend3 harmonize2 degrade2 gtmask3 (source·multiband·reinhard·histmatch 제외)
+
+
 def test_register_requires_class_attrs() -> None:
     with pytest.raises(TypeError):
         registry.register(type("Bad", (), {}))

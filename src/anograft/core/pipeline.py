@@ -126,6 +126,15 @@ class Pipeline:
         gt = ctx.gt_mask if ctx.gt_mask is not None else np.zeros((h, w), dtype=np.uint8)
         status: str = "ok" if n_ok > 0 else "skipped"
         reason = None if n_ok > 0 else (ctx.warnings[-1] if ctx.warnings else "배치된 결함 없음")
+        defects: list[dict[str, Any]] = [dict(d) for d in ctx.defect_logs]
+        for (
+            inst
+        ) in ctx.instances:  # 인스턴스 GT를 그 결함의 항목으로 되돌린다 (설계 §8.3 defects[k].gt)
+            if 0 <= inst.defect_index < len(defects):
+                defects[inst.defect_index]["gt"] = {
+                    "area_px": inst.area_px,
+                    "bbox": list(inst.bbox),
+                }
         sidecar: dict[str, Any] = {
             "index": index,
             "seed": self.recipe.seed,
@@ -138,7 +147,7 @@ class Pipeline:
             },
             "roi": dict(roi_log),
             "defects_requested": n_defects,
-            "defects": [dict(d) for d in ctx.defect_logs],
+            "defects": defects,
             "degrade": dict(ctx.log.get("degrade", {})),
             "gtmask": dict(ctx.log.get("gtmask", {})),
             "warnings": list(ctx.warnings),

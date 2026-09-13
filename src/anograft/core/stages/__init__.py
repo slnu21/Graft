@@ -4,6 +4,10 @@
 → first-run(source) → stages-more-methods. 여기 import 한 줄이 곧 "등록" — 등록되면 ``anograft methods``에서 "ok".
 """
 
+from anograft.core.stages import blend as blend  # paste · alpha · poisson
+from anograft.core.stages import degrade as degrade  # none · camera
 from anograft.core.stages import geometry as geometry  # affine
+from anograft.core.stages import gtmask as gtmask  # source · diff · union
+from anograft.core.stages import harmonize as harmonize  # none · stats
 from anograft.core.stages import placement as placement  # sampled
 from anograft.core.stages import roi as roi  # otsu · none · mask_dir

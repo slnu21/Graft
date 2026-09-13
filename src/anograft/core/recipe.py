@@ -223,6 +223,9 @@ class AlphaBlendConfig(_Strict):
 class PoissonBlendConfig(_Strict):
     method: Literal["poisson"] = "poisson"
     poisson_mode: Literal["normal", "mixed"] = "mixed"
+    # 소스 마스크를 이만큼 팽창한 영역을 Poisson 풀이 영역으로. OpenCV seamlessClone이 내부에서 마스크를 3px 침식하므로
+    # 0~2면 얇은 결함(스크래치)이 통째로 사라진다 — 실측 5부터 대비 100% 보존. GT는 여전히 소스 마스크(+정책).
+    mask_dilate_px: int = Field(default=5, ge=0)
     feather_px: int = Field(default=3, ge=0)  # 폴백(alpha)에서 사용
 
 

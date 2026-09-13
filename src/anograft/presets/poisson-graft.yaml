@@ -20,6 +20,7 @@ pipeline:
   blend:
     method: poisson
     poisson_mode: mixed
+    mask_dilate_px: 5          # seamlessClone이 마스크를 3px 침식 → 얇은 결함 보존에 필수
     feather_px: 3
   harmonize:
     method: stats
