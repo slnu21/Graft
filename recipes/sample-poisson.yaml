@@ -1,0 +1,21 @@
+# 샘플 데이터로 첫 합성 — repo 루트에서 (상대경로는 현재 작업 디렉터리 기준):
+#   python tools/make_sample_yolo.py --out samples/metal
+#   anograft bank import-yolo --images samples/metal/images --labels samples/metal/labels --names samples/metal/data.yaml `
+#       --out bank/sample --list-normals samples/metal/normals.txt
+#   anograft run recipes/sample-poisson.yaml            # → out/sample/{images,masks,meta,manifest.csv}
+#   anograft preview recipes/sample-poisson.yaml --index 0 --out out/sample-preview.png
+version: 1
+name: sample-poisson
+seed: 20260914
+inputs: {bank: bank/sample, targets: samples/metal/normals.txt, um_per_px: null}
+output:
+  root: out/sample
+  count: 24
+  class_ratio: null
+  defects_per_image: [1, 2]
+  include_normals: true
+  copy_mode: copy
+  writer: {format: pairs}          # v0.1 정본. yolo writer는 bank-writer-parallel 이후
+pipeline:
+  preset: poisson-graft
+  source: {method: bank, classes: null, min_sources_warn: 5}

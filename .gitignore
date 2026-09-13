@@ -23,9 +23,10 @@ dist/
 .DS_Store
 Thumbs.db
 
-# === Graft 산출물 ===
-out/
-bank/
+# === Graft 산출물 === (루트 한정 — src/anograft/bank 패키지와 겹치지 않게)
+/out/
+/bank/
+/samples/
 *.lock
 !requirements-lock.txt
 

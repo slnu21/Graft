@@ -12,13 +12,36 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
-from anograft import __version__
+from anograft import __version__, runner
+from anograft.bank import Bank
+from anograft.bank.bank import BankError
+from anograft.bank.importers import yolo as yolo_importer
+from anograft.bank.importers.common import DEFAULT_MARGIN, DEFAULT_MIN_AREA
+from anograft.bank.mask_from_box import METHODS as MASK_METHODS
 from anograft.core import recipe as R
 from anograft.core import registry
+from anograft.io import imgio
+from anograft.io.targets import load_target
+from anograft.preview import render_preview
 
 EXIT_OK = 0
 EXIT_RECIPE_ERROR = 1
 EXIT_ALL_SKIPPED = 2
+
+
+def _err(msg: str) -> None:
+    print(msg, file=sys.stderr)
+
+
+def _load_recipe(args: argparse.Namespace, **overrides: object) -> R.Recipe | None:
+    """레시피 로드 + CLI 오버라이드. 실패하면 stderr에 사유를 쓰고 None."""
+    try:
+        return R.Recipe.load(args.recipe, **overrides)
+    except ValidationError as e:
+        _err(R.format_validation_error(e))
+    except (KeyError, ValueError, OSError) as e:
+        _err(f"레시피 로드 실패: {e}")
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -110,12 +133,176 @@ def cmd_recipe_check(args: argparse.Namespace) -> int:
         f"레시피 OK: {rec.name} (seed {rec.seed}, count {rec.output.count}, preset {rec.pipeline.preset})"
     )
     if problems:
-        print("실행 불가한 스테이지:", file=sys.stderr)
+        _err("실행 불가한 스테이지:")
         for p in problems:
-            print(f"  {p}", file=sys.stderr)
+            _err(f"  {p}")
+    # 은행이 있으면 대조까지 (없으면 생략 — check는 레시피 파일만으로도 쓸 수 있어야 한다)
+    bank_path = Path(rec.inputs.bank)
+    if (bank_path / "bank.yaml").is_file():
+        try:
+            bank = Bank.load(bank_path)
+            for w in rec.validate_against(bank):
+                _err(f"경고: {w}")
+            print(f"은행 대조 OK: {bank.name} — 클래스 {bank.classes}, 소스 {len(bank)}")
+        except (BankError, ValueError) as e:
+            _err(f"은행 대조 실패: {e}")
+            problems.append(str(e))
+    else:
+        print(f"은행 대조 생략: {bank_path.as_posix()} 에 bank.yaml 없음")
     if args.resolved:
         sys.stdout.write(rec.to_yaml())
     return EXIT_RECIPE_ERROR if problems else EXIT_OK
+
+
+# ---------------------------------------------------------------------------
+# run · preview
+# ---------------------------------------------------------------------------
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    rec = _load_recipe(args, seed=args.seed, count=args.count, out=args.out)
+    if rec is None:
+        return EXIT_RECIPE_ERROR
+    try:
+        prep = runner.prepare(rec)
+    except runner.PrepareError as e:
+        _err(str(e))
+        return EXIT_RECIPE_ERROR
+    if args.dry_run:
+        for k, v in runner.dry_run_table(prep):
+            print(f"{k:>14}: {v}")
+        for w in prep.warnings:
+            _err(f"경고: {w}")
+        print("(dry-run — 파일을 쓰지 않았습니다)")
+        return EXIT_OK
+
+    def progress(done: int, total: int, r: object) -> None:
+        sys.stderr.write(f"\r[{done}/{total}] ")
+        sys.stderr.flush()
+
+    summary = runner.run(
+        prep, workers=args.workers, progress=progress, warn=lambda w: _err(f"경고: {w}")
+    )
+    sys.stderr.write("\n")
+    for line in runner.summary_lines(summary):
+        print(line)
+    for w in summary.writer.warnings:
+        _err(f"경고: {w}")
+    return EXIT_ALL_SKIPPED if summary.all_skipped else EXIT_OK
+
+
+def cmd_preview(args: argparse.Namespace) -> int:
+    rec = _load_recipe(args, seed=args.seed)
+    if rec is None:
+        return EXIT_RECIPE_ERROR
+    try:
+        prep = runner.prepare(rec)
+    except runner.PrepareError as e:
+        _err(str(e))
+        return EXIT_RECIPE_ERROR
+    for w in prep.warnings:
+        _err(f"경고: {w}")
+    _rng, path = runner.pick_target(prep, args.index)
+    result = runner.run_index(prep, args.index)
+    target = load_target(path, rec.inputs.um_per_px)
+    canvas = render_preview(target.image, result, long_side=args.long_side)
+    out = Path(args.out)
+    imgio.write_image(out, canvas)
+    print(
+        f"미리보기: {out.as_posix()}  (index {args.index}, seed {rec.seed}, 대상 {path.as_posix()})"
+    )
+    if result.status != "ok":
+        print(f"  skipped — {result.reason}")
+        return EXIT_ALL_SKIPPED
+    for d in runner.sidecar_defects(result):
+        s, pl, bl, gt = d["source"], d["placement"], d["blend"], d["gt"]
+        fb = " (fallback)" if bl.get("fallback") else ""
+        print(
+            f"  {s['class']}#{s['class_id']} {s['source_id']} [{s['mask_origin']}] → "
+            f"center {pl.get('center')} bbox {gt['bbox']} area {gt['area_px']}px · {bl['method']}{fb}"
+        )
+    for w in result.warnings:
+        _err(f"  경고: {w}")
+    return EXIT_OK
+
+
+# ---------------------------------------------------------------------------
+# bank
+# ---------------------------------------------------------------------------
+
+
+def _split_csv(s: str | None) -> tuple[str, ...]:
+    return tuple(x.strip() for x in (s or "").split(",") if x.strip())
+
+
+def cmd_bank_import_yolo(args: argparse.Namespace) -> int:
+    try:
+        res = yolo_importer.import_yolo(
+            args.images,
+            args.labels,
+            args.names,
+            args.out,
+            mask_from=args.mask_from,
+            box_margin=args.box_margin,
+            min_box=args.min_box,
+            margin=args.margin,
+            min_area=args.min_area,
+            um_per_px=args.um_per_px,
+            tags=_split_csv(args.tags),
+            list_normals=args.list_normals,
+            log=(lambda m: _err(f"  {m}")) if args.verbose else None,
+        )
+    except (FileNotFoundError, ValueError, BankError) as e:
+        _err(f"임포트 실패: {e}")
+        return EXIT_RECIPE_ERROR
+    st = res.stats
+    print(
+        f"임포트 완료 → {res.bank_root.as_posix()}: 이미지 {res.n_images}장 · 소스 {len(st.added)}개 · "
+        f"정상(라벨 없음) {len(res.normals)}장 · 버림(min-area) {st.dropped_small} · 중복 id {st.duplicates}"
+    )
+    print(f"  classes(id 순): {res.classes}")
+    per = st.per_class()
+    if per:
+        print("  클래스별: " + ", ".join(f"{c} {per.get(c, 0)}" for c in res.classes))
+    if res.mask_methods:
+        print(
+            "  박스→마스크: " + ", ".join(f"{m} {n}" for m, n in sorted(res.mask_methods.items()))
+        )
+    if args.list_normals:
+        print(
+            f"  정상 목록: {Path(args.list_normals).as_posix()} ({len(res.normals)}줄) — inputs.targets 에 지정"
+        )
+    if res.warnings and not args.verbose:
+        _err(f"경고 {len(res.warnings)}건 (--verbose 로 전부 보기). 첫 줄: {res.warnings[0]}")
+    return EXIT_OK
+
+
+def cmd_bank_ls(args: argparse.Namespace) -> int:
+    try:
+        bank = Bank.load(args.bank)
+    except BankError as e:
+        _err(str(e))
+        return EXIT_RECIPE_ERROR
+    print(
+        f"은행 {bank.name} ({Path(args.bank).as_posix()}) — 소스 {len(bank)} · "
+        f"um_per_px {bank.um_per_px} · 임포트 {len(bank.imports)}회"
+    )
+    rows = bank.summary()
+    if not rows:
+        print("  (클래스 없음)")
+    width = max((len(r.cls) for r in rows), default=5)
+    print(
+        f"  {'id':>3}  {'class'.ljust(width)}  {'n':>5}  {'area_med':>9}  {'exact':>5}  {'est':>5}  origins"
+    )
+    for r in rows:
+        origins = ", ".join(f"{k}:{v}" for k, v in sorted(r.origins.items()))
+        print(
+            f"  {r.class_id:>3}  {r.cls.ljust(width)}  {r.count:>5}  {r.area_median:>9.0f}  "
+            f"{r.exact:>5}  {r.estimated:>5}  {origins}"
+        )
+    for w in bank.warnings:
+        _err(f"경고: {w}")
+    return EXIT_OK
 
 
 # ---------------------------------------------------------------------------
@@ -155,6 +342,52 @@ def build_parser() -> argparse.ArgumentParser:
         "--resolved", action="store_true", help="프리셋·기본값이 채워진 resolved YAML 출력"
     )
     pc.set_defaults(func=cmd_recipe_check)
+
+    p = sub.add_parser("run", help="레시피로 데이터셋 생성 (정본 images/masks/meta + manifest)")
+    p.add_argument("recipe")
+    p.add_argument("--out", default=None, help="output.root 오버라이드")
+    p.add_argument("--count", type=int, default=None, help="output.count 오버라이드")
+    p.add_argument("--seed", type=int, default=None, help="seed 오버라이드")
+    p.add_argument("--workers", type=int, default=0, help="0 = 인프로세스 (N>0 은 #758 이후)")
+    p.add_argument("--dry-run", action="store_true", help="배분·경고만 계산, 파일 안 씀")
+    p.set_defaults(func=cmd_run)
+
+    p = sub.add_parser("preview", help="인덱스 하나를 합성해 원본|합성|GT 3패널 PNG로")
+    p.add_argument("recipe")
+    p.add_argument("--index", type=int, default=0)
+    p.add_argument("--seed", type=int, default=None)
+    p.add_argument("--out", default="preview.png")
+    p.add_argument("--long-side", type=int, default=1024, help="패널 긴 변 (기본 1024)")
+    p.set_defaults(func=cmd_preview)
+
+    p = sub.add_parser("bank", help="결함 은행 만들기·보기")
+    bsub = p.add_subparsers(dest="bank_command", metavar="<action>")
+
+    bi = bsub.add_parser(
+        "import-yolo", help="보유 YOLO 라벨(박스·폴리곤) → 은행. 박스는 마스크 추정"
+    )
+    bi.add_argument("--images", required=True)
+    bi.add_argument("--labels", required=True)
+    bi.add_argument("--names", required=True, help="data.yaml | classes.txt | a,b,c")
+    bi.add_argument("--out", required=True, help="은행 폴더 (있으면 누적)")
+    bi.add_argument("--mask-from", choices=MASK_METHODS, default="grabcut")
+    bi.add_argument("--box-margin", type=int, default=6, help="추정 시 박스 바깥 배경 표본 폭(px)")
+    bi.add_argument(
+        "--min-box", type=int, default=8, help="짧은 변이 이보다 작은 박스는 바로 ellipse"
+    )
+    bi.add_argument("--margin", type=int, default=DEFAULT_MARGIN, help="크롭 여유(px), 최소 6")
+    bi.add_argument("--min-area", type=int, default=DEFAULT_MIN_AREA)
+    bi.add_argument("--um-per-px", type=float, default=None)
+    bi.add_argument("--tags", default=None, help="a,b")
+    bi.add_argument(
+        "--list-normals", default=None, help="라벨이 빈 이미지 경로 목록 파일 → inputs.targets"
+    )
+    bi.add_argument("--verbose", action="store_true", help="이미지별 경고 전부 출력")
+    bi.set_defaults(func=cmd_bank_import_yolo)
+
+    bl = bsub.add_parser("ls", help="클래스 | 소스 수 | 면적 중앙값 | 마스크 출처(정확/추정)")
+    bl.add_argument("bank")
+    bl.set_defaults(func=cmd_bank_ls)
 
     return parser
 

@@ -1,4 +1,4 @@
-"""프리셋 단위 엔드투엔드 — poisson-graft · hard-paste 가 source(픽스처)만 빼고 전부 실물 스테이지로 끝까지 돈다.
+"""프리셋 단위 엔드투엔드 — poisson-graft · hard-paste 가 ``Pipeline.from_recipe`` + 메모리 은행(실물 BankSource)으로 끝까지 돈다.
 gray/color 양쪽, 사이드카 구조, 결정성. alpha-paste(reinhard)·multiband-graft(multiband)는 아직 미구현이라 명확한 예외
 (stages-more-methods에서 골든 8장과 함께 이 목록에 들어온다)."""
 
@@ -10,8 +10,7 @@ import pytest
 from anograft.core import recipe as R
 from anograft.core import registry
 from anograft.core.pipeline import Pipeline
-from anograft.core.stages.roi import OtsuRoi
-from tests.fixtures import SourceFixture, disk_target, line_defect
+from tests.fixtures import disk_target, line_defect, memory_bank, pipeline_deps
 
 IMPLEMENTED = ["poisson-graft", "hard-paste"]
 
@@ -34,15 +33,8 @@ def _recipe(preset: str, seed: int = 20260914) -> R.Recipe:
 
 def _pipeline(preset: str) -> Pipeline:
     rec = _recipe(preset)
-    pipe = rec.pipeline
-    deps = {
-        "sources": [line_defect(18, 4), line_defect(10, 6, cls="dent")],
-        "class_ids": {"scratch": 0, "dent": 1},
-    }
-    stages = {k: registry.build(k, getattr(pipe, k), deps) for k in R.STAGE_KEYS[1:]}
-    stages["roi"] = OtsuRoi(pipe.placement.roi, deps)
-    stages["source"] = SourceFixture(pipe.source, deps)
-    return Pipeline(rec, stages)
+    bank = memory_bank([line_defect(18, 4), line_defect(10, 6, cls="dent")])
+    return Pipeline.from_recipe(rec, pipeline_deps(rec, bank))
 
 
 @pytest.mark.parametrize("gray", [False, True])
