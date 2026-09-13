@@ -64,6 +64,8 @@ src = ["src", "tests"]
 select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "RUF"]
 ignore = [
   "RUF001", "RUF002", "RUF003",  # 한국어 주석·문자열의 유사 문자 경고
+  "E501",  # 한글은 폭 2로 세어 100자 규칙이 맞지 않음 — 코드 줄 길이는 formatter가 맡는다
+  "N812",  # 모듈을 대문자 별칭으로 import 허용 (recipe as R)
 ]
 
 [tool.ruff.lint.per-file-ignores]

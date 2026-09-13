@@ -1,0 +1,29 @@
+# Hard Paste — CutPaste 계열(은행 소스). 마스크 내부를 그대로 치환, 정합·열화 없음. 가장 거친 기준선 = 학습 실험의 대조군
+pipeline:
+  source:
+    method: bank
+    classes: null
+    min_sources_warn: 10
+  geometry:
+    method: affine
+    scale: [0.8, 1.25]
+    rotate: [-180, 180]
+    flip: true
+    elastic: { alpha: 0, sigma: 4 }
+  placement:
+    method: sampled
+    roi: { method: otsu, invert: auto, erode_px: 8 }
+    distribution: uniform
+    margin_px: 8
+    max_tries: 50
+    shrink_on_fail: { factor: 0.8, rounds: 3 }
+  blend:
+    method: paste
+  harmonize:
+    method: none
+  degrade:
+    method: none
+  gtmask:
+    policy: source
+    diff_threshold: 12
+    dilate_px: 0
