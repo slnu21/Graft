@@ -1,0 +1,59 @@
+"""코드베이스 규율을 grep으로 고정한다.
+
+- 전역 난수(``np.random.seed`` · ``random`` 모듈) 금지 — 재현성.
+- ``cv2.imread``/``cv2.imwrite`` 금지 — Windows 한글 경로에서 조용히 실패. ``anograft.io.imgio``만 쓴다.
+- ``core``는 ``anograft.io``·Qt를 import하지 않는다.
+"""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+SRC = Path(__file__).resolve().parents[1] / "src" / "anograft"
+
+FORBIDDEN_EVERYWHERE = [
+    re.compile(r"\bnp\.random\.seed\("),
+    re.compile(r"\bnumpy\.random\.seed\("),
+    re.compile(r"^\s*import random\b", re.M),
+    re.compile(r"^\s*from random import\b", re.M),
+    re.compile(r"\bcv2\.imread\("),
+    re.compile(r"\bcv2\.imwrite\("),
+]
+
+FORBIDDEN_IN_CORE = [
+    re.compile(r"^\s*(from|import) anograft\.io\b", re.M),
+    re.compile(r"^\s*(from|import) PySide6\b", re.M),
+    re.compile(r"^\s*(from|import) PyQt\d\b", re.M),
+]
+
+
+def _py_files(root: Path) -> list[Path]:
+    return sorted(root.rglob("*.py"))
+
+
+def test_no_global_randomness_or_raw_cv2_file_io() -> None:
+    offenders = []
+    for f in _py_files(SRC):
+        text = f.read_text(encoding="utf-8")
+        # 문서 문자열 안의 언급은 허용하지 않는다 — 규칙은 코드에도 문서에도 같게 적용
+        for pat in FORBIDDEN_EVERYWHERE:
+            for m in pat.finditer(text):
+                line = text[: m.start()].count("\n") + 1
+                # 주석/독스트링에서 "금지" 설명으로 언급하는 것은 허용: 해당 줄에 '금지' 또는 '실패'가 있으면 통과
+                line_text = text.splitlines()[line - 1]
+                if "금지" in line_text or "실패" in line_text or "직접 부르지" in line_text:
+                    continue
+                offenders.append(f"{f.relative_to(SRC)}:{line}: {pat.pattern}")
+    assert offenders == [], "\n".join(offenders)
+
+
+def test_core_does_not_import_io_or_qt() -> None:
+    offenders = []
+    for f in _py_files(SRC / "core"):
+        text = f.read_text(encoding="utf-8")
+        for pat in FORBIDDEN_IN_CORE:
+            for m in pat.finditer(text):
+                line = text[: m.start()].count("\n") + 1
+                offenders.append(f"{f.relative_to(SRC)}:{line}: {m.group(0).strip()}")
+    assert offenders == [], "\n".join(offenders)

@@ -1,0 +1,38 @@
+# anograft 0.1.0 — recipe init --preset poisson-graft
+# 모든 손잡이가 펼쳐져 있습니다. 스테이지의 method를 바꾸면 그 스테이지 키는 해당 method의 것만 남기세요.
+version: 1
+name: example-yolo
+seed: 20260913
+inputs: {bank: bank/mine, targets: normals.txt, um_per_px: null}
+output:
+  root: out/run-01
+  count: 200
+  class_ratio: null
+  defects_per_image: [1, 1]
+  include_normals: true
+  copy_mode: copy
+  writer: {format: yolo, seg: false, names_from: bank}
+pipeline:
+  preset: poisson-graft
+  source: {method: bank, classes: null, min_sources_warn: 10}
+  geometry:
+    method: affine
+    scale: [0.8, 1.25]
+    rotate: [-180.0, 180.0]
+    flip: true
+    elastic: {alpha: 0.0, sigma: 4.0}
+  placement:
+    method: sampled
+    roi: {method: otsu, invert: auto, erode_px: 8}
+    distribution: uniform
+    margin_px: 8
+    max_tries: 50
+    shrink_on_fail: {factor: 0.8, rounds: 3}
+  blend: {method: poisson, poisson_mode: mixed, feather_px: 3}
+  harmonize: {method: stats, strength: 0.5, ring_px: 12}
+  degrade:
+    method: camera
+    noise_sigma: [0.0, 2.0]
+    blur_sigma: [0.0, 0.6]
+    jpeg_quality: null
+  gtmask: {policy: union, diff_threshold: 12, dilate_px: 2}

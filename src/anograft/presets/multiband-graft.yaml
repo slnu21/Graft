@@ -1,0 +1,35 @@
+# Multiband Graft — 라플라시안 피라미드 블렌딩. Poisson보다 텍스처 보존이 좋고 경계 halo가 덜함. 히스토그램 매칭으로 대비 정합
+pipeline:
+  source:
+    method: bank
+    classes: null
+    min_sources_warn: 10
+  geometry:
+    method: affine
+    scale: [0.8, 1.25]
+    rotate: [-180, 180]
+    flip: true
+    elastic: { alpha: 0, sigma: 4 }
+  placement:
+    method: sampled
+    roi: { method: otsu, invert: auto, erode_px: 8 }
+    distribution: uniform
+    margin_px: 8
+    max_tries: 50
+    shrink_on_fail: { factor: 0.8, rounds: 3 }
+  blend:
+    method: multiband
+    levels: 4
+  harmonize:
+    method: histmatch
+    strength: 0.5
+    ring_px: 12
+  degrade:
+    method: camera
+    noise_sigma: [0, 2.0]
+    blur_sigma: [0, 0.6]
+    jpeg_quality: null
+  gtmask:
+    policy: union
+    diff_threshold: 12
+    dilate_px: 2
