@@ -45,6 +45,7 @@ class PairRecord:
     origin: str | None = None
     id_hint: str | None = None  # 기본 = 이미지 stem
     tags: tuple[str, ...] = ()
+    mask_threshold: int = 127  # 마스크 이진화 문턱(``> threshold``). 0/1 라벨맵(VisA)은 0
 
 
 @dataclass
@@ -162,7 +163,7 @@ def import_pair_records(
         origin = pr.origin or pr.image.name
         try:
             image, gray = imgio.read_image(pr.image)
-            mask = imgio.read_mask(pr.mask)
+            mask = imgio.read_mask(pr.mask, threshold=pr.mask_threshold)
         except imgio.ImageReadError as e:
             warn(f"{origin}: 읽기 실패 — {e}")
             continue
