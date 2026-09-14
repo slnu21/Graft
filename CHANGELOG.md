@@ -12,6 +12,7 @@
 - **GrabCut ROI** `roi: grabcut`(`init` rect/otsu · `rect_margin` · `iters` · `work_px` 작업 해상도 · `erode_px`) — 시드는 대상 파일 이름의 crc32(폴더를 옮겨도 같은 ROI), 실패 시 Otsu 로 대체(경고). 프리셋 `structure-aware-graft`(poisson-graft + structure-aware + grabcut). 골든 +2. `core/structure.py`(그래디언트 크기·창 구조 텐서·마스크 주축).
 - `stable_seed`가 `core/seeds.py`로 이동(`bank.mask_from_box`에서 재export).
 - **VisA 어댑터**(`dataset info visa` · `bank import-dataset visa <VisA>/<category>`, v0.4): `Data/Images/{Normal,Anomaly}` + `Data/Masks/Anomaly` + `image_anno.csv`(있으면 정본, 없으면 폴더). 결함 유형 세분이 없어 클래스 `anomaly` 하나(카테고리는 id·tags). 마스크는 0 이 아니면 결함(`PairRecord.mask_threshold`, `imgio.read_mask(threshold=)`) — 0/1 라벨맵 사본 대비. 로컬 사본 읽기만(CC BY-NC-SA).
+- **`mvtec` writer**(`output.writer: {format: mvtec, category, test_normal_ratio, layout_dir}`, v0.4): 정본 위에 anomalib 이 읽는 `mvtec/<category>/{train/good, test/good, test/<class>, ground_truth/<class>/*_mask.png}` 를 추가로 쓴다(정본 PNG 사본, 바이트 동일). 정상은 `split_rng(seed)` 로 train/test 분할(결정적), 이미지당 클래스 하나(섞이면 면적 최대 + `writer.mixed` + 경고). `include_normals: false` 면 경고.
 - **열화 추가**(`degrade: camera`, v0.4): `motion_blur_px`(+`motion_angle`) 선형 모션 블러 · `vignette` 모서리 감광 · `gamma` 톤 커브 — 전부 `null` = off 이고 off 면 rng 를 소비하지 않는다(기존 레시피·골든 불변). 적용 순서 모션 → 가우시안 → 비네팅 → 노이즈 → 감마 → JPEG. 사이드카 `degrade`에 실제 값.
 
 ### Changed

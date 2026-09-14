@@ -93,7 +93,19 @@ class PairsWriterConfig(_Strict):
     format: Literal["pairs"] = "pairs"
 
 
-WriterConfig = Annotated[YoloWriterConfig | PairsWriterConfig, Field(discriminator="format")]
+class MvtecWriterConfig(_Strict):
+    """정본 위에 ``<layout_dir>/<category>/{train/good, test/good, test/<class>, ground_truth/<class>}`` 를 추가로(anomalib).
+    정상 이미지는 ``test_normal_ratio`` 비율로 test/good(``split_rng(seed)``, 결정적). 이미지당 클래스 하나 — 섞이면 면적 최대."""
+
+    format: Literal["mvtec"] = "mvtec"
+    category: str = Field(default="graft", min_length=1, pattern=r"^[A-Za-z0-9_.-]+$")
+    test_normal_ratio: Unit = 0.2
+    layout_dir: str = Field(default="mvtec", min_length=1, pattern=r"^[A-Za-z0-9_.-]+$")
+
+
+WriterConfig = Annotated[
+    YoloWriterConfig | PairsWriterConfig | MvtecWriterConfig, Field(discriminator="format")
+]
 
 
 class Output(_Strict):
