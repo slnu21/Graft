@@ -1,3 +1,4 @@
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -313,3 +314,201 @@ def test_import_yolo_rejects_small_margin(
         ]
     )
     assert code == EXIT_RECIPE_ERROR and "margin" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# #758 — 멀티프로세싱 결정성 · yolo writer · compare-methods · import-pairs/import-dataset · bank preview · dataset info
+# ---------------------------------------------------------------------------
+
+
+def _set_writer(recipe: Path, fmt: str, **extra: object) -> None:
+    data = yaml.safe_load(recipe.read_text(encoding="utf-8"))
+    data["output"]["writer"] = {"format": fmt, **extra}
+    recipe.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+
+def test_run_workers_0_and_2_produce_identical_trees(
+    workspace: dict[str, Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """설계 §7·§11: 프로세스 풀 결과 = 인프로세스 결과 (images·masks·meta·labels·manifest 바이트 동일)."""
+    recipe = workspace["recipe"]
+    _set_writer(recipe, "yolo")
+    # 같은 output.root 로 두 번(--out 을 바꾸면 resolved 레시피 → pipeline_hash 가 달라진다) — 첫 결과는 옆으로 옮겨 둔다
+    root, root0 = workspace["root"] / "out", workspace["root"] / "w0"
+    assert main(["run", str(recipe), "--workers", "0"]) == EXIT_OK
+    shutil.move(root, root0)
+    assert main(["run", str(recipe), "--workers", "2"]) == EXIT_OK
+    out = capsys.readouterr().out
+    assert out.count("완료: ok 5") == 2 and "data.yaml" in out
+    a, b = _tree_bytes(root0), _tree_bytes(root)
+    assert set(a) == set(b) and {"labels/000000.txt", "data.yaml", "labels/n_n0.txt"} <= set(a)
+    assert [k for k in a if a[k] != b[k]] == []  # recipe.resolved.yaml·meta 해시까지 전부 동일
+    # 라벨: ok 행마다 한 줄 이상, 정상 이미지는 빈 파일
+    rows = read_manifest(root0 / "manifest.csv")
+    for r in rows:
+        if r["status"] == "ok":
+            lines = (root0 / r["label"]).read_text(encoding="utf-8").splitlines()
+            assert len(lines) == int(r["n_defects"]) >= 1
+            assert all(len(ln.split()) == 5 for ln in lines)
+        elif r["status"] == "normal":
+            assert (root0 / "labels" / (Path(r["image"]).stem + ".txt")).read_text() == ""
+    assert yaml.safe_load((root0 / "data.yaml").read_text(encoding="utf-8"))["names"] == [
+        "spot",
+        "crack",
+    ]
+
+
+def test_preview_compare_methods_grid(
+    workspace: dict[str, Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    out = workspace["root"] / "cmp.png"
+    code = main(
+        [
+            "preview",
+            str(workspace["recipe"]),
+            "--index",
+            "0",
+            "--compare-methods",
+            "blend",
+            "--out",
+            str(out),
+            "--long-side",
+            "160",
+        ]
+    )
+    assert code == EXIT_OK
+    text = capsys.readouterr().out
+    assert "비교:" in text and all(m in text for m in ("paste", "alpha", "poisson", "multiband"))
+    img, _ = imgio.read_image(out)
+    # 4 method → 2×2 격자, 타일은 결함 주변 크롭을 long-side 로 확대(정사각이 아닐 수 있다), gap 6
+    assert "크롭" in text and max(img.shape[:2]) == 2 * 160 + 6 and min(img.shape[:2]) >= 2 * 60
+    assert (
+        main(
+            [
+                "preview",
+                str(workspace["recipe"]),
+                "--compare-methods",
+                "blend",
+                "--out",
+                str(out),
+                "--full",
+                "--long-side",
+                "96",
+            ]
+        )
+        == EXIT_OK
+    )
+    assert "전체" in capsys.readouterr().out
+    img, _ = imgio.read_image(out)
+    assert img.shape[:2] == (2 * 96 + 6, 2 * 96 + 6)  # 전체 96px, gap 6
+    # harmonize 도 된다 (4 method)
+    assert (
+        main(
+            [
+                "preview",
+                str(workspace["recipe"]),
+                "--compare-methods",
+                "harmonize",
+                "--out",
+                str(out),
+                "--long-side",
+                "120",
+            ]
+        )
+        == EXIT_OK
+    )
+    assert "histmatch" in capsys.readouterr().out
+
+
+def test_bank_import_pairs_and_preview_cli(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from tests.fixtures import fake_pairs_dataset
+
+    d = fake_pairs_dataset(tmp_path / "ds")
+    bank = tmp_path / "bank"
+    code = main(
+        [
+            "bank",
+            "import-pairs",
+            "--images",
+            str(d["images"]),
+            "--masks",
+            str(d["masks"]),
+            "--out",
+            str(bank),
+            "--class-from-dir",
+        ]
+    )
+    out = capsys.readouterr()
+    assert (
+        code == EXIT_OK
+        and "3쌍" in out.out
+        and "소스 4개" in out.out
+        and "마스크 없음 1" in out.out
+    )
+    # CSV 모드 누적
+    code = main(["bank", "import-pairs", "--csv", str(d["csv"]), "--out", str(bank)])
+    assert code == EXIT_OK and "중복 id 2" in capsys.readouterr().out
+    # 둘 다 없으면 오류
+    code = main(
+        [
+            "bank",
+            "import-pairs",
+            "--images",
+            str(d["images"]),
+            "--masks",
+            str(d["masks"]),
+            "--out",
+            str(bank),
+        ]
+    )
+    assert code == EXIT_RECIPE_ERROR and "--class" in capsys.readouterr().err
+    # bank preview 그리드
+    grid = tmp_path / "grid.png"
+    assert (
+        main(["bank", "preview", str(bank), "--out", str(grid), "--cols", "3", "--tile", "64"])
+        == EXIT_OK
+    )
+    text = capsys.readouterr().out
+    assert "소스 6개" in text and "추정 마스크 0" in text
+    img, _ = imgio.read_image(grid)
+    assert img.shape[1] == 3 * 64 + 2 * 4 and img.shape[0] == 2 * 64 + 4
+    assert main(["bank", "preview", str(bank), "--class", "crack", "--out", str(grid)]) == EXIT_OK
+    assert "소스 2개" in capsys.readouterr().out
+    assert (
+        main(["bank", "preview", str(bank), "--class", "nope", "--out", str(grid)])
+        == EXIT_RECIPE_ERROR
+    )
+
+
+def test_dataset_info_and_import_dataset_cli(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from tests.fixtures import fake_mvtec_tree
+
+    assert main(["dataset", "info"]) == EXIT_OK
+    assert "mvtec-ad" in capsys.readouterr().out
+    assert main(["dataset", "info", "mvtec-ad"]) == EXIT_OK
+    text = capsys.readouterr().out
+    assert "CC BY-NC-SA" in text and "ground_truth" in text and "재배포" in text
+    assert main(["dataset", "info", "nope"]) == EXIT_RECIPE_ERROR
+    assert "mvtec-ad" in capsys.readouterr().err
+
+    cat = fake_mvtec_tree(tmp_path / "mvtec")
+    bank = tmp_path / "bank"
+    assert main(["bank", "import-dataset", "mvtec-ad", str(cat), "--out", str(bank)]) == EXIT_OK
+    out = capsys.readouterr()
+    assert (
+        "mvtec-ad/metal_nut 3쌍" in out.out
+        and "정상 이미지 4장" in out.out
+        and "train/good" in out.out
+    )
+    assert "경고 1건" in out.err  # hole/001 마스크 없음
+    assert main(["bank", "ls", str(bank)]) == EXIT_OK
+    assert "png:" in capsys.readouterr().out
+    assert (
+        main(["bank", "import-dataset", "mvtec-ad", str(tmp_path / "nope"), "--out", str(bank)])
+        == EXIT_RECIPE_ERROR
+    )
+    assert "카테고리 폴더" in capsys.readouterr().err

@@ -112,17 +112,8 @@ class StudioSession:
         return self._apply(lambda d: d.__setitem__("pipeline", {"preset": name}))
 
     def set_method(self, stage: str, method: str) -> R.Recipe:
-        """스테이지 method 교체 — 그 스테이지 블록은 새 method의 기본값만 남긴다(discriminated union)."""
-        key = "policy" if stage == "gtmask" else "method"
-
-        def mutate(d: dict[str, Any]) -> None:
-            pipe = d.setdefault("pipeline", {})
-            if stage == "roi":
-                pipe.setdefault("placement", {})["roi"] = {"method": method}
-            else:
-                pipe[stage] = {key: method}
-
-        return self._apply(mutate)
+        """스테이지 method 교체 — 그 스테이지 블록은 새 method의 기본값만 남긴다(``Recipe.with_method``와 같은 규칙)."""
+        return self._apply(lambda d: R.set_method_in_dict(d, stage, method))
 
     def set_stage_field(self, stage: str, field: str, value: Any) -> R.Recipe:
         if stage == "roi":

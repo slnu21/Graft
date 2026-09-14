@@ -15,14 +15,24 @@ from pydantic import ValidationError
 from anograft import __version__, runner
 from anograft.bank import Bank
 from anograft.bank.bank import BankError
+from anograft.bank.importers import dataset as dataset_importer
+from anograft.bank.importers import pairs as pairs_importer
 from anograft.bank.importers import yolo as yolo_importer
 from anograft.bank.importers.common import DEFAULT_MARGIN, DEFAULT_MIN_AREA
 from anograft.bank.mask_from_box import METHODS as MASK_METHODS
 from anograft.core import recipe as R
 from anograft.core import registry
+from anograft.datasets import DatasetError, adapter_names, get_adapter, info_lines
 from anograft.io import imgio
 from anograft.io.targets import load_target
-from anograft.preview import render_preview
+from anograft.preview import (
+    crop,
+    render_compare,
+    render_grid,
+    render_preview,
+    source_tile,
+    union_bbox,
+)
 
 EXIT_OK = 0
 EXIT_RECIPE_ERROR = 1
@@ -203,10 +213,43 @@ def cmd_preview(args: argparse.Namespace) -> int:
     for w in prep.warnings:
         _err(f"경고: {w}")
     _rng, path = runner.pick_target(prep, args.index)
+    out = Path(args.out)
+    if args.compare_methods:
+        stage = args.compare_methods
+        try:
+            entries = runner.compare_methods(prep, stage, args.index)
+        except runner.PrepareError as e:
+            _err(str(e))
+            return EXIT_RECIPE_ERROR
+        tiles = []
+        results = [r for _m, r, _reason in entries]
+        shape = next((r.image.shape[:2] for r in results if r is not None), None)
+        box = None if args.full or shape is None else union_bbox(results, shape)
+        for method, r, reason in entries:
+            if r is None or r.status != "ok":
+                tiles.append((method, None, reason or (r.reason if r else "")))
+            else:
+                tiles.append((method, crop(r.image, box) if box else r.image, None))
+        imgio.write_image(out, render_compare(tiles, long_side=args.long_side))
+        where = f"크롭 {list(box)}" if box else "전체"
+        print(
+            f"비교: {out.as_posix()}  (stage {stage}, index {args.index}, seed {rec.seed}, "
+            f"대상 {path.as_posix()}, {where})"
+        )
+        for method, r, reason in entries:
+            if r is None:
+                print(f"  {method:<10} — {reason}")
+            elif r.status != "ok":
+                print(f"  {method:<10} skipped — {r.reason}")
+            else:
+                d = runner.sidecar_defects(r)
+                fb = sum(1 for x in d if x["blend"].get("fallback"))
+                extra = f" (fallback {fb})" if fb else ""
+                print(f"  {method:<10} ok · 결함 {len(d)}개{extra}")
+        return EXIT_OK
     result = runner.run_index(prep, args.index)
     target = load_target(path, rec.inputs.um_per_px)
     canvas = render_preview(target.image, result, long_side=args.long_side)
-    out = Path(args.out)
     imgio.write_image(out, canvas)
     print(
         f"미리보기: {out.as_posix()}  (index {args.index}, seed {rec.seed}, 대상 {path.as_posix()})"
@@ -274,6 +317,105 @@ def cmd_bank_import_yolo(args: argparse.Namespace) -> int:
         )
     if res.warnings and not args.verbose:
         _err(f"경고 {len(res.warnings)}건 (--verbose 로 전부 보기). 첫 줄: {res.warnings[0]}")
+    return EXIT_OK
+
+
+def _print_pairs_result(res: pairs_importer.PairsImportResult, verbose: bool, what: str) -> None:
+    st = res.stats
+    print(
+        f"임포트 완료 → {res.bank_root.as_posix()}: {what} {res.n_pairs}쌍 · 소스 {len(st.added)}개 · "
+        f"마스크 없음 {res.n_missing_mask} · 버림(min-area) {st.dropped_small} · 중복 id {st.duplicates}"
+    )
+    print(f"  classes(id 순): {res.classes}")
+    per = st.per_class()
+    if per:
+        print("  클래스별: " + ", ".join(f"{c} {per.get(c, 0)}" for c in res.classes))
+    if res.warnings and not verbose:
+        _err(f"경고 {len(res.warnings)}건 (--verbose 로 전부 보기). 첫 줄: {res.warnings[0]}")
+
+
+def cmd_bank_import_pairs(args: argparse.Namespace) -> int:
+    try:
+        res = pairs_importer.import_pairs(
+            args.images,
+            args.masks,
+            args.out,
+            cls=args.cls,
+            class_from_dir=args.class_from_dir,
+            mask_suffix=args.mask_suffix,
+            csv_path=args.csv,
+            margin=args.margin,
+            min_area=args.min_area,
+            keep_whole=args.keep_whole,
+            um_per_px=args.um_per_px,
+            tags=_split_csv(args.tags),
+            log=(lambda m: _err(f"  {m}")) if args.verbose else None,
+        )
+    except (FileNotFoundError, ValueError, BankError, imgio.ImageReadError) as e:
+        _err(f"임포트 실패: {e}")
+        return EXIT_RECIPE_ERROR
+    _print_pairs_result(res, args.verbose, "이미지")
+    return EXIT_OK
+
+
+def cmd_bank_import_dataset(args: argparse.Namespace) -> int:
+    try:
+        res = dataset_importer.import_dataset(
+            args.name,
+            args.root,
+            args.out,
+            margin=args.margin,
+            min_area=args.min_area,
+            keep_whole=args.keep_whole,
+            tags=_split_csv(args.tags),
+            log=(lambda m: _err(f"  {m}")) if args.verbose else None,
+        )
+    except (DatasetError, FileNotFoundError, ValueError, BankError) as e:
+        _err(f"임포트 실패: {e}")
+        return EXIT_RECIPE_ERROR
+    _print_pairs_result(res.pairs, args.verbose, f"{res.dataset}/{res.category}")
+    if res.normals:
+        d = res.normals[0].parent
+        print(
+            f"  정상 이미지 {len(res.normals)}장: {d.as_posix()} — recipe init --targets {d.as_posix()}"
+        )
+    return EXIT_OK
+
+
+def cmd_bank_preview(args: argparse.Namespace) -> int:
+    try:
+        bank = Bank.load(args.bank)
+    except BankError as e:
+        _err(str(e))
+        return EXIT_RECIPE_ERROR
+    sources = bank.by_class(args.cls) if args.cls else bank.sources()
+    if args.cls and not sources:
+        _err(f"클래스 '{args.cls}' 소스 없음 (은행: {bank.classes})")
+        return EXIT_RECIPE_ERROR
+    sources = sources[: args.limit] if args.limit else sources
+    tiles = [source_tile(s.image, s.mask, s.id, s.mask_origin, tile=args.tile) for s in sources]
+    imgio.write_image(Path(args.out), render_grid(tiles, cols=args.cols))
+    est = sum(1 for s in sources if s.mask_origin.startswith("yolo-box:"))
+    print(
+        f"은행 미리보기: {Path(args.out).as_posix()} — 소스 {len(tiles)}개 (추정 마스크 {est}) · "
+        f"{args.cols}열 · 타일 {args.tile}px"
+    )
+    return EXIT_OK
+
+
+def cmd_dataset_info(args: argparse.Namespace) -> int:
+    names = adapter_names()
+    if not args.name:
+        print("지원 데이터셋: " + ", ".join(names))
+        print("자세히: anograft dataset info <name>")
+        return EXIT_OK
+    try:
+        adapter = get_adapter(args.name)
+    except DatasetError as e:
+        _err(str(e))
+        return EXIT_RECIPE_ERROR
+    for line in info_lines(adapter.info):
+        print(line)
     return EXIT_OK
 
 
@@ -348,7 +490,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--out", default=None, help="output.root 오버라이드")
     p.add_argument("--count", type=int, default=None, help="output.count 오버라이드")
     p.add_argument("--seed", type=int, default=None, help="seed 오버라이드")
-    p.add_argument("--workers", type=int, default=0, help="0 = 인프로세스 (N>0 은 #758 이후)")
+    p.add_argument(
+        "--workers",
+        type=int,
+        default=0,
+        help="프로세스 수. 0 = 인프로세스. 결과는 N과 무관하게 동일",
+    )
     p.add_argument("--dry-run", action="store_true", help="배분·경고만 계산, 파일 안 씀")
     p.set_defaults(func=cmd_run)
 
@@ -358,6 +505,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--seed", type=int, default=None)
     p.add_argument("--out", default="preview.png")
     p.add_argument("--long-side", type=int, default=1024, help="패널 긴 변 (기본 1024)")
+    p.add_argument(
+        "--compare-methods",
+        metavar="STAGE",
+        choices=registry.STAGE_ORDER,
+        default=None,
+        help="같은 시드로 이 스테이지의 method 전부를 한 장에 (예: blend, harmonize)",
+    )
+    p.add_argument(
+        "--full", action="store_true", help="--compare-methods 에서 결함 주변 크롭 대신 이미지 전체"
+    )
     p.set_defaults(func=cmd_preview)
 
     p = sub.add_parser("bank", help="결함 은행 만들기·보기")
@@ -385,9 +542,61 @@ def build_parser() -> argparse.ArgumentParser:
     bi.add_argument("--verbose", action="store_true", help="이미지별 경고 전부 출력")
     bi.set_defaults(func=cmd_bank_import_yolo)
 
+    bp = bsub.add_parser("import-pairs", help="이미지 + 마스크 PNG 쌍 → 은행 (성분마다 소스 하나)")
+    bp.add_argument("--images", default=None, help="이미지 폴더 (재귀)")
+    bp.add_argument("--masks", default=None, help="마스크 폴더 (이미지와 같은 상대경로)")
+    bp.add_argument("--out", required=True, help="은행 폴더 (있으면 누적)")
+    grp = bp.add_mutually_exclusive_group()
+    grp.add_argument("--class", dest="cls", default=None, help="클래스 하나 고정")
+    grp.add_argument(
+        "--class-from-dir", action="store_true", help="images/<class>/*.png 폴더명을 클래스로"
+    )
+    bp.add_argument("--csv", default=None, help="image,mask,class 열 CSV — 폴더 탐색 대신 이 목록")
+    bp.add_argument(
+        "--mask-suffix", default=pairs_importer.DEFAULT_MASK_SUFFIX, help="예: _mask → x_mask.png"
+    )
+    bp.add_argument("--margin", type=int, default=DEFAULT_MARGIN, help="크롭 여유(px), 최소 6")
+    bp.add_argument("--min-area", type=int, default=DEFAULT_MIN_AREA)
+    bp.add_argument("--keep-whole", action="store_true", help="성분 분리 없이 마스크 통째로 하나")
+    bp.add_argument("--um-per-px", type=float, default=None)
+    bp.add_argument("--tags", default=None, help="a,b")
+    bp.add_argument("--verbose", action="store_true")
+    bp.set_defaults(func=cmd_bank_import_pairs)
+
+    bd = bsub.add_parser(
+        "import-dataset",
+        help="표준 데이터셋(로컬 사본) → 은행. 어댑터는 (image, mask, class) 변환기",
+    )
+    bd.add_argument("name", help="dataset info 로 목록 (예: mvtec-ad)")
+    bd.add_argument("root", help="카테고리 폴더 (예: mvtec_ad/metal_nut)")
+    bd.add_argument("--out", required=True)
+    bd.add_argument("--margin", type=int, default=DEFAULT_MARGIN)
+    bd.add_argument("--min-area", type=int, default=DEFAULT_MIN_AREA)
+    bd.add_argument("--keep-whole", action="store_true")
+    bd.add_argument("--tags", default=None, help="a,b (기본 태그 <dataset>,<category>에 추가)")
+    bd.add_argument("--verbose", action="store_true")
+    bd.set_defaults(func=cmd_bank_import_dataset)
+
     bl = bsub.add_parser("ls", help="클래스 | 소스 수 | 면적 중앙값 | 마스크 출처(정확/추정)")
     bl.add_argument("bank")
     bl.set_defaults(func=cmd_bank_ls)
+
+    bv = bsub.add_parser(
+        "preview", help="소스 크롭 + 마스크 윤곽 그리드 — 추정 마스크를 눈으로 확인"
+    )
+    bv.add_argument("bank")
+    bv.add_argument("--class", dest="cls", default=None)
+    bv.add_argument("--out", default="bank-preview.png")
+    bv.add_argument("--cols", type=int, default=8)
+    bv.add_argument("--tile", type=int, default=128, help="타일 한 변(px)")
+    bv.add_argument("--limit", type=int, default=0, help="최대 소스 수 (0 = 전부)")
+    bv.set_defaults(func=cmd_bank_preview)
+
+    p = sub.add_parser("dataset", help="표준 데이터셋 안내 (내려받지 않는다)")
+    dsub = p.add_subparsers(dest="dataset_command", metavar="<action>")
+    di = dsub.add_parser("info", help="이름·라이선스·URL·기대 폴더 구조·카테고리")
+    di.add_argument("name", nargs="?", default=None)
+    di.set_defaults(func=cmd_dataset_info)
 
     return parser
 

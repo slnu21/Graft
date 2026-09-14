@@ -1,0 +1,28 @@
+# MVTec AD 로컬 사본으로 시험 — 데이터가 없을 때의 기준점 (CC BY-NC-SA: 재배포 금지, 읽기만).
+#   anograft dataset info mvtec-ad                                        # 라이선스·URL·기대 구조 (내려받지 않는다)
+#   anograft bank import-dataset mvtec-ad <mvtec>/metal_nut --out bank/metal_nut
+#   anograft bank ls bank/metal_nut ; anograft bank preview bank/metal_nut --out out/metal_nut-bank.png
+#   anograft run recipes/example-mvtec-ad.yaml --workers 4              # 대상 = train/good (정상), 결함 = test/<defect> 은행
+# <mvtec> 경로를 아래 두 곳에서 바꾸세요. 표준셋은 픽셀 피치가 없으므로 um_per_px 는 null(축척 자동 정합 no-op).
+version: 1
+name: mvtec-metal-nut
+seed: 20260914
+inputs: {bank: bank/metal_nut, targets: <mvtec>/metal_nut/train/good, um_per_px: null}
+output:
+  root: out/metal_nut
+  count: 200
+  class_ratio: null                 # 은행의 결함 유형(bent·color·flip·scratch) 균등
+  defects_per_image: [1, 1]
+  include_normals: true
+  copy_mode: copy
+  writer: {format: yolo, seg: true, names_from: bank}   # 폴리곤 라벨 — anomalib 평가용 mvtec writer 는 v0.2
+pipeline:
+  preset: poisson-graft
+  source: {method: bank, classes: null, min_sources_warn: 10}
+  placement:
+    method: sampled
+    roi: {method: otsu, invert: auto, erode_px: 8}     # metal_nut: 어두운 배경 위 물체 → otsu auto. 텍스처(carpet 등)는 none
+    distribution: uniform
+    margin_px: 8
+    max_tries: 50
+    shrink_on_fail: {factor: 0.8, rounds: 3}

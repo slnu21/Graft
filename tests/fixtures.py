@@ -5,6 +5,8 @@
 - ``context(...)``: 스테이지 단위 테스트용 Context 생성.
 - ``memory_bank(...)`` + ``pipeline_deps(recipe, bank)``: 디스크 없는 실물 ``Bank`` — 통합 테스트는 실제 ``BankSource``로 돈다.
 - ``blob_image`` · ``fake_yolo_dataset(root)``: 어두운 판 위 밝은 얼룩 + YOLO 박스/폴리곤 라벨 — 임포터·CLI e2e 픽스처.
+- ``blob_mask`` · ``fake_pairs_dataset(root)``: 이미지 + 마스크 PNG 쌍(suffix/동일 stem/CSV 세 매칭) — import-pairs 픽스처.
+- ``fake_mvtec_tree(root)``: MVTec AD 카테고리 폴더 흉내(test/<defect> 2종 + ground_truth + train/good 4장 + test/good).
 """
 
 from __future__ import annotations
@@ -188,3 +190,74 @@ def fake_yolo_dataset(
         "normals": normals,
         "boxes": boxes,
     }
+
+
+# ---------------------------------------------------------------------------
+# 마스크 PNG 쌍 · MVTec AD 트리 픽스처 — import-pairs · datasets
+# ---------------------------------------------------------------------------
+
+
+def blob_mask(size: int, blobs: Iterable[tuple[int, int, int]]) -> np.ndarray:
+    """``(cx, cy, r)`` 원판들의 0/255 마스크 — ``blob_image``와 같은 좌표 규약."""
+    m = np.zeros((size, size), dtype=np.uint8)
+    for cx, cy, r in blobs:
+        cv2.circle(m, (cx, cy), r, 255, -1)
+    return m
+
+
+def fake_pairs_dataset(root: Path, *, size: int = 96) -> dict[str, Any]:
+    """``images/<class>/x.png`` + ``masks/<class>/x_mask.png``(suffix) · ``y.png``(동일 stem) · 마스크 없는 ``z.png`` +
+    ``pairs.csv``(image,mask,class 두 줄). 반환: ``{"images", "masks", "csv", "blobs": {stem: [(cx,cy,r)]}, "n_missing": 1}``.
+    """
+    images, masks = root / "images", root / "masks"
+    blobs: dict[str, list[tuple[int, int, int]]] = {
+        "spot/a": [(40, 40, 8)],
+        "spot/b": [(30, 60, 6), (66, 30, 7)],  # 성분 2개 → 소스 2개
+        "crack/c": [(48, 48, 9)],
+    }
+    for stem, bl in blobs.items():
+        (images / Path(stem).parent).mkdir(parents=True, exist_ok=True)
+        (masks / Path(stem).parent).mkdir(parents=True, exist_ok=True)
+        imgio.write_image(images / f"{stem}.png", blob_image(size, bl))
+        mask_name = f"{stem}_mask.png" if stem != "spot/b" else f"{stem}.png"  # b 는 동일 stem 매칭
+        imgio.write_image(masks / mask_name, blob_mask(size, bl))
+    imgio.write_image(images / "crack" / "z.png", blob_image(size, [(20, 20, 5)]))  # 마스크 없음
+    csv_path = root / "pairs.csv"
+    csv_path.write_text(
+        "\n".join(
+            [
+                "image,mask,class",
+                "images/spot/a.png,masks/spot/a_mask.png,spot",
+                "images/crack/c.png,masks/crack/c_mask.png,crack",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return {"images": images, "masks": masks, "csv": csv_path, "blobs": blobs, "n_missing": 1}
+
+
+MVTEC_DEFECTS: dict[str, list[tuple[int, int, int]]] = {
+    "scratch": [(40, 40, 8)],
+    "hole": [(56, 30, 6), (30, 60, 5)],
+}
+
+
+def fake_mvtec_tree(root: Path, *, category: str = "metal_nut", size: int = 96) -> Path:
+    """``<root>/<category>/{train/good ×4, test/good ×2, test/<defect>/<idx>.png ×2, ground_truth/<defect>/<idx>_mask.png}``.
+    ``test/hole/001.png``은 마스크가 **없다**(어댑터가 건너뛰고 경고). 반환: 카테고리 폴더."""
+    cat = root / category
+    for i in range(4):
+        imgio.write_image(cat / "train" / "good" / f"{i:03d}.png", blob_image(size))
+    for i in range(2):
+        imgio.write_image(cat / "test" / "good" / f"{i:03d}.png", blob_image(size))
+    for defect, bl in MVTEC_DEFECTS.items():
+        for i in range(2):
+            shifted = [(cx + i * 3, cy, r) for cx, cy, r in bl]
+            imgio.write_image(cat / "test" / defect / f"{i:03d}.png", blob_image(size, shifted))
+            if defect == "hole" and i == 1:
+                continue  # 마스크 누락 케이스
+            imgio.write_image(
+                cat / "ground_truth" / defect / f"{i:03d}_mask.png", blob_mask(size, shifted)
+            )
+    return cat

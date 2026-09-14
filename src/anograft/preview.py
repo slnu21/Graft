@@ -16,6 +16,7 @@ from anograft.core.types import GraftResult, Instance
 
 GT_FILL = (60, 60, 230)  # BGR — 붉은 채움
 GT_EDGE = (40, 230, 40)  # 초록 윤곽·bbox
+EST_COLOR = (28, 132, 200)  # BGR amber — 추정 마스크 출처(bank preview)
 GAP_PX = 6
 LABEL_BG = (0, 0, 0)
 
@@ -38,24 +39,28 @@ def overlay_gt(
     return out
 
 
-def _label(img: np.ndarray, text: str, org: tuple[int, int], scale: float = 0.45) -> None:
+def _label(
+    img: np.ndarray,
+    text: str,
+    org: tuple[int, int],
+    scale: float = 0.45,
+    color: tuple[int, int, int] = (255, 255, 255),
+) -> None:
     (tw, th), base = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, scale, 1)
     x, y = org
     y = max(th + 2, y)
     cv2.rectangle(img, (x, y - th - 2), (x + tw + 2, y + base), LABEL_BG, -1)
-    cv2.putText(
-        img, text, (x + 1, y), cv2.FONT_HERSHEY_SIMPLEX, scale, (255, 255, 255), 1, cv2.LINE_AA
-    )
+    cv2.putText(img, text, (x + 1, y), cv2.FONT_HERSHEY_SIMPLEX, scale, color, 1, cv2.LINE_AA)
 
 
-def fit_long_side(image: np.ndarray, long_side: int) -> np.ndarray:
+def fit_long_side(image: np.ndarray, long_side: int, *, upscale: bool = False) -> np.ndarray:
+    """긴 변을 ``long_side``로 축소(INTER_AREA). ``upscale``이면 작은 이미지도 키운다(NEAREST — 픽셀을 그대로 보이게)."""
     h, w = image.shape[:2]
-    if max(h, w) <= long_side:
+    if max(h, w) == long_side or (max(h, w) < long_side and not upscale):
         return image
     s = long_side / float(max(h, w))
-    return cv2.resize(
-        image, (max(1, round(w * s)), max(1, round(h * s))), interpolation=cv2.INTER_AREA
-    )
+    interp = cv2.INTER_AREA if s < 1 else cv2.INTER_NEAREST
+    return cv2.resize(image, (max(1, round(w * s)), max(1, round(h * s))), interpolation=interp)
 
 
 def render_preview(
@@ -99,3 +104,90 @@ def render_grid(tiles: Sequence[np.ndarray], *, cols: int = 4, gap: int = 4) -> 
         y, x = r * (th + gap), c * (tw + gap)
         canvas[y : y + t.shape[0], x : x + t.shape[1]] = t
     return canvas
+
+
+def _fit_tile(image: np.ndarray, tile: int) -> tuple[np.ndarray, tuple[int, int, float]]:
+    """긴 변 ``tile``로 (작으면 NEAREST 확대 — 결함 크롭은 대개 작다), 정사각 캔버스 가운데 배치."""
+    img = promote_to_bgr(image)
+    h, w = img.shape[:2]
+    s = tile / float(max(h, w))
+    nh, nw = max(1, round(h * s)), max(1, round(w * s))
+    interp = cv2.INTER_AREA if s < 1 else cv2.INTER_NEAREST
+    img = cv2.resize(img, (nw, nh), interpolation=interp)
+    canvas = np.full((tile, tile, 3), 24, dtype=np.uint8)
+    y, x = (tile - nh) // 2, (tile - nw) // 2
+    canvas[y : y + nh, x : x + nw] = img
+    return canvas, (x, y, s)
+
+
+def source_tile(
+    image: np.ndarray, mask: np.ndarray, source_id: str, mask_origin: str, *, tile: int = 128
+) -> np.ndarray:
+    """``bank preview`` 타일 — 크롭 + 마스크 윤곽(초록) + 아래 두 줄(id · 마스크 출처). 추정 마스크(``yolo-box:*``)는
+    출처를 amber 로 찍어 한눈에 셀 수 있게 한다(폴백 ellipse = 박스 내접 타원 = 과라벨)."""
+    canvas, (x0, y0, s) = _fit_tile(image, tile)
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    for c in contours:
+        pts = np.round(c.reshape(-1, 2).astype(np.float64) * s + [x0, y0]).astype(np.int32)
+        cv2.polylines(canvas, [pts.reshape(-1, 1, 2)], True, GT_EDGE, 1)
+    estimated = mask_origin.startswith("yolo-box:")
+    origin = mask_origin.split(":", 1)[1] if estimated else mask_origin.replace("yolo-", "")
+    max_chars = max(6, int(tile / 6.2))
+    _label(canvas, source_id[-max_chars:], (2, tile - 14), 0.36)
+    _label(
+        canvas, origin[:max_chars], (2, tile - 3), 0.36, color=EST_COLOR if estimated else GT_EDGE
+    )
+    return canvas
+
+
+def render_compare(
+    entries: Sequence[tuple[str, np.ndarray | None, str | None]], *, long_side: int = 512
+) -> np.ndarray:
+    """``preview --compare-methods`` — ``(method, 합성 이미지 | None, 사유)``를 격자로. None이면 검은 타일에 사유."""
+    tiles: list[np.ndarray] = []
+    shape: tuple[int, int] | None = None
+    for _m, img, _r in entries:
+        if img is not None:
+            shape = promote_to_bgr(img).shape[:2]
+            break
+    for method, img, reason in entries:
+        if img is None:
+            h, w = shape or (long_side, long_side)
+            t = np.full((h, w, 3), 24, dtype=np.uint8)
+            t = fit_long_side(t, long_side, upscale=True)
+            _label(t, f"{method}: {reason or 'n/a'}"[:60], (4, 16), 0.5)
+        else:
+            t = fit_long_side(promote_to_bgr(img), long_side, upscale=True)
+            _label(t, method, (4, 16), 0.5)
+        tiles.append(t)
+    cols = max(1, int(np.ceil(np.sqrt(len(tiles))))) if len(tiles) > 2 else len(tiles)
+    return render_grid(tiles, cols=cols, gap=GAP_PX)
+
+
+def union_bbox(
+    results: Sequence[GraftResult | None],
+    shape: tuple[int, int],
+    *,
+    pad_ratio: float = 0.6,
+    min_side: int = 96,
+) -> tuple[int, int, int, int] | None:
+    """모든 결과의 인스턴스 bbox 합집합 + 여유(긴 변의 ``pad_ratio``, 최소 ``min_side``) — 비교 격자의 공통 크롭 창.
+    인스턴스가 하나도 없으면 None(전체를 쓴다)."""
+    boxes = [i.bbox for r in results if r is not None and r.status == "ok" for i in r.instances]
+    if not boxes:
+        return None
+    x0 = min(x for x, _y, _w, _h in boxes)
+    y0 = min(y for _x, y, _w, _h in boxes)
+    x1 = max(x + w for x, _y, w, _h in boxes)
+    y1 = max(y + h for _x, y, _w, h in boxes)
+    side = max(x1 - x0, y1 - y0)
+    pad = max(int(side * pad_ratio), (min_side - side) // 2, 0)
+    hh, ww = shape
+    cx0, cy0 = max(0, x0 - pad), max(0, y0 - pad)
+    cx1, cy1 = min(ww, x1 + pad), min(hh, y1 + pad)
+    return (cx0, cy0, cx1 - cx0, cy1 - cy0)
+
+
+def crop(image: np.ndarray, box: tuple[int, int, int, int]) -> np.ndarray:
+    x, y, w, h = box
+    return image[y : y + h, x : x + w]

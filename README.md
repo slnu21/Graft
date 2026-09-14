@@ -34,7 +34,21 @@ cd Graft
 anograft --help
 ```
 
-*(v0.1 완료 시 "5분 시작" — 은행 만들기 → 레시피 → 생성 → 확인 — 을 여기에 채웁니다.)*
+### 5분 시작 (초안 — v0.1 릴리스에서 다듬음)
+
+보유 데이터가 없어도 됩니다. 샘플 YOLO 세트(브러시드 메탈 + scratch/pit/stain)로 끝까지 한 바퀴:
+
+```powershell
+python tools/make_sample_yolo.py --out samples/metal                     # 샘플 이미지 + YOLO 라벨 (cp949 콘솔이면 PYTHONIOENCODING=utf-8)
+anograft bank import-yolo --images samples/metal/images --labels samples/metal/labels `
+    --names samples/metal/data.yaml --out bank/sample --list-normals samples/metal/normals.txt
+anograft bank ls bank/sample                                             # 클래스별 소스 수 · 마스크 출처(정확/추정)
+anograft bank preview bank/sample --out out/bank-preview.png             # 추정 마스크를 눈으로 (amber = 추정, ellipse = 과라벨)
+anograft run recipes/sample-poisson.yaml --workers 4                     # → out/sample/{images,masks,meta,labels,data.yaml,manifest.csv}
+anograft preview recipes/sample-poisson.yaml --index 0 --compare-methods blend --out out/compare.png
+```
+
+**보유 YOLO 라벨**이 있으면 `import-yolo`에 그 폴더를, **마스크 PNG 쌍**이면 `bank import-pairs --images … --masks … --class scratch`, **표준셋**이면 `anograft dataset info mvtec-ad` → 로컬 사본을 `bank import-dataset mvtec-ad <root>/<category> --out bank/<category>`. 출력 `images/`·`labels/`·`data.yaml`은 기존 YOLO 학습셋에 그대로 합쳐집니다(같은 `names` 순서 확인). GUI: `pip install -e ".[gui]"` 후 `python -m anograft.gui recipes/sample-poisson.yaml`.
 
 ## 개발
 
