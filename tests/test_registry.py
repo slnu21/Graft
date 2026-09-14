@@ -25,8 +25,9 @@ def test_schema_methods_match_design_matrix_v01() -> None:
     # source 는 v0.4(source-selfcut-perlin)에서 self-cut · perlin-texture 가 붙었다
     assert registry.schema_methods("source") == ["bank", "self-cut", "perlin-texture"]
     assert registry.schema_methods("geometry") == ["affine"]
-    assert registry.schema_methods("roi") == ["otsu", "none", "mask_dir"]
-    assert registry.schema_methods("placement") == ["sampled"]
+    # roi·placement 는 v0.4(placement-structure-aware)에서 grabcut · structure-aware 가 붙었다
+    assert registry.schema_methods("roi") == ["otsu", "none", "mask_dir", "grabcut"]
+    assert registry.schema_methods("placement") == ["sampled", "structure-aware"]
     assert registry.schema_methods("blend") == ["paste", "alpha", "poisson", "multiband"]
     assert registry.schema_methods("harmonize") == ["none", "stats", "reinhard", "histmatch"]
     assert registry.schema_methods("degrade") == ["none", "camera"]

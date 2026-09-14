@@ -21,7 +21,7 @@
 Graft는 알고리즘을 새로 만드는 도구가 아니라 그 사이를 메우는 도구입니다.
 
 - **결함 은행** — 보유 YOLO 라벨(박스·폴리곤)이나 마스크 PNG에서 결함을 모읍니다. 박스만 있으면 마스크를 추정합니다(GrabCut 등, 출처를 `mask_origin`으로 끌고 다님). 데이터가 없으면 표준 산업 데이터셋(MVTec AD)을 로컬 사본에서 읽습니다.
-- **7단계 파이프라인** `소스 → 기하 → 배치 → 블렌딩 → 조화 → 열화 → 정답 마스크` — 알고리즘은 각 단계의 `method`로 고릅니다(블렌딩: paste · alpha · Poisson · multiband, 조화: stats · Reinhard · 히스토그램 매칭). 프리셋으로 시작하고 필요할 때만 펼칩니다.
+- **7단계 파이프라인** `소스 → 기하 → 배치 → 블렌딩 → 조화 → 열화 → 정답 마스크` — 알고리즘은 각 단계의 `method`로 고릅니다(블렌딩: paste · alpha · Poisson · multiband, 조화: stats · Reinhard · 히스토그램 매칭, 배치: sampled · structure-aware, ROI: otsu · grabcut · none · mask_dir). 프리셋으로 시작하고 필요할 때만 펼칩니다.
 - **배치 허용 영역(ROI)** 이 기본값 — 배경에 붙은 결함은 학습에 해롭습니다.
 - **재현** — 레시피(YAML) + 시드가 같으면 워커 수와 무관하게 바이트 단위로 같은 데이터셋. 이미지마다 사이드카 JSON(소스 id · 변환 · 좌표 · 시드 · 파이프라인 해시).
 - **출력** — 정본은 이미지 + GT 마스크 + 사이드카 + `manifest.csv`. 그 위에 writer가 학습 형식을 덧붙입니다(v0.1: YOLO `labels/*.txt` + `data.yaml` — 기존 학습셋에 그대로 합침).
@@ -84,6 +84,7 @@ anograft-gui recipes/sample-poisson.yaml                                  # GUI 
 | `hard-paste` | CutPaste(은행) | paste · 없음 | 가장 거친 대조군(학습 실험용) |
 | `self-cut` | CutPaste·Scar | 소스 = 대상 자신의 사각/스카 패치 + 색 지터 · paste | **은행 불필요** — 정상 이미지만으로 시작 |
 | `perlin-texture` | DRAEM | 소스 = 펄린 노이즈 마스크 + 텍스처(대상 자신 증강 또는 `texture_dir`) · alpha β 0.4~1 | **은행 불필요** — 불규칙한 이상 영역 |
+| `structure-aware-graft` | 구조 정합 배치 | poisson-graft + 배치 `structure-aware`(그래디언트 큰 곳 선호 · 결·에지 방향에 정렬) · ROI `grabcut` | 스크래치가 결을 따르고 칩이 모서리에 생기는 부품. 무광·그림자로 Otsu가 안 갈리는 대상 |
 
 기본값은 샘플 은행에서 "결함이 옅어지는 정도"(hard-paste 대비 마스크 안 L1 비율)를 재서 정했습니다 — 세 조화 방법 모두 정의상 결함 톤을 대상 쪽으로 당기므로 strength를 낮게 뒀습니다. 실데이터 학습 mAP 근거는 아직 없습니다(로드맵).
 
@@ -124,7 +125,7 @@ MIT © 2026 slnu21 — `LICENSE`. 함께 배포되는 구성 요소(PySide6/Qt L
 Synthetic-defect methods (CutPaste, DRAEM, NSA, diffusion inpainting) exist, but they live in scattered paper repos and the practical glue is missing: a place to **collect** defects, control over **where** they land, a **ground-truth mask policy**, **reproducibility**, and output your training pipeline can **consume directly**. Graft fills that gap instead of inventing another algorithm.
 
 - **Defect bank** — import from your YOLO labels (boxes/polygons) or mask PNGs; boxes get a pixel mask estimated (GrabCut etc., provenance kept as `mask_origin`). No data? Point it at a local copy of MVTec AD.
-- **7-stage pipeline** `source → geometry → placement → blend → harmonize → degrade → gt-mask` — pick algorithms per stage via `method` (blend: paste · alpha · Poisson · multiband; harmonize: stats · Reinhard · histogram matching). Start from a preset, unfold only what you need.
+- **7-stage pipeline** `source → geometry → placement → blend → harmonize → degrade → gt-mask` — pick algorithms per stage via `method` (blend: paste · alpha · Poisson · multiband; harmonize: stats · Reinhard · histogram matching; placement: sampled · structure-aware; ROI: otsu · grabcut · none · mask_dir). Start from a preset, unfold only what you need.
 - **Placement ROI is on by default** — defects pasted onto background hurt training.
 - **Reproducible** — same recipe (YAML) + seed ⇒ byte-identical dataset regardless of worker count. Per-image sidecar JSON (source id, transform, coordinates, seed, pipeline hash).
 - **Output** — canonical image + GT mask + sidecar + `manifest.csv`, plus a writer layer for training formats (v0.1: YOLO `labels/*.txt` + `data.yaml`, mergeable into your existing set).
@@ -185,6 +186,7 @@ Same seed and target across the four presets (`preview --compare-methods blend|h
 | `hard-paste` | CutPaste (bank) | paste · none | Crudest baseline for training experiments |
 | `self-cut` | CutPaste · Scar | source = rect/scar patch cut from the target itself + colour jitter · paste | **No bank needed** — start from normal images only |
 | `perlin-texture` | DRAEM | source = Perlin-noise mask + texture (augmented self-window or `texture_dir`) · alpha β 0.4–1 | **No bank needed** — irregular anomaly regions |
+| `structure-aware-graft` | Structure-aware placement | poisson-graft + `structure-aware` placement (prefers high-gradient spots · aligns to grain/edge direction) · `grabcut` ROI | Parts where scratches follow the grain and chips sit on edges; matte/shadowed parts Otsu cannot segment |
 
 Defaults were chosen by measuring how much each method fades the defect on the sample bank (in-mask L1 relative to hard-paste); all three harmonize methods pull defect tone toward the target by construction, so strengths are kept low. No real-data mAP evidence yet (roadmap).
 

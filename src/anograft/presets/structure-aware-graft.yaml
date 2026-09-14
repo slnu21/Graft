@@ -1,0 +1,49 @@
+# Structure-Aware Graft (v0.4) — poisson-graft 위에 배치만 구조 정합으로.
+#   위치: 그래디언트 크기가 큰 곳(부품 모서리·각인·결)을 선호(prefer: edges, strength 1). 얼룩·핏처럼 평탄한 면에 생기는
+#         결함이면 prefer: flat, 위치는 균등으로 두고 방향만 맞추려면 prefer: uniform.
+#   방향: 후보 자리의 구조 텐서 지배 방향에 패치 주축을 맞춘다(align: along = 결·에지를 따라, across = 가로질러).
+#         자리에 방향이 없으면(coherence < min_coherence) 또는 결함이 둥글면(anisotropy < min_anisotropy) geometry 회전 유지.
+#   ROI: grabcut(rect 초기화, 긴 변 1024 작업) — Otsu 로 전경/배경이 안 갈리는 무광 부품·그림자에 강하다. 텍스처 카테고리는 none.
+#   geometry rotate 는 그대로 ±180 — 정렬이 덮어쓰므로 둥근 결함에만 의미가 있다.
+pipeline:
+  source:
+    method: bank
+    classes: null
+    min_sources_warn: 10
+  geometry:
+    method: affine
+    scale: [0.8, 1.25]
+    rotate: [-180, 180]
+    flip: true
+    elastic: { alpha: 0, sigma: 4 }
+  placement:
+    method: structure-aware
+    roi: { method: grabcut, init: rect, rect_margin: 0.03, iters: 5, work_px: 1024, erode_px: 8 }
+    prefer: edges
+    strength: 1.0
+    smooth_px: 3.0
+    align: along
+    min_coherence: 0.2
+    min_anisotropy: 0.1
+    jitter_deg: 10
+    margin_px: 8
+    max_tries: 50
+    shrink_on_fail: { factor: 0.8, rounds: 3 }
+  blend:
+    method: poisson
+    poisson_mode: normal
+    mask_dilate_px: 5
+    feather_px: 3
+  harmonize:
+    method: stats
+    strength: 0.3
+    ring_px: 12
+  degrade:
+    method: camera
+    noise_sigma: [0, 2.0]
+    blur_sigma: [0, 0.6]
+    jpeg_quality: null
+  gtmask:
+    policy: union
+    diff_threshold: 12
+    dilate_px: 2

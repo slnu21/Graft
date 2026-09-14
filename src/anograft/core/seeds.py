@@ -3,17 +3,25 @@
 - 이미지 ``i``의 결과는 ``image_rng(seed, i)``만으로 정해진다 — 워커 배정과 무관.
 - ``spawn_key``의 첫 원소가 용도(0 = split, 1 = image)라 용도끼리 스트림이 겹치지 않는다.
 - 전역 ``np.random.*``·``random`` 모듈은 코드베이스 어디서도 쓰지 않는다(테스트가 grep으로 막는다).
+- OpenCV 전역 RNG 를 쓰는 함수(``cv2.grabCut``)는 호출 직전 ``cv2.setRNGSeed(stable_seed(key))`` — ``stable_seed``는 crc32 라
+  프로세스·플랫폼과 무관하다(파이썬 ``hash()``는 프로세스마다 달라 시드로 못 쓴다).
 """
 
 from __future__ import annotations
 
 import hashlib
+import zlib
 from collections.abc import Iterable
 
 import numpy as np
 
 _PURPOSE_SPLIT = 0
 _PURPOSE_IMAGE = 1
+
+
+def stable_seed(key: str) -> int:
+    """문자열 → 16-bit 시드. ``zlib.crc32``라 프로세스·플랫폼과 무관하게 같다."""
+    return zlib.crc32(key.encode("utf-8")) & 0xFFFF
 
 
 def split_rng(seed: int) -> np.random.Generator:

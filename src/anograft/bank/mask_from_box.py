@@ -16,13 +16,15 @@
 
 from __future__ import annotations
 
-import zlib
 from typing import Literal
 
 import cv2
 import numpy as np
 
 from anograft.core.channels import promote_to_bgr
+from anograft.core.seeds import stable_seed
+
+__all__ = ["METHODS", "mask_from_box", "stable_seed"]
 
 Box = tuple[int, int, int, int]  # x, y, w, h (이미지 좌표, 정수)
 Method = Literal["grabcut", "otsu", "ellipse", "rect"]
@@ -32,11 +34,6 @@ _CHAIN: tuple[str, ...] = ("grabcut", "otsu", "ellipse", "rect")  # 폴백 순�
 AREA_RATIO_MIN = 0.05
 AREA_RATIO_MAX = 0.95
 GRABCUT_ITERS = 5
-
-
-def stable_seed(key: str) -> int:
-    """문자열 → 16-bit 시드. ``zlib.crc32``라 프로세스·플랫폼과 무관하게 같다."""
-    return zlib.crc32(key.encode("utf-8")) & 0xFFFF
 
 
 def clip_box(box: Box, shape: tuple[int, ...]) -> Box | None:

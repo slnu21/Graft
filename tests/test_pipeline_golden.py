@@ -1,5 +1,5 @@
-"""골든 회귀 — 설계 §11: 64×64 합성 대상 + 합성 은행, 시드 고정, **프리셋 6종 × gray/color** → ``tests/golden/<preset>-<gray|color>.png``
-픽셀 바이트 일치(12 골든; self-cut·perlin-texture 는 v0.4 에서 추가 — 은행을 쓰지 않지만 같은 틀로 돈다). 갱신은
+"""골든 회귀 — 설계 §11: 64×64 합성 대상 + 합성 은행, 시드 고정, **프리셋 7종 × gray/color** → ``tests/golden/<preset>-<gray|color>.png``
+픽셀 바이트 일치(14 골든; self-cut·perlin-texture·structure-aware-graft 는 v0.4 에서 추가). 갱신은
 ``pytest --update-golden``으로만(``conftest``) — 알고리즘을 의도적으로 바꿨을 때, 데브로그에 사유.
 
 PNG 바이트가 아니라 **디코드한 픽셀 배열**을 비교한다(zlib/OpenCV 버전에 따라 인코딩 바이트는 달라질 수 있다).
@@ -25,6 +25,7 @@ PRESETS = [
     "multiband-graft",
     "self-cut",
     "perlin-texture",
+    "structure-aware-graft",
 ]
 SEED = 20260914
 SIZE = 64
@@ -47,6 +48,10 @@ def _pipeline(preset: str) -> Pipeline:
         "preset": preset,
         "placement": {"roi": {"method": "otsu", "erode_px": 2}, "margin_px": 6},
     }
+    if (
+        preset == "structure-aware-graft"
+    ):  # 프리셋의 grabcut ROI 는 별도 테스트 — 골든은 배치 정렬만 고정
+        pipe["placement"]["roi"] = {"method": "grabcut", "erode_px": 2, "work_px": 0}
     if preset in SOURCE_OVERRIDES:
         pipe["source"] = SOURCE_OVERRIDES[preset]
     rec = R.Recipe.from_dict(
@@ -91,7 +96,7 @@ def test_preset_matches_golden(preset: str, gray: bool, update_golden: bool) -> 
 
 
 def test_golden_files_are_small_and_complete() -> None:
-    """8장 전부 있고 각 ≤ 10KB(커밋 대상)."""
+    """전부 있고 각 ≤ 10KB(커밋 대상)."""
     for preset in PRESETS:
         for gray in (False, True):
             p = golden_path(preset, gray)
