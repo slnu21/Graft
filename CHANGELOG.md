@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-15
+
+v0.5 — **여기서부터 GUI 만으로 단독 사용**: 결함 사진 라벨링(라벨 탭) → 미리보기(스튜디오) → 데이터셋 생성(배치 탭). 여전히 샘플 데이터로만 검증.
+
 ### Added
 - **라벨 탭**(v0.5, GUI): 결함 사진을 열어 브러시·지우개·폴리곤·자동 선택(박스 → GrabCut/Otsu/타원/사각)으로 마스크를 만들고 팽창·침식·되돌리기(40단계) 뒤 **은행에 저장** — 임포터와 같은 경로(`ImportRecord` → `BankWriter`, 성분마다 소스, `mask_origin: manual:<tool>`), 클래스는 은행 클래스에 이름 기준 병합. 클래스·픽셀 피치·태그·마스크 통계(면적·성분·길이·대비). 스튜디오가 같은 은행을 쓰면 저장 즉시 다시 준비. 단축키 B/E/P/A/H · [ ] · Ctrl+Z/Y · Enter/Esc · Ctrl+S · PageUp/Down. **라벨링 도구 없이 정상 사진 + 결함 사진만으로 은행을 만들 수 있다.**
 - **배치 탭**(v0.5, GUI): 스튜디오 "배치로 보내기"가 현재 레시피(저장 안 해도)를 배치 탭으로 넘기고, 출력 폴더·장수·시드·워커·출력 형식(yolo/pairs/mvtec)을 고쳐 **생성 시작** — 진행률 바·로그(첫 줄에 같은 CLI 명령)·중지(그때까지의 파일·manifest 유지)·출력 폴더 열기. 결과는 `anograft run` 과 바이트 동일. `runner.run(should_stop=)` · `RunSummary.cancelled/done`.
@@ -55,6 +59,7 @@ v0.4 — CPU 알고리즘 확장. **여전히 샘플 데이터로만 검증**(�
 - GUI는 스튜디오 탭만. 재현은 같은 OS·OpenCV 부버전 범위(`seamlessClone` 솔버).
 - `release.yml`의 Windows zip 잡은 첫 push 전이라 CI에서 미검증(로컬 `tools/build_zip.ps1`와 같은 절차).
 
-[Unreleased]: https://github.com/slnu21/Graft/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/slnu21/Graft/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/slnu21/Graft/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/slnu21/Graft/compare/v0.1.0...v0.4.0
 [0.1.0]: https://github.com/slnu21/Graft/releases/tag/v0.1.0
