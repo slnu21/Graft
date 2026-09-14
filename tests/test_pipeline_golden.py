@@ -1,5 +1,6 @@
-"""골든 회귀 — 설계 §11: 64×64 합성 대상 + 합성 은행, 시드 고정, **프리셋 4종 × gray/color** → ``tests/golden/<preset>-<gray|color>.png``
-픽셀 바이트 일치(8 골든). 갱신은 ``pytest --update-golden``으로만(``conftest``) — 알고리즘을 의도적으로 바꿨을 때, 데브로그에 사유.
+"""골든 회귀 — 설계 §11: 64×64 합성 대상 + 합성 은행, 시드 고정, **프리셋 6종 × gray/color** → ``tests/golden/<preset>-<gray|color>.png``
+픽셀 바이트 일치(12 골든; self-cut·perlin-texture 는 v0.4 에서 추가 — 은행을 쓰지 않지만 같은 틀로 돈다). 갱신은
+``pytest --update-golden``으로만(``conftest``) — 알고리즘을 의도적으로 바꿨을 때, 데브로그에 사유.
 
 PNG 바이트가 아니라 **디코드한 픽셀 배열**을 비교한다(zlib/OpenCV 버전에 따라 인코딩 바이트는 달라질 수 있다).
 """
@@ -17,12 +18,37 @@ from anograft.io import imgio
 from tests.fixtures import disk_target, line_defect, memory_bank, pipeline_deps
 
 GOLDEN_DIR = Path(__file__).parent / "golden"
-PRESETS = ["poisson-graft", "hard-paste", "alpha-paste", "multiband-graft"]
+PRESETS = [
+    "poisson-graft",
+    "hard-paste",
+    "alpha-paste",
+    "multiband-graft",
+    "self-cut",
+    "perlin-texture",
+]
 SEED = 20260914
 SIZE = 64
 
 
+# 64px 원판(지름 42)에 맞춘 프리셋별 축소 — self-cut 기본 area_ratio(2~15%)는 회전하면 ROI 에 못 들어간다
+SOURCE_OVERRIDES: dict[str, dict] = {
+    "self-cut": {
+        "method": "self-cut",
+        "area_ratio": [0.01, 0.03],
+        "scar_length_px": [8, 16],
+        "scar_width_px": [2, 4],
+    },
+    "perlin-texture": {"method": "perlin-texture", "size_ratio": [0.25, 0.35]},
+}
+
+
 def _pipeline(preset: str) -> Pipeline:
+    pipe: dict = {
+        "preset": preset,
+        "placement": {"roi": {"method": "otsu", "erode_px": 2}, "margin_px": 6},
+    }
+    if preset in SOURCE_OVERRIDES:
+        pipe["source"] = SOURCE_OVERRIDES[preset]
     rec = R.Recipe.from_dict(
         {
             "version": 1,
@@ -30,10 +56,7 @@ def _pipeline(preset: str) -> Pipeline:
             "seed": SEED,
             "inputs": {"bank": "b", "targets": "t"},
             "output": {"root": "o", "count": 1, "defects_per_image": [2, 2]},
-            "pipeline": {
-                "preset": preset,
-                "placement": {"roi": {"method": "otsu", "erode_px": 2}, "margin_px": 6},
-            },
+            "pipeline": pipe,
         }
     )
     bank = memory_bank([line_defect(18, 4), line_defect(10, 6, cls="dent")])

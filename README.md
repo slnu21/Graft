@@ -68,6 +68,8 @@ anograft-gui recipes/sample-poisson.yaml                                  # GUI 
 
 `bank ls`의 `est`·origins 열에서 `ellipse` 폴백 비율이 높으면(가늘고 희미한 스크래치) `--mask-from otsu`나 `--min-box`를 조정하세요 — 박스는 결함 경계가 아닙니다.
 
+**라벨링한 결함이 하나도 없다면** — 정상 이미지만으로 `self-cut`(CutPaste) · `perlin-texture`(DRAEM) 프리셋이 돕니다: `anograft recipe init --preset self-cut --targets <정상 폴더> --write r.yaml`(`inputs.bank: null`) → `run`. 클래스는 `cutpaste`/`anomaly` 하나(이상 탐지 이진 학습용). `preview --compare-methods source`로 세 소스를 나란히.
+
 ## 프리셋
 
 같은 시드·같은 대상에 프리셋 4종(`preview --compare-methods blend|harmonize`로 스테이지별 비교도 가능):
@@ -79,7 +81,9 @@ anograft-gui recipes/sample-poisson.yaml                                  # GUI 
 | `poisson-graft` (기본) | NSA | Poisson(normal) · stats 0.3 | 대부분의 결함. 얼룩처럼 그래디언트가 약한 결함도 살린다 |
 | `multiband-graft` | 라플라시안 피라미드 | multiband · histmatch 0.3 | 텍스처 보존이 좋고 경계 halo가 덜함 |
 | `alpha-paste` | 페더 합성 | alpha(feather 2) · Reinhard 0.5 | 빠름, 경계 색 정합 |
-| `hard-paste` | CutPaste | paste · 없음 | 가장 거친 대조군(학습 실험용) |
+| `hard-paste` | CutPaste(은행) | paste · 없음 | 가장 거친 대조군(학습 실험용) |
+| `self-cut` | CutPaste·Scar | 소스 = 대상 자신의 사각/스카 패치 + 색 지터 · paste | **은행 불필요** — 정상 이미지만으로 시작 |
+| `perlin-texture` | DRAEM | 소스 = 펄린 노이즈 마스크 + 텍스처(대상 자신 증강 또는 `texture_dir`) · alpha β 0.4~1 | **은행 불필요** — 불규칙한 이상 영역 |
 
 기본값은 샘플 은행에서 "결함이 옅어지는 정도"(hard-paste 대비 마스크 안 L1 비율)를 재서 정했습니다 — 세 조화 방법 모두 정의상 결함 톤을 대상 쪽으로 당기므로 strength를 낮게 뒀습니다. 실데이터 학습 mAP 근거는 아직 없습니다(로드맵).
 
@@ -165,6 +169,8 @@ Then `recipe init` → edit `inputs.bank` / `inputs.targets` (normal-image folde
 
 If `bank ls` shows many `ellipse` fallbacks (thin, faint scratches), try `--mask-from otsu` or adjust `--min-box` — a box is not a defect boundary.
 
+**No labelled defects at all?** The `self-cut` (CutPaste) and `perlin-texture` (DRAEM) presets run on normal images alone: `anograft recipe init --preset self-cut --targets <normals> --write r.yaml` (`inputs.bank: null`) → `run`. Single class (`cutpaste` / `anomaly`) for binary anomaly training; `preview --compare-methods source` shows the three sources side by side.
+
 ### Presets
 
 Same seed and target across the four presets (`preview --compare-methods blend|harmonize` compares within a stage):
@@ -176,7 +182,9 @@ Same seed and target across the four presets (`preview --compare-methods blend|h
 | `poisson-graft` (default) | NSA | Poisson (normal) · stats 0.3 | Most defects; keeps low-gradient stains alive |
 | `multiband-graft` | Laplacian pyramid | multiband · histmatch 0.3 | Best texture preservation, fewer halos |
 | `alpha-paste` | Feathered paste | alpha (feather 2) · Reinhard 0.5 | Fast, colour-matched edges |
-| `hard-paste` | CutPaste | paste · none | Crudest baseline for training experiments |
+| `hard-paste` | CutPaste (bank) | paste · none | Crudest baseline for training experiments |
+| `self-cut` | CutPaste · Scar | source = rect/scar patch cut from the target itself + colour jitter · paste | **No bank needed** — start from normal images only |
+| `perlin-texture` | DRAEM | source = Perlin-noise mask + texture (augmented self-window or `texture_dir`) · alpha β 0.4–1 | **No bank needed** — irregular anomaly regions |
 
 Defaults were chosen by measuring how much each method fades the defect on the sample bank (in-mask L1 relative to hard-paste); all three harmonize methods pull defect tone toward the target by construction, so strengths are kept low. No real-data mAP evidence yet (roadmap).
 

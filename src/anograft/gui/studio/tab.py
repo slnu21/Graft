@@ -156,11 +156,17 @@ class StudioTab(QWidget):
         summary = ""
         if ses.prepared is not None:
             b = ses.prepared.bank
-            rows = ", ".join(
-                f"{r.cls} {r.count}" + (f"(추정 {r.estimated})" if r.estimated else "")
-                for r in b.summary()
+            if ses.recipe.bankless:
+                head = f"은행 없음 — {ses.recipe.pipeline.source.method} (클래스 {ses.recipe.pipeline.source.cls})"
+            else:
+                rows = ", ".join(
+                    f"{r.cls} {r.count}" + (f"(추정 {r.estimated})" if r.estimated else "")
+                    for r in b.summary()
+                )
+                head = f"은행 {b.name}: {len(b)}개 — {rows}"
+            summary = (
+                f"{head}\n대상 {len(ses.prepared.targets)}장 · hash {ses.prepared.pipeline_hash}"
             )
-            summary = f"은행 {b.name}: {len(b)}개 — {rows}\n대상 {len(ses.prepared.targets)}장 · hash {ses.prepared.pipeline_hash}"
         self.inputs.sync(ses.recipe, summary)
         self.strip.note.setText(self._note())
         self.context.emit(self._context())
@@ -227,7 +233,8 @@ class StudioTab(QWidget):
 
     def open_inputs(self, bank: str, targets: str) -> None:
         try:
-            self.session.set_paths(bank or None, targets or None)
+            # bank 빈칸 = 은행 없음(self-cut·perlin 프리셋). bank 소스인데 비어 있으면 레시피 검증이 막는다(SessionError)
+            self.session.set_paths(bank, targets or None)
         except SessionError as e:
             QMessageBox.warning(self, "입력 오류", str(e))
             return
@@ -250,7 +257,7 @@ class StudioTab(QWidget):
         self.sync_widgets()
         if self.session.needs_prepare():
             self.open_inputs(
-                self.session.recipe.inputs.bank.as_posix(),
+                self.session.recipe.inputs.bank_key(),
                 self.session.recipe.inputs.targets.as_posix(),
             )
         else:

@@ -68,13 +68,19 @@ def _posix(p: Path) -> str:
 
 
 class Inputs(_Strict):
-    bank: Path
+    bank: Path | None = (
+        None  # source.method == bank 면 필수 (Recipe._cross_checks). self-cut·perlin은 은행 없이 동작
+    )
     targets: Path  # 폴더 또는 경로 목록 .txt
     um_per_px: float | None = Field(default=None, gt=0)
 
     @field_serializer("bank", "targets")
-    def _ser_paths(self, p: Path) -> str:
-        return _posix(p)
+    def _ser_paths(self, p: Path | None) -> str | None:
+        return None if p is None else _posix(p)
+
+    def bank_key(self) -> str:
+        """GUI·prepare 비교용 문자열 — 은행이 없으면 빈 문자열."""
+        return "" if self.bank is None else self.bank.as_posix()
 
 
 class YoloWriterConfig(_Strict):
@@ -137,7 +143,104 @@ class BankSourceConfig(_Strict):
     min_sources_warn: int = Field(default=10, ge=0)
 
 
-SourceConfig = Annotated[BankSourceConfig, Field(discriminator="method")]
+class ColorJitterConfig(_Strict):
+    """CutPaste식 색 지터 — 각 값은 최대 변화폭(0 = 끔). brightness·contrast·saturation은 배율 ``1±v``, hue는 ``±v·180°``."""
+
+    brightness: float = Field(default=0.1, ge=0.0, le=1.0)
+    contrast: float = Field(default=0.1, ge=0.0, le=1.0)
+    saturation: float = Field(default=0.1, ge=0.0, le=1.0)
+    hue: float = Field(default=0.1, ge=0.0, le=0.5)
+
+    @property
+    def enabled(self) -> bool:
+        return any(v > 0 for v in (self.brightness, self.contrast, self.saturation, self.hue))
+
+
+class SelfCutSourceConfig(_Strict):
+    """CutPaste(Li 2021) — 대상 이미지 자신에서 패치를 잘라 붙인다. 은행 불필요.
+
+    ``shape``: ``rect``(면적비·종횡비) · ``scar``(가는 긴 띠, px 치수; 회전은 geometry 몫) · ``mixed``(결함마다 50/50)."""
+
+    method: Literal["self-cut"] = "self-cut"
+    cls: str = Field(default="cutpaste", min_length=1)  # 사이드카·YOLO 클래스 이름
+    shape: Literal["rect", "scar", "mixed"] = "mixed"
+    area_ratio: Range = (0.02, 0.15)  # rect: 패치 면적 / 이미지 면적
+    aspect: Range = (0.3, 3.3)  # rect: w/h (로그균등)
+    scar_width_px: IntRange = (2, 16)
+    scar_length_px: IntRange = (20, 120)
+    margin_px: int = Field(default=8, ge=0)  # 크롭 여유 (poisson 팽창·페더가 잘리지 않게)
+    max_tries: int = Field(default=20, ge=1)  # ROI 안에서 자를 자리 찾기
+    jitter: ColorJitterConfig = Field(default_factory=ColorJitterConfig)
+
+    @field_validator("area_ratio")
+    @classmethod
+    def _area_ratio_unit(cls, v: tuple[float, float]) -> tuple[float, float]:
+        if v[0] <= 0 or v[1] > 1:
+            raise ValueError("area_ratio는 (0, 1] 안이어야 합니다")
+        return v
+
+    @field_validator("aspect")
+    @classmethod
+    def _aspect_positive(cls, v: tuple[float, float]) -> tuple[float, float]:
+        if v[0] <= 0:
+            raise ValueError("aspect 범위는 양수여야 합니다")
+        return v
+
+    @field_validator("scar_width_px", "scar_length_px")
+    @classmethod
+    def _scar_positive(cls, v: tuple[int, int]) -> tuple[int, int]:
+        if v[0] < 1:
+            raise ValueError("스카 치수는 1px 이상이어야 합니다")
+        return v
+
+
+class PerlinSourceConfig(_Strict):
+    """DRAEM(Zavrtanik 2021) — 펄린 노이즈 임계 마스크 + 텍스처. 은행 불필요.
+
+    ``texture``: ``self``(대상 자신의 다른 창을 증강) · ``dir``(``texture_dir``의 이미지, 예: 사용자가 내려받은 DTD —
+    재배포하지 않고 읽기만; 비어 있으면 self로 폴백 + 경고)."""
+
+    method: Literal["perlin-texture"] = "perlin-texture"
+    cls: str = Field(default="anomaly", min_length=1)
+    texture: Literal["self", "dir"] = "self"
+    texture_dir: Path | None = None
+    size_ratio: Range = (0.2, 0.5)  # 창 한 변 / min(H, W)
+    scale_range: IntRange = (0, 5)  # 펄린 해상도 지수 k: res = 2^k (DRAEM 0..5)
+    threshold: float = Field(default=0.5, ge=-1.0, le=1.0)
+    rotate: Range = (-90.0, 90.0)
+    min_area_px: int = Field(default=16, ge=1)  # 임계 마스크가 이보다 작으면 그 결함 skip
+    augment: bool = True  # DRAEM식 텍스처 증강(3종 무작위)
+    max_tries: int = Field(default=5, ge=1)  # 마스크 면적 부족 시 재생성
+
+    @field_serializer("texture_dir")
+    def _ser_dir(self, p: Path | None) -> str | None:
+        return None if p is None else _posix(p)
+
+    @field_validator("size_ratio")
+    @classmethod
+    def _size_ratio_unit(cls, v: tuple[float, float]) -> tuple[float, float]:
+        if v[0] <= 0 or v[1] > 1:
+            raise ValueError("size_ratio는 (0, 1] 안이어야 합니다")
+        return v
+
+    @field_validator("scale_range")
+    @classmethod
+    def _scale_range_bounds(cls, v: tuple[int, int]) -> tuple[int, int]:
+        if v[0] < 0 or v[1] > 8:
+            raise ValueError("scale_range는 [0, 8] 안이어야 합니다 (res = 2^k)")
+        return v
+
+    @model_validator(mode="after")
+    def _dir_requires_path(self) -> PerlinSourceConfig:
+        if self.texture == "dir" and self.texture_dir is None:
+            raise ValueError("texture: dir 이면 texture_dir 이 필요합니다")
+        return self
+
+
+SourceConfig = Annotated[
+    BankSourceConfig | SelfCutSourceConfig | PerlinSourceConfig, Field(discriminator="method")
+]
+BANKLESS_SOURCES: frozenset[str] = frozenset({"self-cut", "perlin-texture"})
 
 
 class ElasticConfig(_Strict):
@@ -218,6 +321,15 @@ class PasteBlendConfig(_Strict):
 class AlphaBlendConfig(_Strict):
     method: Literal["alpha"] = "alpha"
     feather_px: int = Field(default=3, ge=0)
+    # DRAEM β — 결함마다 uniform(lo, hi) 불투명도. null(기본)이면 rng를 소비하지 않는다(기존 프리셋 스트림 불변).
+    opacity: Range | None = None
+
+    @field_validator("opacity")
+    @classmethod
+    def _opacity_unit(cls, v: tuple[float, float] | None) -> tuple[float, float] | None:
+        if v is not None and (v[0] < 0 or v[1] > 1):
+            raise ValueError("opacity 범위는 [0, 1] 안이어야 합니다")
+        return v
 
 
 class PoissonBlendConfig(_Strict):
@@ -350,13 +462,28 @@ class Recipe(_Strict):
 
     @model_validator(mode="after")
     def _cross_checks(self) -> Recipe:
+        src = self.pipeline.source
+        if src.method == "bank" and self.inputs.bank is None:
+            raise ValueError(
+                "inputs.bank 가 필요합니다 (source.method: bank). 은행 없이 쓰려면 self-cut·perlin-texture"
+            )
         ratio = self.output.class_ratio
-        classes = self.pipeline.source.classes
-        if ratio is not None and classes is not None:
-            missing = sorted(set(ratio) - set(classes))
-            if missing:
-                raise ValueError(f"class_ratio의 클래스가 source.classes에 없습니다: {missing}")
+        if src.method == "bank":
+            classes = src.classes
+            if ratio is not None and classes is not None:
+                missing = sorted(set(ratio) - set(classes))
+                if missing:
+                    raise ValueError(f"class_ratio의 클래스가 source.classes에 없습니다: {missing}")
+        elif ratio is not None and set(ratio) - {src.cls}:
+            raise ValueError(
+                f"class_ratio의 클래스가 source.cls('{src.cls}')와 다릅니다: {sorted(set(ratio) - {src.cls})}"
+            )
         return self
+
+    @property
+    def bankless(self) -> bool:
+        """은행 없이 동작하는 소스(self-cut·perlin-texture)인가."""
+        return self.pipeline.source.method in BANKLESS_SOURCES
 
     # --- 직렬화 ---
 
@@ -410,7 +537,9 @@ class Recipe(_Strict):
     # --- 은행 대조 (런타임 검증) ---
 
     def effective_classes(self, bank: BankLike) -> list[str]:
-        """실제로 뽑을 클래스 목록: source.classes → class_ratio 키 → 은행 전체."""
+        """실제로 뽑을 클래스 목록: (비-bank 소스면 ``[cls]``) → source.classes → class_ratio 키 → 은행 전체."""
+        if self.bankless:
+            return [self.pipeline.source.cls]
         if self.pipeline.source.classes is not None:
             return list(self.pipeline.source.classes)
         if self.output.class_ratio is not None:
@@ -436,8 +565,14 @@ class Recipe(_Strict):
         return Recipe.from_dict(d)
 
     def validate_against(self, bank: BankLike) -> list[str]:
-        """은행과 대조. 치명적이면 ``ValueError``, 아니면 경고 문자열 목록을 돌려준다."""
+        """은행과 대조. 치명적이면 ``ValueError``, 아니면 경고 문자열 목록을 돌려준다. 비-bank 소스는 대조할 게 없다."""
         warnings: list[str] = []
+        if self.bankless:
+            if self.inputs.bank is not None:
+                warnings.append(
+                    f"source.method '{self.pipeline.source.method}'는 은행을 쓰지 않습니다 — inputs.bank는 무시됩니다"
+                )
+            return warnings
         bank_classes = set(bank.classes)
         counts = bank.counts()
         classes = self.effective_classes(bank)
@@ -585,4 +720,7 @@ def init_recipe_dict(
         },
         "pipeline": {"preset": preset},
     }
+    pipe = apply_preset(dict(data))["pipeline"]
+    if str(pipe.get("source", {}).get("method", "bank")) in BANKLESS_SOURCES:
+        data["inputs"]["bank"] = None  # 은행 없이 동작하는 프리셋
     return Recipe.from_dict(data).to_dict()

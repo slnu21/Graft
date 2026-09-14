@@ -1,0 +1,43 @@
+# Perlin Texture — DRAEM 계열(Zavrtanik et al. 2021). **은행 불필요** — 펄린 노이즈 임계 마스크 + 텍스처(기본: 대상 자신의 다른 창을 증강).
+# 외부 텍스처셋(DTD 등)이 있으면 `texture: dir` + `texture_dir: <폴더>` — Graft 는 재배포하지 않고 로컬 사본을 읽기만 한다.
+# 2026-09-14(v0.4 source-selfcut-perlin): 마스크가 이미 무작위라 geometry 는 항등, 블렌딩은 alpha feather 1 + DRAEM β(opacity).
+#   DRAEM 원본은 β 0.2~1.0 이지만 0.2 는 육안으로 거의 안 보이는데 GT 는 남는다(라벨 노이즈) → 기본 0.4~1.0(샘플 preview 05 근거).
+#   더 옅은 이상까지 학습시키려면 0.2 로 내리고, 보이는 곳만 라벨하려면 gtmask policy: diff.
+pipeline:
+  source:
+    method: perlin-texture
+    cls: anomaly
+    texture: self             # self | dir
+    texture_dir: null
+    size_ratio: [0.2, 0.5]    # 창 한 변 / min(H, W)
+    scale_range: [0, 5]       # 펄린 해상도 2^k
+    threshold: 0.5
+    rotate: [-90, 90]
+    min_area_px: 16
+    augment: true
+    max_tries: 5
+  geometry:
+    method: affine
+    scale: [1.0, 1.0]
+    rotate: [0, 0]
+    flip: false
+    elastic: { alpha: 0, sigma: 4 }
+  placement:
+    method: sampled
+    roi: { method: otsu, invert: auto, erode_px: 8 }
+    distribution: uniform
+    margin_px: 8
+    max_tries: 50
+    shrink_on_fail: { factor: 0.8, rounds: 3 }
+  blend:
+    method: alpha
+    feather_px: 1
+    opacity: [0.4, 1.0]
+  harmonize:
+    method: none
+  degrade:
+    method: none
+  gtmask:
+    policy: source
+    diff_threshold: 12
+    dilate_px: 0

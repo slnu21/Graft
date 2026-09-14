@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+### Added
+- **은행 없이 동작하는 소스 2종**(v0.4): `self-cut`(CutPaste·Scar — 대상 자신의 사각/스카 패치 + 색 지터) · `perlin-texture`(DRAEM — 펄린 노이즈 임계 마스크 + 텍스처(대상 자신 증강 또는 `texture_dir`)). 프리셋 `self-cut` · `perlin-texture`, `inputs.bank: null` 허용(bank 소스만 은행 필수), `recipe init`이 자동으로 `bank: null`. `anograft methods` source 3종, `preview --compare-methods source`.
+- `blend.alpha.opacity`(DRAEM β) — 설정 시에만 결함마다 rng 1회(기존 프리셋 결과 불변).
+- `core/perlin.py`(펄린 노이즈·마스크), 골든 +4(self-cut·perlin-texture × gray/color).
+
 ## [0.1.0] - 2026-09-14
 
 첫 릴리스 — CLI 코어 + GUI 스튜디오 탭 + Windows zip. **샘플 데이터로만 검증**(보유 실데이터·MVTec AD·학습 1 epoch 미검증 — 데이터가 생기면 README "보유 데이터로" 3줄).

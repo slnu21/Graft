@@ -1,0 +1,20 @@
+# 은행 없이 — 정상 이미지만으로 CutPaste(self-cut) 합성. `inputs.bank: null` 이 핵심.
+#   anograft sample --out samples/metal                           # 정상 이미지가 없을 때 샘플
+#   anograft bank import-yolo ... --list-normals samples/metal/normals.txt   # (정상 목록만 필요 — 은행은 안 씀)
+#   anograft run recipes/example-selfcut.yaml --workers 4         # → out/selfcut/{images,masks,meta,labels,data.yaml}  클래스 [cutpaste]
+#   anograft preview recipes/example-selfcut.yaml --index 0 --compare-methods source   # bank | self-cut | perlin-texture 나란히
+# perlin-texture 로 바꾸려면 `preset: perlin-texture` (클래스 anomaly). 둘 다 정상 이미지 폴더만 있으면 된다.
+version: 1
+name: example-selfcut
+seed: 20260914
+inputs: {bank: null, targets: samples/metal/normals.txt, um_per_px: null}
+output:
+  root: out/selfcut
+  count: 24
+  class_ratio: null
+  defects_per_image: [1, 2]
+  include_normals: true
+  copy_mode: copy
+  writer: {format: yolo, seg: false, names_from: bank}   # names = [cutpaste]
+pipeline:
+  preset: self-cut

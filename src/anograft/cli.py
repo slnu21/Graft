@@ -150,8 +150,12 @@ def cmd_recipe_check(args: argparse.Namespace) -> int:
         for p in problems:
             _err(f"  {p}")
     # 은행이 있으면 대조까지 (없으면 생략 — check는 레시피 파일만으로도 쓸 수 있어야 한다)
-    bank_path = Path(rec.inputs.bank)
-    if (bank_path / "bank.yaml").is_file():
+    bank_path = None if rec.inputs.bank is None else Path(rec.inputs.bank)
+    if rec.bankless:
+        print(
+            f"은행 불필요: source.method {rec.pipeline.source.method} — 클래스 [{rec.pipeline.source.cls}]"
+        )
+    elif bank_path is not None and (bank_path / "bank.yaml").is_file():
         try:
             bank = Bank.load(bank_path)
             for w in rec.validate_against(bank):
@@ -161,7 +165,9 @@ def cmd_recipe_check(args: argparse.Namespace) -> int:
             _err(f"은행 대조 실패: {e}")
             problems.append(str(e))
     else:
-        print(f"은행 대조 생략: {bank_path.as_posix()} 에 bank.yaml 없음")
+        print(
+            f"은행 대조 생략: {bank_path.as_posix() if bank_path else '(없음)'} 에 bank.yaml 없음"
+        )
     if args.resolved:
         sys.stdout.write(rec.to_yaml())
     return EXIT_RECIPE_ERROR if problems else EXIT_OK

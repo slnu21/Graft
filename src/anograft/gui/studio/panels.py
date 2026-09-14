@@ -232,7 +232,7 @@ class InputsPanel(QWidget):
             self.targets.setText(Path(f).as_posix())
 
     def sync(self, recipe: R.Recipe, summary: str) -> None:
-        self.bank.setText(recipe.inputs.bank.as_posix())
+        self.bank.setText(recipe.inputs.bank_key())  # 빈칸 = 은행 없음(self-cut·perlin)
         self.targets.setText(recipe.inputs.targets.as_posix())
         self.summary.setText(summary)
 

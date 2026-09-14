@@ -121,10 +121,12 @@ def memory_bank(sources: Iterable[DefectSource] | None = None) -> Bank:
 
 
 def pipeline_deps(recipe: Recipe, bank: Bank) -> dict[str, Any]:
-    """``runner.build_deps``와 같은 모양(core 테스트가 io를 끌어오지 않게 여기서 만든다)."""
+    """``runner.build_deps``와 같은 모양(core 테스트가 io를 끌어오지 않게 여기서 만든다).
+    비-bank 소스(self-cut·perlin)면 class_ids = ``{cls: 0}`` — runner.prepared_classes 와 같은 규칙."""
+    classes = recipe.effective_classes(bank) if recipe.bankless else list(bank.classes)
     return {
         "bank": bank,
-        "class_ids": bank.class_ids,
+        "class_ids": {c: i for i, c in enumerate(classes)},
         "class_probs": recipe.class_probabilities(bank),
         "read_mask": imgio.read_mask,
     }

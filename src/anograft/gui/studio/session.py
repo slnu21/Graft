@@ -99,9 +99,11 @@ class StudioSession:
     def set_paths(
         self, bank: str | Path | None = None, targets: str | Path | None = None
     ) -> R.Recipe:
+        """``bank=""``(빈 문자열)은 "은행 없음"(``inputs.bank: null`` — self-cut·perlin 프리셋). None 은 "그대로"."""
+
         def mutate(d: dict[str, Any]) -> None:
             if bank is not None:
-                d["inputs"]["bank"] = Path(bank).as_posix()
+                d["inputs"]["bank"] = Path(bank).as_posix() if str(bank) else None
             if targets is not None:
                 d["inputs"]["targets"] = Path(targets).as_posix()
 
@@ -147,13 +149,13 @@ class StudioSession:
     # ------------------------------------------------------------------ 준비(은행·대상)
 
     def prepare_key(self) -> tuple[str, str]:
-        return (self.recipe.inputs.bank.as_posix(), self.recipe.inputs.targets.as_posix())
+        return (self.recipe.inputs.bank_key(), self.recipe.inputs.targets.as_posix())
 
     def needs_prepare(self) -> bool:
         if self.prepared is None:
             return True
         return self.prepare_key() != (
-            self.prepared.recipe.inputs.bank.as_posix(),
+            self.prepared.recipe.inputs.bank_key(),
             self.prepared.recipe.inputs.targets.as_posix(),
         )
 
@@ -169,7 +171,7 @@ class StudioSession:
     def accept_prepared(self, prep: runner.Prepared) -> bool:
         """워커 결과 수용. 그 사이 은행/대상이 또 바뀌었으면 False(버림)."""
         if (
-            prep.recipe.inputs.bank.as_posix(),
+            prep.recipe.inputs.bank_key(),
             prep.recipe.inputs.targets.as_posix(),
         ) != self.prepare_key():
             return False
@@ -220,7 +222,7 @@ class StudioSession:
             "recipe": r.name,
             "preset": str(r.pipeline.preset),
             "seed": str(r.seed),
-            "bank": r.inputs.bank.as_posix(),
+            "bank": r.inputs.bank_key() or "(없음)",
             "targets": r.inputs.targets.as_posix(),
         }
         if self.prepared is not None:

@@ -167,7 +167,7 @@ def test_load_with_overrides(tmp_path: Path) -> None:
 
 def test_init_recipe_dict_is_fully_expanded() -> None:
     d = R.init_recipe_dict("alpha-paste")
-    assert d["pipeline"]["blend"] == {"method": "alpha", "feather_px": 2}
+    assert d["pipeline"]["blend"] == {"method": "alpha", "feather_px": 2, "opacity": None}
     assert d["pipeline"]["harmonize"]["method"] == "reinhard"
     assert d["output"]["writer"]["format"] == "yolo"
 
