@@ -61,8 +61,9 @@ def read_image(path: str | Path) -> tuple[np.ndarray, bool]:
     raise ImageReadError(f"지원하지 않는 채널 구성 {img.shape}: {p}")
 
 
-def read_mask(path: str | Path) -> np.ndarray:
-    """마스크를 ``HxW uint8 0/255``로 읽는다. 회색값은 ``>127``로 이진화 — 회색이 섞인 마스크를 그대로 믿지 않는다."""
+def read_mask(path: str | Path, *, threshold: int = 127) -> np.ndarray:
+    """마스크를 ``HxW uint8 0/255``로 읽는다. 회색값은 ``> threshold``(기본 127)로 이진화 — 회색이 섞인 마스크를 그대로
+    믿지 않는다. 값이 0/1 인 라벨맵(VisA 등)은 ``threshold=0``."""
     p = Path(path)
     if not p.is_file():
         raise ImageReadError(f"파일이 없습니다: {p}")
@@ -74,6 +75,8 @@ def read_mask(path: str | Path) -> np.ndarray:
         img = img[:, :, 0]
     if img.dtype != np.uint8:
         img = (img > 0).astype(np.uint8) * 255
+    if threshold != 127:
+        return np.where(img > threshold, 255, 0).astype(np.uint8)
     return binarize(img)
 
 

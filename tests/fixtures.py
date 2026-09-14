@@ -7,6 +7,7 @@
 - ``blob_image`` · ``fake_yolo_dataset(root)``: 어두운 판 위 밝은 얼룩 + YOLO 박스/폴리곤 라벨 — 임포터·CLI e2e 픽스처.
 - ``blob_mask`` · ``fake_pairs_dataset(root)``: 이미지 + 마스크 PNG 쌍(suffix/동일 stem/CSV 세 매칭) — import-pairs 픽스처.
 - ``fake_mvtec_tree(root)``: MVTec AD 카테고리 폴더 흉내(test/<defect> 2종 + ground_truth + train/good 4장 + test/good).
+- ``fake_visa_tree(root)``: VisA 카테고리 폴더 흉내(Data/Images/{Normal,Anomaly} JPG + Data/Masks/Anomaly 0/1 라벨맵 + image_anno.csv).
 """
 
 from __future__ import annotations
@@ -262,4 +263,45 @@ def fake_mvtec_tree(root: Path, *, category: str = "metal_nut", size: int = 96) 
             imgio.write_image(
                 cat / "ground_truth" / defect / f"{i:03d}_mask.png", blob_mask(size, shifted)
             )
+    return cat
+
+
+def fake_visa_tree(
+    root: Path, *, category: str = "candle", size: int = 96, anno: bool = True
+) -> Path:
+    """``<root>/<category>/Data/Images/{Normal ×3, Anomaly ×3}.JPG + Data/Masks/Anomaly/<idx>.png + image_anno.csv``.
+    ``Anomaly/002`` 는 마스크가 **없다**(건너뛰고 경고). 마스크는 **0/1 라벨맵**(VisA 사본 케이스 — 어댑터가 threshold 0 으로 읽는다).
+    ``anno=True`` 면 CSV 에 정상 3 + 결함 3 행(마지막은 존재하지 않는 파일 → 경고). 반환: 카테고리 폴더."""
+    cat = root / category
+    blobs = MVTEC_DEFECTS["scratch"]
+    rows: list[tuple[str, str, str]] = []
+    for i in range(3):
+        name = f"{i:04d}.JPG"
+        imgio.write_image(cat / "Data" / "Images" / "Normal" / name, blob_image(size))
+        rows.append((f"{category}/Data/Images/Normal/{name}", "normal", ""))
+    for i in range(3):
+        name = f"{i:03d}.JPG"
+        shifted = [(cx + i * 3, cy, r) for cx, cy, r in blobs]
+        imgio.write_image(cat / "Data" / "Images" / "Anomaly" / name, blob_image(size, shifted))
+        rows.append(
+            (
+                f"{category}/Data/Images/Anomaly/{name}",
+                "anomaly",
+                f"{category}/Data/Masks/Anomaly/{i:03d}.png",
+            )
+        )
+        if i == 2:
+            continue  # 마스크 누락 케이스
+        m = (blob_mask(size, shifted) > 0).astype(np.uint8)  # 0/1 라벨맵
+        imgio.write_image(cat / "Data" / "Masks" / "Anomaly" / f"{i:03d}.png", m)
+    if anno:
+        rows.append(
+            (
+                f"{category}/Data/Images/Anomaly/999.JPG",
+                "anomaly",
+                f"{category}/Data/Masks/Anomaly/999.png",
+            )
+        )
+        lines = ["image,label,mask"] + [",".join(r) for r in rows]
+        (cat / "image_anno.csv").write_text("\n".join(lines) + "\n", encoding="utf-8")
     return cat
