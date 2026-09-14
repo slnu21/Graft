@@ -16,6 +16,7 @@ from anograft.io import imgio
 from anograft.io.manifest import COLUMNS, read_manifest, row_from_sidecar
 from anograft.io.writers import make_writer
 from anograft.io.writers.pairs import PairsWriter
+from anograft.io.writers.yolo import YoloWriter
 from tests.fixtures import disk_target, line_defect, memory_bank, pipeline_deps
 
 
@@ -199,11 +200,11 @@ def test_row_from_sidecar_joins_multi_defects() -> None:
     assert row["blend"] == "alpha;poisson" and row["fallback"] == 1 and row["area_px"] == 30
 
 
-def test_make_writer_falls_back_to_pairs_with_warning() -> None:
+def test_make_writer_picks_format_without_warning() -> None:
     w, warn = make_writer(R.PairsWriterConfig())
-    assert isinstance(w, PairsWriter) and warn is None
-    w, warn = make_writer(R.YoloWriterConfig())
-    assert isinstance(w, PairsWriter) and warn and "yolo" in warn
+    assert type(w) is PairsWriter and warn is None
+    w, warn = make_writer(R.YoloWriterConfig(seg=True))
+    assert isinstance(w, YoloWriter) and w.format == "yolo" and w.cfg.seg and warn is None
 
 
 @pytest.mark.parametrize("gray", [False, True])

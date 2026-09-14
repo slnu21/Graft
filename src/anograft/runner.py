@@ -10,12 +10,16 @@ GUI가 같은 함수를 부른다. ``core``가 파일을 모르는 대신 여기
 - 이미지 단위 예외는 ``status: skipped, reason`` 으로 manifest에 남기고 계속 간다. 전체 실패는 ``prepare`` 단계에서만
   (``PrepareError``).
 - 레시피의 상대경로(``inputs.bank``·``inputs.targets``·``output.root``)는 **현재 작업 디렉터리** 기준.
-- ``workers > 0``(프로세스 풀)은 bank-writer-parallel(#758)에서 — 지금은 인프로세스로 돌리고 경고 한 줄.
+- ``workers > 0``: ``multiprocessing``(spawn) 풀. 워커는 ``initializer``에서 레시피 YAML로 ``prepare``를 **한 번** 돌려
+  은행·대상·파이프라인을 자기 메모리에 두고(피클 왕복 없음), ``run_index(i)``만 받는다. 결과(``GraftResult``)는 순서대로
+  메인에 오고 **메인만 파일을 쓴다**. 인덱스 ``i``의 결과는 워커 배정과 무관하게 ``image_rng(seed, i)``로 정해지므로
+  ``--workers 0``과 바이트 동일(테스트 고정). 워커 수가 count보다 크면 count로 줄인다.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+import multiprocessing as mp
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -174,6 +178,35 @@ class RunSummary:
         return self.count > 0 and self.writer.n_ok == 0
 
 
+# --- 워커 프로세스 (spawn: 모듈이 다시 import되므로 전부 모듈 수준 함수) ---
+
+_WORKER_PREP: Prepared | None = None
+
+
+def _worker_init(recipe_yaml: str) -> None:
+    """풀 initializer — 레시피 YAML → ``prepare``(은행·대상·파이프라인) 1회. 실패는 각 인덱스에서 예외로 드러난다."""
+    global _WORKER_PREP
+    _WORKER_PREP = prepare(Recipe.from_yaml(recipe_yaml))
+
+
+def _worker_run(index: int) -> GraftResult:
+    assert _WORKER_PREP is not None, "워커가 초기화되지 않았습니다"
+    return run_index(_WORKER_PREP, index)
+
+
+def iter_results(prep: Prepared, indices: Iterable[int], workers: int) -> Iterator[GraftResult]:
+    """``indices`` 순서대로 결과를 낸다. ``workers == 0``이면 인프로세스, 아니면 spawn 풀(``imap``, chunksize 4)."""
+    idx = list(indices)
+    if workers <= 0 or not idx:
+        for i in idx:
+            yield run_index(prep, i)
+        return
+    n = min(workers, len(idx))
+    ctx = mp.get_context("spawn")
+    with ctx.Pool(n, initializer=_worker_init, initargs=(prep.recipe.to_yaml(),)) as pool:
+        yield from pool.imap(_worker_run, idx, chunksize=4)
+
+
 def run(
     prep: Prepared,
     *,
@@ -183,10 +216,6 @@ def run(
 ) -> RunSummary:
     recipe = prep.recipe
     warnings = list(prep.warnings)
-    if workers > 0:
-        warnings.append(
-            f"--workers {workers}: 멀티프로세싱은 다음 단위(#758) — 인프로세스로 실행합니다"
-        )
     writer, wwarn = make_writer(recipe.output.writer)
     if wwarn:
         warnings.append(wwarn)
@@ -205,14 +234,45 @@ def run(
         for p in prep.targets:
             writer.write_normal(p)
     count = recipe.output.count
-    for i in range(count):
-        result = run_index(prep, i)
+    for i, result in enumerate(iter_results(prep, range(count), workers)):
         writer.write_synthetic(result)
         if progress is not None:
             progress(i + 1, count, result)
     summary = writer.finish()
     warnings += summary.warnings
     return RunSummary(summary, count, warnings)
+
+
+# ---------------------------------------------------------------------------
+# 같은 시드로 method 비교 (preview --compare-methods)
+# ---------------------------------------------------------------------------
+
+
+def compare_methods(
+    prep: Prepared, stage: str, index: int
+) -> list[tuple[str, GraftResult | None, str | None]]:
+    """스테이지의 스키마 method 전부를 같은 대상·같은 rng로 돌린다. 반환 ``[(method, result | None, 사유)]`` —
+    미구현·불가·레시피 오류는 result None + 사유(격자에 그대로 찍힌다). ``mask_dir`` 같이 필수 키가 있는 method는 건너뛴다."""
+    out: list[tuple[str, GraftResult | None, str | None]] = []
+    _rng0, path = pick_target(prep, index)
+    try:
+        target = load_target(path, prep.recipe.inputs.um_per_px)
+    except imgio.ImageReadError as e:
+        raise PrepareError(f"대상 읽기 실패: {e}") from e
+    for info in registry.list_methods(stage):
+        if not info.usable:
+            out.append((info.method, None, info.reason or "미구현"))
+            continue
+        try:
+            rec = prep.recipe.with_method(stage, info.method)
+            p = reprepare(prep, rec)
+        except (PrepareError, ValueError) as e:
+            out.append((info.method, None, str(e).splitlines()[0][:80]))
+            continue
+        rng, _ = pick_target(p, index)  # 같은 seed·index → 같은 스트림
+        result = p.pipeline.run_one(target, index, rng=rng)
+        out.append((info.method, result, None))
+    return out
 
 
 def dry_run_table(prep: Prepared) -> list[tuple[str, str]]:

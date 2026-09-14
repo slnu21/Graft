@@ -102,6 +102,10 @@ class PairsWriter:
 
     def write_normal(self, path: Path) -> None:
         """정상 이미지 = 이미지(복사/하드링크) + 빈 마스크 + 최소 사이드카. 세 쌍 불변식은 정상 이미지에도 적용."""
+        self._write_normal(path)
+
+    def _write_normal(self, path: Path) -> str:
+        """``write_normal``의 실체 — 형식 writer가 이어 쓸 수 있게 출력 이름(``n_<stem>``)을 돌려준다."""
         assert self.root is not None and self.recipe is not None and self.summary is not None
         name = self._normal_name(Path(path).stem)
         img_p, mask_p, meta_p = self._paths(name)
@@ -144,9 +148,11 @@ class PairsWriter:
                 image=self._rel(img_p),
                 mask=self._rel(mask_p),
                 meta=self._rel(meta_p),
+                label=self.normal_label_entry(name),
             )
         )
         self.summary.n_normals += 1
+        return name
 
     def write_synthetic(self, result: GraftResult) -> None:
         assert self.root is not None and self.summary is not None
@@ -187,6 +193,9 @@ class PairsWriter:
         return {"format": self.format}
 
     def label_entry(self, result: GraftResult) -> str:
+        return ""
+
+    def normal_label_entry(self, name: str) -> str:
         return ""
 
     def finish(self) -> WriterSummary:

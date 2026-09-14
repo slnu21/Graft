@@ -2,8 +2,10 @@
 #   python tools/make_sample_yolo.py --out samples/metal
 #   anograft bank import-yolo --images samples/metal/images --labels samples/metal/labels --names samples/metal/data.yaml `
 #       --out bank/sample --list-normals samples/metal/normals.txt
-#   anograft run recipes/sample-poisson.yaml            # → out/sample/{images,masks,meta,manifest.csv}
+#   anograft bank preview bank/sample --out out/bank-preview.png       # 추정 마스크 눈으로 확인 (amber = 추정, ellipse = 과라벨)
+#   anograft run recipes/sample-poisson.yaml --workers 4               # → out/sample/{images,masks,meta,labels,data.yaml,manifest.csv}
 #   anograft preview recipes/sample-poisson.yaml --index 0 --out out/sample-preview.png
+#   anograft preview recipes/sample-poisson.yaml --index 0 --compare-methods blend --out out/compare-blend.png
 version: 1
 name: sample-poisson
 seed: 20260914
@@ -15,7 +17,7 @@ output:
   defects_per_image: [1, 2]
   include_normals: true
   copy_mode: copy
-  writer: {format: pairs}          # v0.1 정본. yolo writer는 bank-writer-parallel 이후
+  writer: {format: yolo, seg: false, names_from: bank}   # 정본(images/masks/meta) + labels/·data.yaml — 기존 YOLO 학습셋에 그대로 합침
 pipeline:
   preset: poisson-graft
   source: {method: bank, classes: null, min_sources_warn: 5}

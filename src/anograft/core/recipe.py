@@ -411,6 +411,13 @@ class Recipe(_Strict):
             raise ValueError("선택된 클래스의 class_ratio 합이 0입니다")
         return {c: p / total for c, p in probs.items()}
 
+    def with_method(self, stage: str, method: str) -> Recipe:
+        """스테이지 method만 바꾼 새 레시피 — 그 스테이지 블록은 새 method의 **기본값만** 남긴다(discriminated union이라
+        다른 method의 키가 섞이면 검증 오류). ``preview --compare-methods``·GUI 카드 콤보가 같은 규칙을 쓴다."""
+        d = self.to_dict()
+        set_method_in_dict(d, stage, method)
+        return Recipe.from_dict(d)
+
     def validate_against(self, bank: BankLike) -> list[str]:
         """은행과 대조. 치명적이면 ``ValueError``, 아니면 경고 문자열 목록을 돌려준다."""
         warnings: list[str] = []
@@ -435,6 +442,16 @@ class Recipe(_Strict):
             if unused:
                 warnings.append(f"class_ratio에 있지만 쓰이지 않는 클래스: {unused}")
         return warnings
+
+
+def set_method_in_dict(d: dict[str, Any], stage: str, method: str) -> None:
+    """레시피 dict의 스테이지 블록을 ``{method}``(gtmask는 ``{policy}``, roi는 ``placement.roi``)로 갈아 끼운다."""
+    key = "policy" if stage == "gtmask" else "method"
+    pipe = d.setdefault("pipeline", {})
+    if stage == "roi":
+        pipe.setdefault("placement", {})["roi"] = {"method": method}
+    else:
+        pipe[stage] = {key: method}
 
 
 # ---------------------------------------------------------------------------
