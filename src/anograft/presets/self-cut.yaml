@@ -1,0 +1,38 @@
+# Self-Cut — CutPaste 계열(Li et al. 2021, 3-way: 사각 패치 + 스카). **은행 불필요** — 대상 자신에서 잘라 붙인다.
+# 결함 "모양"을 배우는 자기지도 기준선. 실제 결함 은행이 생기면 poisson-graft 등으로 갈아탄다.
+# 2026-09-14(v0.4 source-selfcut-perlin): 스카 회전 −45~45°는 geometry rotate 로, 색 지터 0.1(CutPaste 기본), paste 블렌딩·조화 없음.
+pipeline:
+  source:
+    method: self-cut
+    cls: cutpaste
+    shape: mixed              # rect | scar | mixed(결함마다 50/50)
+    area_ratio: [0.02, 0.15]  # rect: 이미지 면적 대비
+    aspect: [0.3, 3.3]        # rect: 로그균등
+    scar_width_px: [2, 16]
+    scar_length_px: [20, 120]
+    margin_px: 8
+    max_tries: 20
+    jitter: { brightness: 0.1, contrast: 0.1, saturation: 0.1, hue: 0.1 }
+  geometry:
+    method: affine
+    scale: [1.0, 1.0]
+    rotate: [-45, 45]
+    flip: true
+    elastic: { alpha: 0, sigma: 4 }
+  placement:
+    method: sampled
+    roi: { method: otsu, invert: auto, erode_px: 8 }
+    distribution: uniform
+    margin_px: 8
+    max_tries: 50
+    shrink_on_fail: { factor: 0.8, rounds: 3 }
+  blend:
+    method: paste
+  harmonize:
+    method: none
+  degrade:
+    method: none
+  gtmask:
+    policy: source
+    diff_threshold: 12
+    dilate_px: 0

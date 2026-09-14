@@ -86,12 +86,13 @@ def feather_alpha(mask: np.ndarray, feather_px: int) -> np.ndarray:
     return np.clip(dist / float(feather_px), 0.0, 1.0).astype(np.float32)
 
 
-def alpha_blend(inp: BlendInputs, feather_px: int) -> np.ndarray:
+def alpha_blend(inp: BlendInputs, feather_px: int, opacity: float = 1.0) -> np.ndarray:
+    """``composite*(1-a) + patch*a``, ``a = feather × opacity``. ``opacity``(DRAEM β)는 1이면 항등 배율."""
     out = inp.composite.copy()
     w = inp.window
     if w.empty:
         return out
-    a = feather_alpha(inp.mask, feather_px)[w.pys, w.pxs][..., None]
+    a = feather_alpha(inp.mask, feather_px)[w.pys, w.pxs][..., None] * float(opacity)
     region = out[w.ys, w.xs].astype(np.float32)
     src = inp.patch[w.pys, w.pxs].astype(np.float32)
     mixed = region * (1.0 - a) + src * a

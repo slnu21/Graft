@@ -12,4 +12,4 @@ from anograft.core.stages import gtmask as gtmask  # source · diff · union
 from anograft.core.stages import harmonize as harmonize  # none · stats
 from anograft.core.stages import placement as placement  # sampled
 from anograft.core.stages import roi as roi  # otsu · none · mask_dir
-from anograft.core.stages import source as source  # bank
+from anograft.core.stages import source as source  # bank · self-cut · perlin-texture

@@ -25,10 +25,12 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from pydantic import ValidationError
 
 from anograft import __version__
 from anograft.bank import Bank
 from anograft.bank.bank import BankError
+from anograft.core import recipe as R
 from anograft.core import registry
 from anograft.core.pipeline import Pipeline
 from anograft.core.recipe import Recipe
@@ -48,7 +50,7 @@ class PrepareError(RuntimeError):
 @dataclass
 class Prepared:
     recipe: Recipe
-    bank: Bank
+    bank: Bank  # 비-bank 소스(self-cut·perlin)면 빈 은행 ``Bank.from_sources([], name="(없음)")``
     targets: list[Path]
     pipeline: Pipeline
     pipeline_hash: str
@@ -60,19 +62,58 @@ class Prepared:
         return dict(self.deps["class_probs"])
 
 
-def build_deps(recipe: Recipe, bank: Bank) -> dict[str, Any]:
-    """``Pipeline.from_recipe`` deps 계약(core/pipeline.py 참조)의 표준 구성."""
-    return {
+def load_textures(folder: Path | None, warnings: list[str]) -> list[np.ndarray]:
+    """``perlin-texture`` 의 ``texture_dir`` 이미지들 — 읽기만, 실패는 경고(fail-soft). 순서는 이름 정렬."""
+    if folder is None:
+        return []
+    try:
+        paths = imgio.list_images(folder)
+    except (OSError, ValueError) as e:
+        warnings.append(f"texture_dir 을 읽을 수 없습니다: {e}")
+        return []
+    out: list[np.ndarray] = []
+    for p in paths:
+        try:
+            img, _gray = imgio.read_image(p)
+        except imgio.ImageReadError as e:
+            warnings.append(f"텍스처 읽기 실패: {e}")
+            continue
+        out.append(img)
+    if not out:
+        warnings.append(f"texture_dir 에 이미지가 없습니다: {folder}")
+    return out
+
+
+def prepared_classes(recipe: Recipe, bank: Bank) -> list[str]:
+    """writer·class_ids 가 쓰는 클래스 순서 — bank 소스면 은행 전체, 비-bank 면 ``[cls]``."""
+    return recipe.effective_classes(bank) if recipe.bankless else list(bank.classes)
+
+
+def build_deps(recipe: Recipe, bank: Bank, warnings: list[str] | None = None) -> dict[str, Any]:
+    """``Pipeline.from_recipe`` deps 계약(core/pipeline.py 참조)의 표준 구성. ``warnings``가 있으면 텍스처 로드 경고를 붙인다."""
+    deps: dict[str, Any] = {
         "bank": bank,
-        "class_ids": bank.class_ids,
+        "class_ids": (
+            {c: i for i, c in enumerate(prepared_classes(recipe, bank))}
+            if recipe.bankless
+            else bank.class_ids
+        ),
         "class_probs": recipe.class_probabilities(bank),
         "read_mask": imgio.read_mask,
     }
+    src = recipe.pipeline.source
+    if src.method == "perlin-texture" and src.texture == "dir":
+        deps["textures"] = load_textures(src.texture_dir, warnings if warnings is not None else [])
+    return deps
 
 
 def prepare(recipe: Recipe) -> Prepared:
     try:
-        bank = Bank.load(recipe.inputs.bank)
+        bank = (
+            Bank.from_sources([], name="(없음)")
+            if recipe.inputs.bank is None
+            else Bank.load(recipe.inputs.bank)
+        )
     except BankError as e:
         raise PrepareError(str(e)) from e
     warnings = list(bank.warnings)
@@ -84,7 +125,7 @@ def prepare(recipe: Recipe) -> Prepared:
         targets = list_targets(recipe.inputs.targets)
     except TargetsError as e:
         raise PrepareError(str(e)) from e
-    deps = build_deps(recipe, bank)
+    deps = build_deps(recipe, bank, warnings)
     try:
         pipeline = Pipeline.from_recipe(recipe, deps)
     except (registry.StageNotImplementedError, registry.StageUnavailableError) as e:
@@ -106,7 +147,7 @@ def reprepare(prep: Prepared, recipe: Recipe) -> Prepared:
         warnings += recipe.validate_against(prep.bank)
     except ValueError as e:
         raise PrepareError(f"레시피가 은행과 맞지 않습니다: {e}") from e
-    deps = build_deps(recipe, prep.bank)
+    deps = build_deps(recipe, prep.bank, warnings)
     try:
         pipeline = Pipeline.from_recipe(recipe, deps)
     except (registry.StageNotImplementedError, registry.StageUnavailableError) as e:
@@ -227,7 +268,7 @@ def run(
         root,
         recipe,
         prep.pipeline_hash,
-        prep.bank.classes,
+        prepared_classes(prep.recipe, prep.bank),
         bank_fingerprint=prep.bank.fingerprint(),
     )
     if recipe.output.include_normals:
@@ -266,6 +307,12 @@ def compare_methods(
         try:
             rec = prep.recipe.with_method(stage, info.method)
             p = reprepare(prep, rec)
+        except (
+            ValidationError
+        ) as e:  # 예: 은행 없는 레시피에서 bank 소스 — 어느 키가 왜 틀렸는지 한 줄
+            msg = R.format_validation_error(e).splitlines()[-1].strip()
+            out.append((info.method, None, msg[:80]))
+            continue
         except (PrepareError, ValueError) as e:
             out.append((info.method, None, str(e).splitlines()[0][:80]))
             continue
@@ -282,7 +329,12 @@ def dry_run_table(prep: Prepared) -> list[tuple[str, str]]:
     counts = prep.bank.counts()
     rows: list[tuple[str, str]] = [
         ("recipe", f"{r.name} (preset {r.pipeline.preset}, seed {r.seed})"),
-        ("bank", f"{prep.bank.name} — {len(prep.bank)} 소스 / {len(prep.bank.classes)} 클래스"),
+        (
+            "bank",
+            f"(없음 — {r.pipeline.source.method}, 클래스 {prepared_classes(r, prep.bank)})"
+            if r.bankless
+            else f"{prep.bank.name} — {len(prep.bank)} 소스 / {len(prep.bank.classes)} 클래스",
+        ),
         ("targets", f"{len(prep.targets)} 장 ({Path(r.inputs.targets).as_posix()})"),
         (
             "output",

@@ -22,7 +22,8 @@ from anograft.core.types import Context, DefectSource, Instance, Placement, Targ
 
 
 def test_schema_methods_match_design_matrix_v01() -> None:
-    assert registry.schema_methods("source") == ["bank"]
+    # source 는 v0.4(source-selfcut-perlin)에서 self-cut · perlin-texture 가 붙었다
+    assert registry.schema_methods("source") == ["bank", "self-cut", "perlin-texture"]
     assert registry.schema_methods("geometry") == ["affine"]
     assert registry.schema_methods("roi") == ["otsu", "none", "mask_dir"]
     assert registry.schema_methods("placement") == ["sampled"]
