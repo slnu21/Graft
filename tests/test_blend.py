@@ -1,5 +1,6 @@
-"""4단계 blend — 설계 §11: **3방법 공통** 마스크 bbox 밖 불변 · dtype uint8 · src==dst면 항등(±1). paste: 내부 == 패치;
+"""4단계 blend — 설계 §11: **4방법 공통** 마스크 bbox 밖 불변 · dtype uint8 · src==dst면 항등(±1). paste: 내부 == 패치;
 alpha: 페더 밖 = 대상, 페더 대역 단조; poisson: 정렬(변경 픽셀 = bbox 내부) · 경계 접촉 → 폴백 `fallback=true` · cv2.error 폴백.
+multiband: 작은 창에서 `levels` 자동 축소 + 로그 `levels_used` · 경계 근처는 저주파가 대상 쪽, 깊은 안쪽은 패치 · 피라미드 왕복 정확.
 추가: 캔버스 overhang 창 클리핑 · 입력 배열 불변(seamlessClone이 mask를 제자리에서 망가뜨리는 함정)."""
 
 from __future__ import annotations
@@ -15,6 +16,14 @@ import pytest
 from anograft.core import recipe as R
 from anograft.core.stages.blend import common as C
 from anograft.core.stages.blend.alpha import AlphaBlend
+from anograft.core.stages.blend.multiband import (
+    MultibandBlend,
+    collapse,
+    crop_window,
+    laplacian_pyramid,
+    levels_for,
+    mask_thickness,
+)
 from anograft.core.stages.blend.paste import HardPaste
 from anograft.core.stages.blend.poisson import (
     PoissonBlend,
@@ -70,6 +79,7 @@ def _stages() -> dict[str, object]:
         "paste": HardPaste(R.PasteBlendConfig(), {}),
         "alpha": AlphaBlend(R.AlphaBlendConfig(feather_px=3), {}),
         "poisson": PoissonBlend(R.PoissonBlendConfig(mask_dilate_px=0), {}),
+        "multiband": MultibandBlend(R.MultibandBlendConfig(levels=3), {}),
     }
 
 
@@ -89,7 +99,7 @@ def _bbox_mask(bbox: tuple[int, int, int, int]) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("method", ["paste", "alpha", "poisson"])
+@pytest.mark.parametrize("method", ["paste", "alpha", "poisson", "multiband"])
 @pytest.mark.parametrize("flat", [True, False])
 def test_outside_bbox_unchanged_and_uint8(method: str, flat: bool) -> None:
     patch, mask = _patch()
@@ -104,7 +114,7 @@ def test_outside_bbox_unchanged_and_uint8(method: str, flat: bool) -> None:
     }
 
 
-@pytest.mark.parametrize("method", ["paste", "alpha", "poisson"])
+@pytest.mark.parametrize("method", ["paste", "alpha", "poisson", "multiband"])
 def test_identity_when_patch_equals_target(method: str) -> None:
     target = _target(flat=False)
     _, mask = _patch()
@@ -113,7 +123,7 @@ def test_identity_when_patch_equals_target(method: str) -> None:
     assert np.abs(out.composite.astype(int) - target.astype(int)).max() <= 1
 
 
-@pytest.mark.parametrize("method", ["paste", "alpha", "poisson"])
+@pytest.mark.parametrize("method", ["paste", "alpha", "poisson", "multiband"])
 def test_inputs_are_not_mutated(method: str) -> None:
     patch, mask = _patch()
     target = _target(flat=False)
@@ -124,7 +134,7 @@ def test_inputs_are_not_mutated(method: str) -> None:
     assert ctx.composite is target and out.composite is not target
 
 
-@pytest.mark.parametrize("method", ["paste", "alpha", "poisson"])
+@pytest.mark.parametrize("method", ["paste", "alpha", "poisson", "multiband"])
 def test_skips_without_placement(method: str) -> None:
     out = _stages()[method].apply(context())
     assert np.array_equal(out.composite, out.target.image)
@@ -295,3 +305,152 @@ def test_poisson_falls_back_on_cv2_error(monkeypatch: pytest.MonkeyPatch) -> Non
     assert log["fallback"] is True and log["fallback_reason"].startswith("cv2.error")
     inside = _bbox_mask(out.placement.bbox)
     assert not np.array_equal(out.composite[inside], _target()[inside])
+
+
+# ---------------------------------------------------------------------------
+# multiband
+# ---------------------------------------------------------------------------
+
+
+def _multiband(levels: int = 4) -> MultibandBlend:
+    return MultibandBlend(R.MultibandBlendConfig(levels=levels), {})
+
+
+def _box_mask(
+    h: int, w: int, ph: int = PH, pw: int = PW, at: tuple[int, int] = (2, 2)
+) -> np.ndarray:
+    m = np.zeros((ph, pw), dtype=np.uint8)
+    m[at[0] : at[0] + h, at[1] : at[1] + w] = 255
+    return m
+
+
+def _ctx_for(
+    target: np.ndarray, patch: np.ndarray, mask: np.ndarray, offset: tuple[int, int]
+) -> Context:
+    """``_ctx``와 같되 bbox를 실제 마스크에서 잰다(MASK_BOX가 아닌 마스크용)."""
+    x, y, w, h = cv2.boundingRect(mask)
+    bbox = (offset[0] + x, offset[1] + y, w, h)
+    pl = Placement(center=(bbox[0] + w // 2, bbox[1] + h // 2), bbox=bbox, offset=offset, tries=1)
+    placed = np.zeros(target.shape[:2], dtype=np.uint8)
+    placed[bbox[1] : bbox[1] + h, bbox[0] : bbox[0] + w] = mask[y : y + h, x : x + w]
+    t = TargetImage(path=Path("t.png"), image=target, gray=False)
+    return replace(context(t, patch=patch, patch_mask=mask), placement=pl, placed_mask=placed)
+
+
+def test_mask_thickness_is_inscribed_diameter() -> None:
+    assert mask_thickness(_box_mask(4, 24)) == 4.0
+    assert mask_thickness(_box_mask(11, 18)) == 12.0  # 홀수 두께: 중앙 행 거리 6
+    assert mask_thickness(np.full((32, 32), 255, dtype=np.uint8)) == 32.0
+    assert mask_thickness(np.zeros((8, 8), dtype=np.uint8)) == 0.0
+
+
+def test_levels_for_caps_by_thickness_then_window() -> None:
+    assert levels_for(4, 64.0) == 4 and levels_for(8, 64.0) == 4  # floor(log2 64) − 2
+    assert levels_for(4, 32.0) == 3 and levels_for(4, 16.0) == 2 and levels_for(4, 8.0) == 1
+    assert levels_for(4, 4.0) == 1 and levels_for(4, 0.0) == 1  # 최소 1
+    assert levels_for(4, 256.0, (64, 80)) == 4 and levels_for(8, 256.0, (64, 80)) == 5  # 창 캡
+    assert levels_for(8, 256.0, (7, 7)) == 1 and levels_for(8, 256.0, (1, 1)) == 1
+
+
+def test_laplacian_pyramid_round_trips_exactly() -> None:
+    img = _target(flat=False).astype(np.float32)
+    for levels in (1, 3, 5):
+        assert np.abs(collapse(laplacian_pyramid(img, levels)) - img).max() < 1e-3
+    odd = img[:63, :77]  # 홀수 크기 — pyrUp dstsize 규약
+    assert np.abs(collapse(laplacian_pyramid(odd, 4)) - odd).max() < 1e-3
+
+
+def test_multiband_logs_levels_used_and_window() -> None:
+    patch, mask = _patch()  # 마스크 18×11 → 두께 12 → 캡 1
+    out = _multiband(4).apply(_ctx(_target(), patch, mask, (10, 12)))
+    log = out.log["blend"]
+    assert log["method"] == "multiband" and log["levels"] == 4
+    assert log["levels_used"] == 1 and log["thickness_px"] == 12.0
+    assert log["window_px"] == [18 + 2 * 2, 11 + 2 * 2]  # bbox ± 2**1
+
+    big = np.full((PH, PW), 255, dtype=np.uint8)  # 20×30 전부 → 두께 20 → 캡 2
+    out = _multiband(4).apply(_ctx(_target(), patch, big, (10, 12)))
+    assert out.log["blend"]["levels_used"] == 2 and out.log["blend"]["window_px"] == [
+        30 + 8,
+        20 + 8,
+    ]
+    assert (
+        _multiband(1).apply(_ctx(_target(), patch, big, (10, 12))).log["blend"]["levels_used"] == 1
+    )
+
+
+def test_multiband_window_cap_when_target_is_tiny() -> None:
+    """대상이 작아 창이 잘리면 창 캡이 두께 캡보다 먼저 걸린다: 6×6 대상 → floor(log2 6) − 1 = 1."""
+    tiny = np.full((6, 6, 3), 100, dtype=np.uint8)
+    patch = np.full((6, 6, 3), 250, dtype=np.uint8)
+    mask = np.full((6, 6), 255, dtype=np.uint8)  # 두께 6 → 캡 max(1, 2−2) = 1 … 창 캡도 1
+    mask[0, :] = mask[-1, :] = mask[:, 0] = mask[:, -1] = 0  # 4×4 → 두께 4 → 캡 1
+    t = TargetImage(path=Path("t.png"), image=tiny, gray=False)
+    pl = Placement(center=(3, 3), bbox=(1, 1, 4, 4), offset=(0, 0), tries=1)
+    ctx = replace(context(t, patch=patch, patch_mask=mask), placement=pl, placed_mask=mask)
+    out = _multiband(8).apply(ctx)
+    assert out.log["blend"]["levels_used"] == 1 and out.log["blend"]["window_px"] == [6, 6]
+    assert np.array_equal(out.composite[mask == 0], tiny[mask == 0])
+    assert (out.composite[mask > 0, 0] > 100).all()
+
+
+def test_multiband_low_frequency_follows_target_near_edge_and_patch_deep_inside() -> None:
+    """마스크 안 경계 픽셀은 저주파가 대상 쪽(paste는 250), 깊은 안쪽은 패치 값의 ~90%+ (두께 캡 덕)."""
+    mask = _box_mask(16, 26)
+    patch = np.full((PH, PW, 3), 250, dtype=np.uint8)
+    target = _target()  # 100
+    out = _multiband(4).apply(_ctx_for(target, patch, mask, (10, 12)))
+    assert out.log["blend"]["levels_used"] == 2
+    x, y, w, h = out.placement.bbox
+    cy = y + h // 2
+    edge = int(out.composite[cy, x, 0])
+    deep = int(out.composite[cy, x + w // 2, 0])
+    assert 100 < edge < deep and deep >= 230
+    inside = _bbox_mask(out.placement.bbox)
+    assert np.array_equal(out.composite[~inside], target[~inside])
+
+
+def test_multiband_thin_line_keeps_contrast() -> None:
+    """4px 스크래치: 두께 캡 → levels_used 1 → 내부 평균이 결함 값의 85% 이상(캡 없이 levels 4면 ~70%)."""
+    mask = _box_mask(4, 24)
+    patch = np.full((PH, PW, 3), 100, dtype=np.uint8)
+    patch[mask > 0] = 250
+    out = _multiband(4).apply(_ctx_for(_target(), patch, mask, (10, 12)))
+    assert out.log["blend"]["levels_used"] == 1
+    x, y, w, h = out.placement.bbox
+    vals = out.composite[y : y + h, x : x + w, 0].astype(float)
+    assert (vals.mean() - 100) / 150 > 0.85
+
+
+def test_multiband_crop_window_fills_outside_canvas_with_target() -> None:
+    patch, mask = _patch()
+    target = _target(flat=False)
+    inp = C.BlendInputs(
+        target, patch, mask, _placement((10, 12)), C.canvas_window((H, W), (PH, PW), (10, 12))
+    )
+    crop = crop_window(inp, 16)
+    assert crop is not None
+    assert (crop.ys, crop.xs) == (slice(0, 12 + 4 + 11 + 16), slice(0, 10 + 6 + 18 + 16))
+    # 캔버스 밖(창 안)은 대상 자신, 캔버스 안은 패치, 마스크는 그 자리에
+    assert np.array_equal(crop.src[:12], crop.dst[:12]) and np.array_equal(
+        crop.dst, target[:43, :50]
+    )
+    assert np.array_equal(crop.src[12 : 12 + PH, 10 : 10 + PW], patch)
+    assert (
+        np.array_equal(crop.mask[12 : 12 + PH, 10 : 10 + PW], mask)
+        and crop.mask.sum() == mask.sum()
+    )
+    empty = C.BlendInputs(target, patch, np.zeros_like(mask), inp.placement, inp.window)
+    assert crop_window(empty, 8) is None
+
+
+def test_multiband_is_deterministic_and_differs_from_alpha() -> None:
+    patch, mask = _patch()
+    target = _target(flat=False)
+    a = _multiband(3).apply(_ctx(target, patch, mask, (10, 12)))
+    b = _multiband(3).apply(_ctx(target, patch, mask, (10, 12)))
+    assert np.array_equal(a.composite, b.composite) and a.log == b.log
+    alpha = AlphaBlend(R.AlphaBlendConfig(feather_px=3), {}).apply(
+        _ctx(target, patch, mask, (10, 12))
+    )
+    assert not np.array_equal(a.composite, alpha.composite)

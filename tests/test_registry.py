@@ -117,9 +117,8 @@ def test_every_registered_method_builds_and_runs_on_bare_context() -> None:
         assert stage in out.log, f"{stage}.{method} 가 log에 자기 키를 안 남김"
         assert np.array_equal(out.composite, img) or stage == "degrade"
         ran += 1
-    assert (
-        ran >= 13
-    )  # v0.1 구현분: geometry1 roi3 placement1 blend3 harmonize2 degrade2 gtmask3 (source·multiband·reinhard·histmatch 제외)
+    # v0.1 전부: geometry1 roi3 placement1 blend4 harmonize4 degrade2 gtmask3 (+ source·bank은 은행 없이도 skipped로 통과)
+    assert ran >= 16
 
 
 def test_register_requires_class_attrs() -> None:
