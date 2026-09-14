@@ -31,6 +31,9 @@ pipeline:
     noise_sigma: [0, 2.0]
     blur_sigma: [0, 0.6]
     jpeg_quality: null
+    motion_blur_px: null       # v0.4 — [0, 6] 이면 흔들림 블러(길이 px, 방향 motion_angle [0,180]). null = off(rng 소비 없음)
+    vignette: null             # v0.4 — [0, 0.3] 이면 모서리 감광. null = off
+    gamma: null                # v0.4 — [0.8, 1.25] 이면 톤 커브 지수. null = off
   gtmask:
     policy: union
     diff_threshold: 12
