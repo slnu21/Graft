@@ -22,7 +22,8 @@ if ($Locked -and (Test-Path "requirements-lock.txt")) {
     Write-Host "[bootstrap] requirements-lock.txt 로 설치" -ForegroundColor Cyan
     & $pip -m pip install -r requirements-lock.txt --quiet
 }
-Write-Host "[bootstrap] pip install -e .[dev]" -ForegroundColor Cyan
-& $pip -m pip install -e ".[dev]" --quiet
+$extras = if ($Gui) { "dev,gui" } else { "dev" }
+Write-Host "[bootstrap] pip install -e .[$extras]" -ForegroundColor Cyan
+& $pip -m pip install -e ".[$extras]" --quiet
 & $pip -m anograft --version
 Write-Host "[bootstrap] 완료. 활성화: .venv\Scripts\Activate.ps1" -ForegroundColor Green

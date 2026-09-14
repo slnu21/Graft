@@ -57,3 +57,27 @@ def test_core_does_not_import_io_or_qt() -> None:
                 line = text[: m.start()].count("\n") + 1
                 offenders.append(f"{f.relative_to(SRC)}:{line}: {m.group(0).strip()}")
     assert offenders == [], "\n".join(offenders)
+
+
+QT_IMPORT = re.compile(r"^\s*(from|import) (PySide6|PyQt\d)\b", re.M)
+
+
+def test_qt_only_inside_gui_package() -> None:
+    """Qt는 ``gui/`` 안에서만 — core·io·bank·runner·preview·cli는 GUI 없이 돌아야 한다(CLI-only 설치)."""
+    offenders = []
+    for f in _py_files(SRC):
+        if "gui" in f.relative_to(SRC).parts:
+            continue
+        text = f.read_text(encoding="utf-8")
+        for m in QT_IMPORT.finditer(text):
+            line = text[: m.start()].count("\n") + 1
+            offenders.append(f"{f.relative_to(SRC)}:{line}: {m.group(0).strip()}")
+    assert offenders == [], "\n".join(offenders)
+
+
+def test_gui_package_root_does_not_import_qt() -> None:
+    """``anograft.gui`` 자체(``__init__``·``__main__``)는 Qt 없이 import돼야 설치 안내를 낼 수 있다."""
+    for name in ("__init__.py", "__main__.py"):
+        text = (SRC / "gui" / name).read_text(encoding="utf-8")
+        top_level = [m.group(0) for m in QT_IMPORT.finditer(text) if not m.group(0).startswith(" ")]
+        assert top_level == [], f"gui/{name}: {top_level}"

@@ -1,0 +1,375 @@
+"""``StudioTab`` — 스튜디오 탭 조립·배선. 상태는 ``StudioSession``, 계산은 ``PreviewWorker``, 이 클래스는 둘을 잇는다.
+
+흐름::
+
+    열기(은행·대상) → PrepareJob → prepared → 레일 채움 + 썸네일 잡 → request_previews()
+    프리셋/시드/method/대상/변형 수/축소 변경 → 세션 갱신(generation+1) → request_previews()
+    request_previews(): 지난 세대 잡 폐기 → 변형 카드 자리표 → k = 0..N-1 (선택된 k 먼저) PreviewJob
+    finished_preview(res): res.job.generation == session.generation 일 때만 반영. k == 선택이면 캔버스·파이프라인 패널 갱신
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import numpy as np
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QGuiApplication
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QSizePolicy,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
+)
+
+from anograft import runner
+from anograft.core.channels import promote_to_bgr
+from anograft.gui.studio.canvas import CompareCanvas
+from anograft.gui.studio.jobs import (
+    KIND_PREPARE,
+    KIND_PREVIEW,
+    KIND_THUMB,
+    JobError,
+    PreviewJob,
+    PreviewResult,
+    ThumbResult,
+)
+from anograft.gui.studio.panels import InputsPanel, PipelinePanel, StripBar, TargetRail
+from anograft.gui.studio.session import SessionError, StudioSession
+from anograft.gui.studio.variants import VariantStrip
+from anograft.gui.studio.worker import PreviewWorker
+
+
+class StudioTab(QWidget):
+    status = Signal(str)
+    context = Signal(str)
+
+    def __init__(
+        self, session: StudioSession, worker: PreviewWorker, parent: QWidget | None = None
+    ) -> None:
+        super().__init__(parent)
+        self.session = session
+        self.worker = worker
+        self._results: dict[int, PreviewResult] = {}
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        self.strip = StripBar()
+        root.addWidget(self.strip)
+
+        split = QSplitter(Qt.Orientation.Horizontal)
+        split.setChildrenCollapsible(False)
+        # 왼쪽 레일: 입력 + 대상 목록
+        left = QWidget()
+        left.setObjectName("Rail")
+        ll = QVBoxLayout(left)
+        ll.setContentsMargins(0, 0, 0, 0)
+        ll.setSpacing(0)
+        self.inputs = InputsPanel()
+        self.rail = TargetRail()
+        ll.addWidget(self.inputs)
+        ll.addWidget(self.rail, 1)
+        left.setMinimumWidth(220)
+        split.addWidget(left)
+        # 가운데: 캔버스 + 오버레이 바
+        mid = QWidget()
+        ml = QVBoxLayout(mid)
+        ml.setContentsMargins(0, 0, 0, 0)
+        ml.setSpacing(0)
+        self.canvas = CompareCanvas()
+        ml.addWidget(self.canvas, 1)
+        bar = QWidget()
+        bar.setObjectName("Strip")
+        bl = QHBoxLayout(bar)
+        bl.setContentsMargins(14, 5, 14, 5)
+        self.cb_gt = QCheckBox("정답 마스크 GT")
+        self.cb_gt.setChecked(True)
+        self.cb_roi = QCheckBox("배치 허용 영역 ROI")
+        self.cb_lab = QCheckBox("인스턴스 라벨")
+        self.cb_lab.setChecked(True)
+        for cb in (self.cb_gt, self.cb_roi, self.cb_lab):
+            bl.addWidget(cb)
+        self.zoom_info = QLabel("")
+        self.zoom_info.setObjectName("Muted")
+        self.zoom_info.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.zoom_info.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        bl.addStretch(1)
+        bl.addWidget(self.zoom_info)
+        ml.addWidget(bar)
+        split.addWidget(mid)
+        # 오른쪽: 파이프라인
+        self.pipe = PipelinePanel()
+        self.pipe.setMinimumWidth(300)
+        split.addWidget(self.pipe)
+        split.setStretchFactor(0, 0)
+        split.setStretchFactor(1, 1)
+        split.setStretchFactor(2, 0)
+        split.setSizes([240, 900, 330])
+        root.addWidget(split, 1)
+
+        self.variants = VariantStrip()
+        root.addWidget(self.variants)
+
+        self._wire()
+        self.sync_widgets()
+
+    # ------------------------------------------------------------------ 배선
+
+    def _wire(self) -> None:
+        s = self.strip
+        s.preset_changed.connect(lambda name: self._edit(lambda: self.session.set_preset(name)))
+        s.seed_changed.connect(lambda v: self._edit(lambda: self.session.set_seed(v)))
+        s.variants_changed.connect(self._on_variants)
+        s.long_side_changed.connect(self._on_long_side)
+        s.open_clicked.connect(self.open_recipe_dialog)
+        s.save_clicked.connect(self.save_recipe_dialog)
+        s.batch_clicked.connect(self.send_to_batch)
+        self.inputs.open_requested.connect(self.open_inputs)
+        self.rail.selected.connect(self._on_target)
+        self.pipe.method_changed.connect(
+            lambda st, m: self._edit(lambda: self.session.set_method(st, m))
+        )
+        self.variants.selected.connect(self._on_variant)
+        self.cb_gt.toggled.connect(lambda v: self.canvas.set_overlays(gt=v))
+        self.cb_roi.toggled.connect(lambda v: self.canvas.set_overlays(roi=v))
+        self.cb_lab.toggled.connect(lambda v: self.canvas.set_overlays(labels=v))
+        self.canvas.zoom_changed.connect(lambda _z: self._update_zoom_info())
+        w = self.worker
+        w.prepared.connect(self._on_prepared)
+        w.finished_preview.connect(self._on_preview)
+        w.finished_thumb.connect(self._on_thumb)
+        w.failed.connect(self._on_failed)
+
+    # ------------------------------------------------------------------ 세션 → 위젯
+
+    def sync_widgets(self) -> None:
+        ses = self.session
+        self.strip.sync(ses.recipe, ses.n_variants, ses.long_side)
+        self.pipe.sync(ses.recipe)
+        summary = ""
+        if ses.prepared is not None:
+            b = ses.prepared.bank
+            rows = ", ".join(
+                f"{r.cls} {r.count}" + (f"(추정 {r.estimated})" if r.estimated else "")
+                for r in b.summary()
+            )
+            summary = f"은행 {b.name}: {len(b)}개 — {rows}\n대상 {len(ses.prepared.targets)}장 · hash {ses.prepared.pipeline_hash}"
+        self.inputs.sync(ses.recipe, summary)
+        self.strip.note.setText(self._note())
+        self.context.emit(self._context())
+
+    def _note(self) -> str:
+        ses = self.session
+        parts = []
+        if ses.long_side:
+            parts.append(f"미리보기는 긴 변 {ses.long_side}px 축소본 — 정확한 결과는 anograft run")
+        if ses.warnings:
+            parts.append(f"경고 {len(ses.warnings)}건: {ses.warnings[0]}")
+        return " · ".join(parts)
+
+    def _context(self) -> str:
+        ses = self.session
+        t = ses.target
+        return (
+            f"대상 {t.name if t else '–'} · 은행 {ses.prepared.bank.name if ses.prepared else '–'} · "
+            f"레시피 {ses.recipe.name} ({ses.recipe.pipeline.preset}, seed {ses.recipe.seed})"
+        )
+
+    def _update_zoom_info(self) -> None:
+        w, h = self.canvas.image_size()
+        res = self._results.get(self.session.variant_index)
+        scale = f" · {res.scale:.0%}" if res is not None and res.scale < 1 else ""
+        self.zoom_info.setText(f"{w} × {h}{scale} · 줌 {self.canvas.zoom * 100:.0f}%")
+
+    # ------------------------------------------------------------------ 편집(전부 세션을 거친다)
+
+    def _edit(self, fn) -> None:
+        try:
+            fn()
+        except SessionError as e:
+            self.status.emit(str(e).splitlines()[0])
+            QMessageBox.warning(self, "레시피 오류", str(e))
+            self.sync_widgets()
+            return
+        self.sync_widgets()
+        self.request_previews()
+
+    def _on_variants(self, n: int) -> None:
+        self.session.set_n_variants(n)
+        self.request_previews()
+
+    def _on_long_side(self, px: int) -> None:
+        self.session.set_long_side(px)
+        self.sync_widgets()
+        self.request_previews()
+
+    def _on_target(self, index: int) -> None:
+        self.session.select_target(index)
+        self.context.emit(self._context())
+        self.request_previews()
+
+    def _on_variant(self, k: int) -> None:
+        self.session.select_variant(k)
+        res = self._results.get(k)
+        if res is not None:
+            self._show(res)
+        else:
+            self.status.emit(f"v{k + 1} 계산 중…")
+
+    # ------------------------------------------------------------------ 열기·저장
+
+    def open_inputs(self, bank: str, targets: str) -> None:
+        try:
+            self.session.set_paths(bank or None, targets or None)
+        except SessionError as e:
+            QMessageBox.warning(self, "입력 오류", str(e))
+            return
+        self.session.prepared = None
+        self.worker.set_prepared(None)
+        self.canvas.clear("은행·대상 로드 중…")
+        self.status.emit("은행·대상 로드 중…")
+        self.worker.submit(
+            PreviewJob(
+                KIND_PREPARE, self.session.generation, recipe=self.session.recipe, priority=0
+            )
+        )
+
+    def open_recipe(self, path: str | Path) -> None:
+        try:
+            self.session.load(path)
+        except SessionError as e:
+            QMessageBox.warning(self, "레시피 열기", str(e))
+            return
+        self.sync_widgets()
+        if self.session.needs_prepare():
+            self.open_inputs(
+                self.session.recipe.inputs.bank.as_posix(),
+                self.session.recipe.inputs.targets.as_posix(),
+            )
+        else:
+            self.request_previews()
+        self.status.emit(f"레시피 열림: {Path(path).as_posix()}")
+
+    def open_recipe_dialog(self) -> None:
+        f, _ = QFileDialog.getOpenFileName(self, "레시피 열기", "recipes", "레시피 (*.yaml *.yml)")
+        if f:
+            self.open_recipe(f)
+
+    def save_recipe_dialog(self) -> None:
+        start = (
+            self.session.recipe_path.as_posix()
+            if self.session.recipe_path
+            else "recipes/studio.yaml"
+        )
+        f, _ = QFileDialog.getSaveFileName(self, "레시피 저장", start, "레시피 (*.yaml)")
+        if f:
+            p = self.session.save(f)
+            self.status.emit(f"레시피 저장: {p.as_posix()} → {self.session.run_command()}")
+
+    def send_to_batch(self) -> None:
+        if self.session.recipe_path is None:
+            self.save_recipe_dialog()
+            if self.session.recipe_path is None:
+                return
+        cmd = self.session.run_command()
+        QGuiApplication.clipboard().setText(cmd)
+        self.status.emit(f"클립보드에 복사: {cmd}  (배치 탭은 v0.7)")
+
+    # ------------------------------------------------------------------ 미리보기 요청·수신
+
+    def request_previews(self) -> None:
+        ses = self.session
+        if ses.prepared is None or ses.target is None:
+            return
+        gen = ses.generation
+        self.worker.invalidate(gen)
+        self.worker.set_prepared(ses.prepared)  # reprepare 로 파이프라인이 바뀌었을 수 있다
+        self._results.clear()
+        self.variants.reset(ses.n_variants, ses.variant_index)
+        self.pipe.set_trace(None)
+        order = [ses.variant_index] + [k for k in range(ses.n_variants) if k != ses.variant_index]
+        for k in order:
+            self.worker.submit(
+                PreviewJob(
+                    KIND_PREVIEW,
+                    gen,
+                    target=ses.target,
+                    index=k,
+                    long_side=ses.long_side,
+                    priority=0 if k == ses.variant_index else 1,
+                )
+            )
+        self.status.emit(f"미리보기 계산 중… ({ses.n_variants}장)")
+
+    def _on_prepared(self, prep: runner.Prepared) -> None:
+        if not self.session.accept_prepared(prep):
+            return
+        self.worker.set_prepared(self.session.prepared)
+        self.rail.set_targets(self.session.targets, self.session.target_index)
+        for p in self.session.targets:
+            self.worker.submit(
+                PreviewJob(KIND_THUMB, self.session.generation, target=p, priority=2)
+            )
+        self.sync_widgets()
+        n_warn = len(self.session.warnings)
+        self.status.emit(
+            f"준비 완료 — 은행 {len(prep.bank)}개 · 대상 {len(prep.targets)}장"
+            + (f" · 경고 {n_warn}건" if n_warn else "")
+        )
+        self.request_previews()
+
+    def _on_thumb(self, res: ThumbResult) -> None:
+        if res.job.target is not None:
+            self.rail.set_thumb(res.job.target, res.image, res.shape)
+
+    def _on_preview(self, res: PreviewResult) -> None:
+        if res.job.generation != self.session.generation:
+            return
+        k = res.job.index
+        self._results[k] = res
+        r = res.result
+        if r.status == "ok":
+            caption = ", ".join(sorted({i.cls for i in r.instances})) or "ok"
+            self.variants.set_result(k, promote_to_bgr(r.image), caption)
+        else:
+            self.variants.set_failed(k, r.reason or "skipped")
+        if k == self.session.variant_index:
+            self._show(res)
+
+    def _on_failed(self, err: JobError) -> None:
+        if err.job.kind == KIND_PREPARE:
+            self.canvas.clear("은행·대상을 열 수 없습니다")
+            QMessageBox.warning(self, "준비 실패", err.message)
+            self.status.emit(err.message.splitlines()[0])
+        elif err.job.kind == KIND_PREVIEW and err.job.generation == self.session.generation:
+            self.variants.set_failed(err.job.index, err.message.splitlines()[0])
+            self.status.emit(f"v{err.job.index + 1} 실패: {err.message.splitlines()[0]}")
+
+    def _show(self, res: PreviewResult) -> None:
+        r = res.result
+        roi = res.steps[0].ctx.roi if res.steps and res.steps[0].stage == "roi" else None
+        synthetic: np.ndarray | None = promote_to_bgr(r.image) if r.status == "ok" else None
+        self.canvas.set_images(
+            res.target.image, synthetic, r.gt_mask if r.status == "ok" else None, r.instances, roi
+        )
+        self.pipe.set_trace(res.steps)
+        self._update_zoom_info()
+        defects = [d for d in r.sidecar.get("defects", []) if "gt" in d]
+        what = " · ".join(
+            f"{d['source']['class']} {d['source']['source_id']} ({d['blend']['method']})"
+            for d in defects
+        )
+        if r.status == "ok":
+            self.status.emit(
+                f"v{res.job.index + 1}: {what} · {res.elapsed_s * 1000:.0f} ms"
+                + (f" · 축소 {res.scale:.0%}" if res.scale < 1 else "")
+            )
+        else:
+            self.status.emit(f"v{res.job.index + 1}: skipped — {r.reason}")

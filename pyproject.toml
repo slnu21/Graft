@@ -32,11 +32,16 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<9", "ruff>=0.5"]
+# GUI(v0.2+). PySide6는 LGPL — 동적 링크 유지, PyQt로 바꾸지 말 것. 코어 의존성에 넣지 않는다(CLI-only 설치는 순수 wheel 4개 그대로).
+gui = ["PySide6>=6.6,<7"]
 # v1.0 선택 플러그인(SAM·확산). 없으면 해당 프리셋이 비활성 + 이유 노출 (fail-soft).
 torch = []
 
 [project.scripts]
 anograft = "anograft.cli:main"
+
+[project.gui-scripts]
+anograft-gui = "anograft.gui.__main__:main"
 
 [project.urls]
 Homepage = "https://github.com/slnu21/Graft"
