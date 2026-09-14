@@ -292,8 +292,23 @@ class MaskDirRoiConfig(_Strict):
         return _posix(p)
 
 
+class GrabCutRoiConfig(_Strict):
+    """GrabCut 전경 = ROI (v0.4). ``init: rect``는 테두리 ``rect_margin`` 비율 바깥을 확정 배경으로 두고 안쪽에서 전경을 찾는다
+    (물체가 중앙, 배경이 테두리 — Otsu ``auto``와 같은 전제). ``init: otsu``는 Otsu 전경/배경을 '아마도' 라벨로 넣어 다듬는다.
+    ``work_px``(긴 변, 0 = 원본)로 줄여 풀고 NEAREST로 되돌린다 — 4K 원본 GrabCut은 수십 초."""
+
+    method: Literal["grabcut"] = "grabcut"
+    init: Literal["rect", "otsu"] = "rect"
+    invert: Literal["auto", "yes", "no"] = "auto"  # init: otsu 일 때만
+    rect_margin: float = Field(default=0.03, ge=0.0, lt=0.5)
+    iters: int = Field(default=5, ge=1)
+    work_px: int = Field(default=1024, ge=0)
+    erode_px: int = Field(default=8, ge=0)
+
+
 RoiConfig = Annotated[
-    OtsuRoiConfig | NoneRoiConfig | MaskDirRoiConfig, Field(discriminator="method")
+    OtsuRoiConfig | NoneRoiConfig | MaskDirRoiConfig | GrabCutRoiConfig,
+    Field(discriminator="method"),
 ]
 
 
@@ -302,16 +317,39 @@ class ShrinkConfig(_Strict):
     rounds: int = Field(default=3, ge=0)
 
 
-class SampledPlacementConfig(_Strict):
-    method: Literal["sampled"] = "sampled"
+class _PlacementBase(_Strict):
+    """모든 placement method 의 공통 설정 — ``roi``는 여기 하위(이미지당 1회 실행되는 별도 스테이지)."""
+
     roi: RoiConfig = Field(default_factory=OtsuRoiConfig)
-    distribution: Literal["uniform", "edge", "center"] = "uniform"
     margin_px: int = Field(default=8, ge=0)
     max_tries: int = Field(default=50, ge=1)
     shrink_on_fail: ShrinkConfig = Field(default_factory=ShrinkConfig)
 
 
-PlacementConfig = Annotated[SampledPlacementConfig, Field(discriminator="method")]
+class SampledPlacementConfig(_PlacementBase):
+    method: Literal["sampled"] = "sampled"
+    distribution: Literal["uniform", "edge", "center"] = "uniform"
+
+
+class StructureAwarePlacementConfig(_PlacementBase):
+    """구조 정합 배치(v0.4). 위치 = 그래디언트 크기 가중(``prefer`` edges/flat/uniform, ``strength`` 지수, ``smooth_px`` 평활),
+    방향 = 후보 자리의 구조 텐서 지배 방향에 패치 주축을 맞춘다(``align`` along = 결·에지 방향, across = 그에 수직).
+    일관성 < ``min_coherence``(자리에 방향이 없음) 또는 패치 이방성 < ``min_anisotropy``(둥근 결함)면 정렬하지 않고
+    geometry 가 준 방향을 유지한다. ``jitter_deg``는 정렬각에 더하는 ±균등 잡음. 시도마다 rng 2회(자리·지터)."""
+
+    method: Literal["structure-aware"] = "structure-aware"
+    prefer: Literal["edges", "flat", "uniform"] = "edges"
+    strength: float = Field(default=1.0, ge=0.0)
+    smooth_px: float = Field(default=3.0, ge=0.0)
+    align: Literal["along", "across", "none"] = "along"
+    min_coherence: Unit = 0.2
+    min_anisotropy: Unit = 0.1
+    jitter_deg: float = Field(default=10.0, ge=0.0, le=90.0)
+
+
+PlacementConfig = Annotated[
+    SampledPlacementConfig | StructureAwarePlacementConfig, Field(discriminator="method")
+]
 
 
 class PasteBlendConfig(_Strict):
@@ -423,6 +461,18 @@ class PipelineConfig(_Strict):
     harmonize: HarmonizeConfig = Field(default_factory=StatsHarmonizeConfig)
     degrade: DegradeConfig = Field(default_factory=CameraDegradeConfig)
     gtmask: GtMaskConfig = Field(default_factory=GtMaskConfig)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _default_placement_method(cls, data: Any) -> Any:
+        """v0.1~v0.3 레시피는 placement 가 method 하나뿐이라 ``method:`` 를 생략할 수 있었다 — 생략이면 ``sampled``
+        (v0.4 에서 union 이 되면서 태그가 필수가 됐다. 다른 스테이지는 처음부터 union 이라 해당 없음)."""
+        if isinstance(data, dict):
+            pl = data.get("placement")
+            if isinstance(pl, dict) and "method" not in pl:
+                data = dict(data)
+                data["placement"] = {"method": "sampled", **pl}
+        return data
 
 
 # 스테이지 키 = 파이프라인 순서. registry·pipeline·CLI가 이 튜플을 공유한다. (roi는 placement 안의 하위 설정)
@@ -597,11 +647,18 @@ class Recipe(_Strict):
 
 
 def set_method_in_dict(d: dict[str, Any], stage: str, method: str) -> None:
-    """레시피 dict의 스테이지 블록을 ``{method}``(gtmask는 ``{policy}``, roi는 ``placement.roi``)로 갈아 끼운다."""
+    """레시피 dict의 스테이지 블록을 ``{method}``(gtmask는 ``{policy}``, roi는 ``placement.roi``)로 갈아 끼운다.
+    placement 를 바꿀 때는 하위 ``roi`` 블록을 유지한다(모든 placement method 가 공유하는 설정)."""
     key = "policy" if stage == "gtmask" else "method"
     pipe = d.setdefault("pipeline", {})
     if stage == "roi":
         pipe.setdefault("placement", {})["roi"] = {"method": method}
+    elif stage == "placement":
+        old = pipe.get("placement")
+        block: dict[str, Any] = {key: method}
+        if isinstance(old, dict) and "roi" in old:
+            block["roi"] = old["roi"]
+        pipe[stage] = block
     else:
         pipe[stage] = {key: method}
 

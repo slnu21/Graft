@@ -4,6 +4,8 @@
 - ``none``: 전체 허용 (테두리 ``margin_px``는 placement가 뺀다).
 - ``mask_dir``: ``<path>/<대상 stem>.png``. core는 파일을 읽지 않으므로 로더는 ``deps["read_mask"]``(경로 → HxW uint8)로
   주입한다. 로더가 없거나 읽기에 실패하면 ROI None + 경고 (fail-soft) → placement가 그 대상을 건너뛴다.
+- ``grabcut``(v0.4): ``core/roi.roi_grabcut`` — rect/otsu 초기화, 작업 해상도 ``work_px``, 시드는 대상 **파일 이름**의
+  ``stable_seed``(폴더를 옮겨도 같은 ROI). GrabCut 이 실패하면 Otsu 로 대체하고 ``fallback`` 을 로그·경고에.
 
 ROI 면적 0이면 ``roi``는 전부 False인 배열이고 경고를 남긴다 — 예외를 던지지 않는다.
 """
@@ -18,8 +20,9 @@ from typing import Any, ClassVar
 import numpy as np
 
 from anograft.core import roi as R
-from anograft.core.recipe import MaskDirRoiConfig, NoneRoiConfig, OtsuRoiConfig
+from anograft.core.recipe import GrabCutRoiConfig, MaskDirRoiConfig, NoneRoiConfig, OtsuRoiConfig
 from anograft.core.registry import register
+from anograft.core.seeds import stable_seed
 from anograft.core.types import Context
 
 MaskReader = Callable[[Path], np.ndarray]
@@ -106,3 +109,45 @@ class MaskDirRoi:
             .warn(f"roi: mask_dir 로드 실패 {path.as_posix()} — {reason}")
             .with_log("roi", log)
         )
+
+
+@register
+class GrabCutRoi:
+    stage: ClassVar[str] = "roi"
+    methods: ClassVar[tuple[str, ...]] = ("grabcut",)
+    requires: ClassVar[tuple[str, ...]] = ()
+
+    def __init__(self, cfg: GrabCutRoiConfig, deps: Mapping[str, Any]) -> None:
+        self.cfg = cfg
+
+    def apply(self, ctx: Context) -> Context:
+        cfg = self.cfg
+        seed = stable_seed(ctx.target.path.name)
+        res = R.roi_grabcut(
+            ctx.target.image,
+            init=cfg.init,
+            invert=cfg.invert,
+            rect_margin=cfg.rect_margin,
+            iters=cfg.iters,
+            work_px=cfg.work_px,
+            erode_px=cfg.erode_px,
+            seed=seed,
+        )
+        log: dict[str, Any] = {
+            "method": "grabcut",
+            "init": cfg.init,
+            "init_used": res.init_used,
+            "inverted": res.inverted,
+            "rect_margin": cfg.rect_margin,
+            "iters": cfg.iters,
+            "work_scale": round(res.work_scale, 4),
+            "seed": seed,
+            "erode_px": cfg.erode_px,
+            "area_before_erode_px": res.area_before_erode,
+        }
+        if res.fallback is not None:
+            log["fallback"] = res.fallback
+        out = _finish(ctx, res.roi, log)
+        if res.fallback is not None:
+            out = out.warn(f"roi: grabcut 실패 → otsu 로 대체 — {res.fallback}")
+        return out

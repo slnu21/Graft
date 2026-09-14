@@ -101,6 +101,98 @@ def roi_none(shape: tuple[int, int]) -> np.ndarray:
     return np.ones(shape[:2], dtype=bool)
 
 
+@dataclass(frozen=True)
+class GrabCutRoi:
+    roi: np.ndarray  # HxW bool
+    init_used: str  # "rect" | "otsu" | "otsu→rect"(Otsu 가 비어 rect 로 폴백)
+    inverted: bool | None  # otsu 초기화일 때 Otsu 극성
+    work_scale: float  # 작업 해상도 / 원본 (1.0 = 원본)
+    area_before_erode: int
+    fallback: str | None = None  # GrabCut 자체가 실패해 Otsu 결과로 대체했을 때 사유
+
+
+def _rect_inside(h: int, w: int, margin: float) -> tuple[int, int, int, int]:
+    mx, my = max(1, round(w * margin)), max(1, round(h * margin))
+    mx, my = min(mx, (w - 2) // 2), min(my, (h - 2) // 2)
+    return (mx, my, w - 2 * mx, h - 2 * my)
+
+
+def roi_grabcut(
+    image: np.ndarray,
+    *,
+    init: Literal["rect", "otsu"] = "rect",
+    invert: Invert = "auto",
+    rect_margin: float = 0.03,
+    iters: int = 5,
+    work_px: int = 1024,
+    erode_px: int = 8,
+    seed: int = 0,
+) -> GrabCutRoi:
+    """GrabCut 전경 → ROI. ``rect`` = 테두리 ``rect_margin`` 바깥은 확정 배경, 안쪽 사각형에서 전경 탐색(``GC_INIT_WITH_RECT``).
+    ``otsu`` = Otsu 전경/배경을 ``GC_PR_FGD``/``GC_PR_BGD``로, 테두리 링은 ``GC_BGD``(``GC_INIT_WITH_MASK``) — Otsu 한쪽이 비면
+    ``rect``로 폴백. ``work_px``(긴 변)로 줄여 풀고 NEAREST 로 되돌린 뒤 ``erode_px`` 침식.
+
+    ``cv2.grabCut``은 전역 RNG 를 쓰므로 호출 직전 ``cv2.setRNGSeed(seed)`` — 같은 입력·시드 → 같은 ROI.
+    ``cv2.error``(이미지가 너무 작거나 라벨이 한쪽뿐)는 예외로 새지 않고 Otsu(auto) 결과로 대체 + ``fallback`` 기록.
+    """
+    if image.ndim == 2:
+        image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+    h, w = image.shape[:2]
+    scale = 1.0
+    if work_px > 0 and max(h, w) > work_px:
+        scale = work_px / float(max(h, w))
+    if scale < 1.0:
+        sw, sh = max(4, round(w * scale)), max(4, round(h * scale))
+        small = cv2.resize(image, (sw, sh), interpolation=cv2.INTER_AREA)
+    else:
+        small = np.ascontiguousarray(image)
+    sh, sw = small.shape[:2]
+
+    rect = _rect_inside(sh, sw, rect_margin)
+    gc = np.zeros((sh, sw), dtype=np.uint8)
+    inverted: bool | None = None
+    init_used = init
+    mode = cv2.GC_INIT_WITH_RECT
+    if init == "otsu":
+        o = roi_otsu(small, invert, 0)
+        fg = o.roi
+        n_fg = int(fg.sum())
+        if 0 < n_fg < fg.size:
+            inverted = o.inverted
+            gc[:] = cv2.GC_PR_BGD
+            gc[fg] = cv2.GC_PR_FGD
+            rx, ry, rw, rh = rect
+            ring = np.ones((sh, sw), dtype=bool)
+            ring[ry : ry + rh, rx : rx + rw] = False
+            gc[ring] = cv2.GC_BGD
+            mode = cv2.GC_INIT_WITH_MASK
+        else:
+            init_used = "otsu→rect"
+    bgd = np.zeros((1, 65), dtype=np.float64)
+    fgd = np.zeros((1, 65), dtype=np.float64)
+    fallback: str | None = None
+    try:
+        cv2.setRNGSeed(int(seed))  # k-means 초기화가 전역 RNG 를 쓴다 — 결정성
+        cv2.grabCut(small, gc, rect, bgd, fgd, int(iters), mode)
+        fg_small = (gc == cv2.GC_FGD) | (gc == cv2.GC_PR_FGD)
+    except cv2.error as e:  # 예: 4px 이미지, 한쪽 라벨뿐 — 이 대상은 Otsu 로 대신 (fail-soft)
+        fallback = f"cv2.error: {str(e).strip().splitlines()[-1][:120]}"
+        fg_small = roi_otsu(small, "auto", 0).roi
+    if scale < 1.0:
+        fg = cv2.resize(fg_small.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST) > 0
+    else:
+        fg = fg_small
+    area_before = int(fg.sum())
+    return GrabCutRoi(
+        roi=erode_bool(fg, erode_px),
+        init_used=init_used,
+        inverted=inverted,
+        work_scale=scale,
+        area_before_erode=area_before,
+        fallback=fallback,
+    )
+
+
 def roi_from_mask(mask: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
     """외부 마스크(PNG 등)를 ROI로. ``>127`` 이진화. 크기가 다르면 ``ValueError``."""
     if mask.ndim == 3:

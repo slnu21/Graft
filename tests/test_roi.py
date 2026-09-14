@@ -1,5 +1,6 @@
 """3단계(앞) roi — 설계 §11: 원판 이미지에서 ``auto``가 원판을 고름(밝은 배경·어두운 배경 양쪽) · ``erode_px``로 면적 감소 ·
-``none``은 전체 · ``mask_dir`` 로드(+ 로더 없음/실패는 fail-soft)."""
+``none``은 전체 · ``mask_dir`` 로드(+ 로더 없음/실패는 fail-soft) · ``grabcut``(v0.4): rect/otsu 초기화가 원판을 찾음(Otsu 와 IoU),
+같은 입력 → 같은 ROI(시드), ``work_px`` 축소 후 원본 크기, 너무 작은 이미지는 Otsu 로 대체(fail-soft), 스테이지 로그·시드."""
 
 from __future__ import annotations
 
@@ -9,8 +10,9 @@ import numpy as np
 import pytest
 
 from anograft.core import roi as R
-from anograft.core.recipe import MaskDirRoiConfig, NoneRoiConfig, OtsuRoiConfig
-from anograft.core.stages.roi import MaskDirRoi, NoneRoi, OtsuRoi
+from anograft.core.recipe import GrabCutRoiConfig, MaskDirRoiConfig, NoneRoiConfig, OtsuRoiConfig
+from anograft.core.seeds import stable_seed
+from anograft.core.stages.roi import GrabCutRoi, MaskDirRoi, NoneRoi, OtsuRoi
 from anograft.io import imgio
 from tests.fixtures import context, disk_image, disk_target
 
@@ -133,3 +135,95 @@ def test_mask_dir_stage_without_loader_or_file_is_fail_soft(tmp_path: Path) -> N
     imgio.write_image(tmp_path / "missing.png", np.zeros((10, 10), dtype=np.uint8))
     out = st.apply(context(t))
     assert out.roi is None and "ValueError" in out.log["roi"]["reason"]
+
+
+# ---------------------------------------------------------------------------
+# grabcut (v0.4)
+# ---------------------------------------------------------------------------
+
+
+def _iou(a: np.ndarray, b: np.ndarray) -> float:
+    return float((a & b).sum()) / float((a | b).sum() or 1)
+
+
+@pytest.mark.parametrize("init", ["rect", "otsu"])
+@pytest.mark.parametrize("invert", [False, True])
+def test_grabcut_finds_disk_like_otsu(init: str, invert: bool) -> None:
+    img = disk_image(128, invert=invert)
+    res = R.roi_grabcut(img, init=init, erode_px=0, work_px=0)  # type: ignore[arg-type]
+    ref = R.roi_otsu(img, "auto", 0).roi
+    assert res.fallback is None and res.init_used == init and res.work_scale == 1.0
+    assert _iou(res.roi, ref) > 0.9
+    assert res.area_before_erode == int(res.roi.sum())
+    if init == "otsu":
+        assert res.inverted is invert
+    else:
+        assert res.inverted is None
+
+
+def test_grabcut_is_deterministic_and_seed_matters_little() -> None:
+    img = disk_image(96)
+    a = R.roi_grabcut(img, seed=1, work_px=0).roi
+    b = R.roi_grabcut(img, seed=1, work_px=0).roi
+    assert np.array_equal(a, b)
+    c = R.roi_grabcut(img, seed=2, work_px=0).roi
+    assert _iou(a, c) > 0.9  # 시드는 k-means 초기화만 바꾼다
+
+
+def test_grabcut_work_px_downscales_and_restores_shape() -> None:
+    img = disk_image(160)
+    res = R.roi_grabcut(img, work_px=64, erode_px=0)
+    assert res.roi.shape == (160, 160) and abs(res.work_scale - 0.4) < 1e-9
+    assert _iou(res.roi, R.roi_otsu(img, "auto", 0).roi) > 0.85
+    assert res.roi.dtype == bool
+
+
+def test_grabcut_erode_reduces_area_and_gray_input_ok() -> None:
+    img = disk_image(128)
+    a = R.roi_grabcut(img, erode_px=0, work_px=0).roi
+    b = R.roi_grabcut(img, erode_px=6, work_px=0).roi
+    assert b.sum() < a.sum() and not (b & ~a).any()
+    g = R.roi_grabcut(img[:, :, 0], erode_px=0, work_px=0).roi
+    assert _iou(g, a) > 0.95
+
+
+def test_grabcut_otsu_init_falls_back_to_rect_on_uniform_image() -> None:
+    img = np.full((64, 64, 3), 120, dtype=np.uint8)
+    res = R.roi_grabcut(img, init="otsu", work_px=0, erode_px=0)
+    assert res.init_used == "otsu→rect" and res.inverted is None
+    assert res.roi.shape == (64, 64)  # 예외 없이 끝난다 (내용은 GrabCut 의 몫)
+
+
+def test_grabcut_tiny_image_is_fail_soft() -> None:
+    img = disk_image(4, radius=1)
+    res = R.roi_grabcut(img, work_px=0, erode_px=0)
+    assert res.roi.shape == (4, 4)
+    # cv2.error 가 났으면 fallback 사유가 있고, 아니면 None — 어느 쪽이든 예외로 새지 않는다
+    assert res.fallback is None or res.fallback.startswith("cv2.error")
+
+
+def test_grabcut_stage_logs_and_seeds_by_file_name() -> None:
+    t = disk_target(96, name="plate_007.png")
+    out = GrabCutRoi(GrabCutRoiConfig(erode_px=2, work_px=64), {}).apply(context(t))
+    assert out.roi is not None and out.roi.any() and out.warnings == ()
+    log = out.log["roi"]
+    assert log["method"] == "grabcut" and log["init"] == "rect" and log["init_used"] == "rect"
+    assert log["seed"] == stable_seed("plate_007.png") and log["work_scale"] == 0.6667
+    assert log["area_px"] == int(out.roi.sum()) and "fallback" not in log
+    # 다른 폴더의 같은 파일 이름 → 같은 시드 (데이터셋을 옮겨도 ROI 동일)
+    t2 = disk_target(96, name="plate_007.png")
+    out2 = GrabCutRoi(GrabCutRoiConfig(erode_px=2, work_px=64), {}).apply(context(t2))
+    assert np.array_equal(out.roi, out2.roi)
+
+
+def test_grabcut_stage_warns_on_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    import cv2
+
+    def boom(*a, **k):
+        raise cv2.error("(-215:Assertion failed) fake")
+
+    monkeypatch.setattr(cv2, "grabCut", boom)
+    out = GrabCutRoi(GrabCutRoiConfig(work_px=0), {}).apply(context(disk_target(64)))
+    assert out.roi is not None and out.roi.any()  # Otsu 대체
+    assert out.log["roi"]["fallback"].startswith("cv2.error")
+    assert any("grabcut 실패" in w for w in out.warnings)
