@@ -1,4 +1,6 @@
-"""``MainWindow`` — 상단 바(브랜드·컨텍스트) · 5탭(은행·라벨·스튜디오·배치·검수, 스튜디오만 실물) · 상태바. 목업 ``.bar``·``.tabs``.
+"""``MainWindow`` — 상단 바(브랜드·컨텍스트) · 5탭(은행·라벨·스튜디오·배치·검수 — 라벨·스튜디오가 실물) · 상태바. 목업 ``.bar``·``.tabs``.
+
+라벨 탭에서 은행에 저장하면(``bank_saved``) 스튜디오가 같은 은행을 쓰고 있을 때 다시 준비한다(새 소스가 미리보기에 바로 반영).
 
 ``run_app(recipe=)``가 ``QApplication``을 만들고 테마를 입힌 뒤 창을 띄운다. 워커 스레드는 창이 닫힐 때 멈춘다.
 """
@@ -22,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from anograft import __version__
+from anograft.gui.label.tab import LabelTab
 from anograft.gui.studio.session import StudioSession
 from anograft.gui.studio.tab import StudioTab
 from anograft.gui.studio.worker import PreviewWorker
@@ -36,7 +39,6 @@ TABS: tuple[tuple[str, str], ...] = (
 )
 PLACEHOLDER: dict[str, str] = {
     "bank": "결함 은행 보기·가져오기 — v0.3 (지금은 CLI: anograft bank import-yolo / bank ls)",
-    "label": "브러시·폴리곤·자동 선택으로 결함 마스크 만들기 — v0.5",
     "batch": "레시피로 데이터셋 생성·진행률 — v0.7 (지금은 CLI: anograft run <recipe>)",
     "review": "합성 결과 검수·실제 결함 분포 비교 — v0.7",
 }
@@ -59,8 +61,14 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
         self.studio = StudioTab(self.session, self.worker)
+        self.label = LabelTab()
         for key, label in TABS:
-            page = self.studio if key == "studio" else self._placeholder(PLACEHOLDER[key])
+            if key == "studio":
+                page: QWidget = self.studio
+            elif key == "label":
+                page = self.label
+            else:
+                page = self._placeholder(PLACEHOLDER[key])
             self.tabs.addTab(page, label)
         self.tabs.setCurrentIndex(2)
         lay.addWidget(self.tabs, 1)
@@ -70,6 +78,9 @@ class MainWindow(QMainWindow):
         self.setStatusBar(self.status_bar)
         self.studio.status.connect(self.status_bar.showMessage)
         self.studio.context.connect(self.ctx.setText)
+        self.label.status.connect(self.status_bar.showMessage)
+        self.label.bank_saved.connect(self._on_bank_saved)
+        self.label.set_bank(self.session.recipe.inputs.bank_key())
         self.worker.busy.connect(self._on_busy)
         self.studio.sync_widgets()
         if start_worker:
@@ -106,6 +117,12 @@ class MainWindow(QMainWindow):
         v.addWidget(lab)
         return w
 
+    def _on_bank_saved(self, root: str) -> None:
+        """라벨 탭이 은행에 소스를 더했다 — 스튜디오가 그 은행을 쓰면 다시 준비(새 소스 반영)."""
+        ses = self.session
+        if ses.recipe.inputs.bank_key() == root:
+            self.studio.open_inputs(root, ses.recipe.inputs.targets.as_posix())
+
     def _on_busy(self, busy: bool) -> None:
         self.busy.setText("● 계산 중" if busy else "")
 
@@ -121,4 +138,5 @@ def run_app(recipe: str | None = None, argv: list[str] | None = None) -> int:
     win.show()
     if recipe:
         win.studio.open_recipe(Path(recipe))
+        win.label.set_bank(win.session.recipe.inputs.bank_key())
     return app.exec()

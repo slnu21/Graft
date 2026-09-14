@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Added
+- **라벨 탭**(v0.5, GUI): 결함 사진을 열어 브러시·지우개·폴리곤·자동 선택(박스 → GrabCut/Otsu/타원/사각)으로 마스크를 만들고 팽창·침식·되돌리기(40단계) 뒤 **은행에 저장** — 임포터와 같은 경로(`ImportRecord` → `BankWriter`, 성분마다 소스, `mask_origin: manual:<tool>`), 클래스는 은행 클래스에 이름 기준 병합. 클래스·픽셀 피치·태그·마스크 통계(면적·성분·길이·대비). 스튜디오가 같은 은행을 쓰면 저장 즉시 다시 준비. 단축키 B/E/P/A/H · [ ] · Ctrl+Z/Y · Enter/Esc · Ctrl+S · PageUp/Down. **라벨링 도구 없이 정상 사진 + 결함 사진만으로 은행을 만들 수 있다.**
+- `imgio.read_mask(threshold=)` · `PairRecord.mask_threshold`(VisA).
+
 ## [0.4.0] - 2026-09-15
 
 v0.4 — CPU 알고리즘 확장. **여전히 샘플 데이터로만 검증**(실데이터·MVTec/VisA 실제 사본·anomalib/ultralytics 학습 미검증). 프리셋 7종, `anograft methods` 24 선택지 전부 ok.
