@@ -213,6 +213,8 @@ class RunSummary:
     writer: WriterSummary
     count: int
     warnings: list[str]
+    cancelled: bool = False  # should_stop 으로 중간에 멈춤 — 그때까지의 결과·manifest 는 기록됨
+    done: int = 0  # 실제로 처리한 인덱스 수 (취소면 count 보다 작다)
 
     @property
     def all_skipped(self) -> bool:
@@ -254,7 +256,10 @@ def run(
     workers: int = 0,
     progress: Progress | None = None,
     warn: Callable[[str], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> RunSummary:
+    """레시피 전체를 돌려 writer 로 기록. ``should_stop()`` 이 True 를 돌려주면 다음 결과에서 멈춘다(GUI 취소) — 이미 쓴
+    파일과 manifest 는 그대로 남고 ``RunSummary.cancelled`` 가 True. spawn 풀은 제너레이터가 닫히며 종료된다."""
     recipe = prep.recipe
     warnings = list(prep.warnings)
     writer, wwarn = make_writer(recipe.output.writer)
@@ -275,13 +280,25 @@ def run(
         for p in prep.targets:
             writer.write_normal(p)
     count = recipe.output.count
-    for i, result in enumerate(iter_results(prep, range(count), workers)):
-        writer.write_synthetic(result)
-        if progress is not None:
-            progress(i + 1, count, result)
+    done = 0
+    cancelled = False
+    results = iter_results(prep, range(count), workers)
+    try:
+        for i, result in enumerate(results):
+            writer.write_synthetic(result)
+            done = i + 1
+            if progress is not None:
+                progress(done, count, result)
+            if should_stop is not None and done < count and should_stop():
+                cancelled = True
+                break
+    finally:
+        results.close()  # 풀 컨텍스트 종료(terminate) — 취소·예외 모두
     summary = writer.finish()
     warnings += summary.warnings
-    return RunSummary(summary, count, warnings)
+    if cancelled:
+        warnings.append(f"취소됨 — {done}/{count} 까지 기록")
+    return RunSummary(summary, count, warnings, cancelled=cancelled, done=done)
 
 
 # ---------------------------------------------------------------------------

@@ -48,6 +48,7 @@ from anograft.gui.studio.worker import PreviewWorker
 class StudioTab(QWidget):
     status = Signal(str)
     context = Signal(str)
+    send_to_batch_requested = Signal()
 
     def __init__(
         self, session: StudioSession, worker: PreviewWorker, parent: QWidget | None = None
@@ -281,13 +282,12 @@ class StudioTab(QWidget):
             self.status.emit(f"레시피 저장: {p.as_posix()} → {self.session.run_command()}")
 
     def send_to_batch(self) -> None:
-        if self.session.recipe_path is None:
-            self.save_recipe_dialog()
-            if self.session.recipe_path is None:
-                return
+        """현재 레시피를 배치 탭으로(저장하지 않아도 된다 — 배치 탭이 Recipe 객체를 받는다). 메인 창이 탭을 전환한다.
+        CLI 한 줄도 클립보드에 남긴다."""
         cmd = self.session.run_command()
         QGuiApplication.clipboard().setText(cmd)
-        self.status.emit(f"클립보드에 복사: {cmd}  (배치 탭은 v0.7)")
+        self.send_to_batch_requested.emit()
+        self.status.emit(f"배치 탭으로 보냄 · 클립보드: {cmd}")
 
     # ------------------------------------------------------------------ 미리보기 요청·수신
 

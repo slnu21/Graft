@@ -1,4 +1,7 @@
-"""``MainWindow`` — 상단 바(브랜드·컨텍스트) · 5탭(은행·라벨·스튜디오·배치·검수 — 라벨·스튜디오가 실물) · 상태바. 목업 ``.bar``·``.tabs``.
+"""``MainWindow`` — 상단 바(브랜드·컨텍스트) · 5탭(은행·라벨·스튜디오·배치·검수 — 라벨·스튜디오·배치가 실물) · 상태바. 목업 ``.bar``·``.tabs``.
+
+스튜디오 "배치로 보내기" → 현재 레시피를 배치 탭에 넘기고 탭을 전환한다(``send_to_batch`` 시그널). 배치 탭은 ``BatchWorker`` 스레드로
+``runner.run`` 을 돌린다 — CLI ``anograft run`` 과 결과 동일.
 
 라벨 탭에서 은행에 저장하면(``bank_saved``) 스튜디오가 같은 은행을 쓰고 있을 때 다시 준비한다(새 소스가 미리보기에 바로 반영).
 
@@ -24,6 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from anograft import __version__
+from anograft.gui.batch.tab import BatchTab
 from anograft.gui.label.tab import LabelTab
 from anograft.gui.studio.session import StudioSession
 from anograft.gui.studio.tab import StudioTab
@@ -39,7 +43,6 @@ TABS: tuple[tuple[str, str], ...] = (
 )
 PLACEHOLDER: dict[str, str] = {
     "bank": "결함 은행 보기·가져오기 — v0.3 (지금은 CLI: anograft bank import-yolo / bank ls)",
-    "batch": "레시피로 데이터셋 생성·진행률 — v0.7 (지금은 CLI: anograft run <recipe>)",
     "review": "합성 결과 검수·실제 결함 분포 비교 — v0.7",
 }
 
@@ -62,11 +65,14 @@ class MainWindow(QMainWindow):
         self.tabs.setDocumentMode(True)
         self.studio = StudioTab(self.session, self.worker)
         self.label = LabelTab()
+        self.batch = BatchTab()
         for key, label in TABS:
             if key == "studio":
                 page: QWidget = self.studio
             elif key == "label":
                 page = self.label
+            elif key == "batch":
+                page = self.batch
             else:
                 page = self._placeholder(PLACEHOLDER[key])
             self.tabs.addTab(page, label)
@@ -80,6 +86,8 @@ class MainWindow(QMainWindow):
         self.studio.context.connect(self.ctx.setText)
         self.label.status.connect(self.status_bar.showMessage)
         self.label.bank_saved.connect(self._on_bank_saved)
+        self.batch.status.connect(self.status_bar.showMessage)
+        self.studio.send_to_batch_requested.connect(self._on_send_to_batch)
         self.label.set_bank(self.session.recipe.inputs.bank_key())
         self.worker.busy.connect(self._on_busy)
         self.studio.sync_widgets()
@@ -123,11 +131,20 @@ class MainWindow(QMainWindow):
         if ses.recipe.inputs.bank_key() == root:
             self.studio.open_inputs(root, ses.recipe.inputs.targets.as_posix())
 
+    def _on_send_to_batch(self) -> None:
+        """스튜디오 → 배치: 현재 레시피(저장 여부 무관)를 넘기고 배치 탭으로."""
+        ses = self.session
+        self.batch.set_recipe(ses.recipe, ses.recipe_path)
+        self.tabs.setCurrentWidget(self.batch)
+
     def _on_busy(self, busy: bool) -> None:
         self.busy.setText("● 계산 중" if busy else "")
 
     def closeEvent(self, event) -> None:  # noqa: N802
         self.worker.stop()
+        if self.batch.worker is not None:
+            self.batch.stop()
+            self.batch.wait(10000)
         super().closeEvent(event)
 
 

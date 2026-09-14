@@ -22,6 +22,10 @@ PySide6는 선택 의존성(``pip install -e ".[gui]"``). 이 패키지의 최�
         session.py      # LabelSession — 이미지+마스크 편집 상태·되돌리기·통계·은행 저장(ImportRecord). Qt 없음
         canvas.py       # LabelCanvas(CompareCanvas): 마스크 오버레이(버퍼 공유 QImage)·브러시/지우개/폴리곤/자동 선택 박스
         tab.py          # LabelTab: 도구열·이미지 목록·결함 정보·통계·은행에 저장, bank_saved → 스튜디오 재준비
+      batch/            # v0.5 배치 탭
+        session.py      # BatchSession — 레시피 + 오버라이드(출력·장수·시드·워커·writer) → build_recipe · run_batch. Qt 없음
+        worker.py       # BatchWorker(QThread): run_batch → progress/warning/finished_run/failed, request_stop
+        tab.py          # BatchTab: 생성 설정 카드 · 진행률 바 · 로그 · 중지 · 출력 폴더 열기
 """
 
 from __future__ import annotations
