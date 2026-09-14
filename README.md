@@ -12,7 +12,7 @@
 
 ![원본 | 합성 | GT](assets/preview.png)
 
-> **상태: v0.1.0** — CLI 코어(7단계 파이프라인 · 레시피 · 결함 은행 · YOLO 입출력 · 프리셋 4종)와 GUI 스튜디오 탭. 샘플 데이터로 엔드투엔드 검증. **보유 실데이터·표준셋(MVTec AD)·학습 1 epoch은 아직 미검증**(데이터가 생기면 아래 3줄로 확인).
+> **상태: v0.4.0** — CLI 코어(7단계 파이프라인 · 레시피 · 결함 은행 · YOLO/MVTec 출력 · 프리셋 7종 · 은행 없이 도는 self-cut/perlin · 구조 정합 배치 · GrabCut ROI · VisA 어댑터)와 GUI 스튜디오 탭. 샘플 데이터로 엔드투엔드 검증. **보유 실데이터·표준셋(MVTec AD·VisA) 실제 사본·학습 1 epoch은 아직 미검증**(데이터가 생기면 아래 3줄로 확인).
 
 ## 왜
 
@@ -119,7 +119,7 @@ MIT © 2026 slnu21 — `LICENSE`. 함께 배포되는 구성 요소(PySide6/Qt L
 
 **Graft real, labeled defects onto normal images to build training datasets for anomaly detection — with ground-truth masks and full reproducibility metadata.** Package/CLI: `anograft`. Fully offline, CPU-only; the Windows zip needs no Python.
 
-> **Status: v0.1.0** — CLI core (7-stage pipeline, recipes, defect bank, YOLO in/out, 4 presets) plus the GUI Studio tab. Verified end to end on the bundled sample set. **Not yet verified on real customer data, MVTec AD, or a training epoch** — three commands once you have data (below).
+> **Status: v0.4.0** — CLI core (7-stage pipeline, recipes, defect bank, YOLO/MVTec output, 7 presets, bank-free self-cut/perlin sources, structure-aware placement, GrabCut ROI, VisA adapter) plus the GUI Studio tab. Verified end to end on the bundled sample set. **Not yet verified on real customer data, an actual MVTec AD/VisA copy, or a training epoch** — three commands once you have data (below).
 
 ### Why
 

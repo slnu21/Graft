@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-15
+
+v0.4 — CPU 알고리즘 확장. **여전히 샘플 데이터로만 검증**(실데이터·MVTec/VisA 실제 사본·anomalib/ultralytics 학습 미검증). 프리셋 7종, `anograft methods` 24 선택지 전부 ok.
+
 ### Added
 - **은행 없이 동작하는 소스 2종**(v0.4): `self-cut`(CutPaste·Scar — 대상 자신의 사각/스카 패치 + 색 지터) · `perlin-texture`(DRAEM — 펄린 노이즈 임계 마스크 + 텍스처(대상 자신 증강 또는 `texture_dir`)). 프리셋 `self-cut` · `perlin-texture`, `inputs.bank: null` 허용(bank 소스만 은행 필수), `recipe init`이 자동으로 `bank: null`. `anograft methods` source 3종, `preview --compare-methods source`.
 - `blend.alpha.opacity`(DRAEM β) — 설정 시에만 결함마다 rng 1회(기존 프리셋 결과 불변).
@@ -46,5 +50,6 @@
 - GUI는 스튜디오 탭만. 재현은 같은 OS·OpenCV 부버전 범위(`seamlessClone` 솔버).
 - `release.yml`의 Windows zip 잡은 첫 push 전이라 CI에서 미검증(로컬 `tools/build_zip.ps1`와 같은 절차).
 
-[Unreleased]: https://github.com/slnu21/Graft/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/slnu21/Graft/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/slnu21/Graft/compare/v0.1.0...v0.4.0
 [0.1.0]: https://github.com/slnu21/Graft/releases/tag/v0.1.0
