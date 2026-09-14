@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import multiprocessing
 import sys
 
 from anograft import __version__
@@ -10,6 +11,7 @@ from anograft.gui import qt_available
 
 
 def main(argv: list[str] | None = None) -> int:
+    multiprocessing.freeze_support()  # frozen exe + spawn 워커 (cli.main과 같은 이유)
     parser = argparse.ArgumentParser(prog="anograft-gui", description="Graft GUI (PySide6)")
     parser.add_argument("recipe", nargs="?", default=None, help="시작할 때 열 레시피 YAML")
     parser.add_argument("--version", action="version", version=f"anograft {__version__}")

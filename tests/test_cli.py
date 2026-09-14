@@ -1,4 +1,3 @@
-import shutil
 from pathlib import Path
 
 import numpy as np
@@ -333,16 +332,23 @@ def test_run_workers_0_and_2_produce_identical_trees(
     """설계 §7·§11: 프로세스 풀 결과 = 인프로세스 결과 (images·masks·meta·labels·manifest 바이트 동일)."""
     recipe = workspace["recipe"]
     _set_writer(recipe, "yolo")
-    # 같은 output.root 로 두 번(--out 을 바꾸면 resolved 레시피 → pipeline_hash 가 달라진다) — 첫 결과는 옆으로 옮겨 둔다
-    root, root0 = workspace["root"] / "out", workspace["root"] / "w0"
-    assert main(["run", str(recipe), "--workers", "0"]) == EXIT_OK
-    shutil.move(root, root0)
-    assert main(["run", str(recipe), "--workers", "2"]) == EXIT_OK
+    # 다른 --out 으로 두 번 — pipeline_hash 는 output.root 를 빼고 계산하므로(데브로그 07) 사이드카·meta 도 같아야 한다.
+    # recipe.resolved.yaml 만 root 줄이 다르다.
+    root0, root = workspace["root"] / "w0", workspace["root"] / "out"
+    assert main(["run", str(recipe), "--workers", "0", "--out", str(root0)]) == EXIT_OK
+    assert main(["run", str(recipe), "--workers", "2", "--out", str(root)]) == EXIT_OK
     out = capsys.readouterr().out
     assert out.count("완료: ok 5") == 2 and "data.yaml" in out
     a, b = _tree_bytes(root0), _tree_bytes(root)
     assert set(a) == set(b) and {"labels/000000.txt", "data.yaml", "labels/n_n0.txt"} <= set(a)
-    assert [k for k in a if a[k] != b[k]] == []  # recipe.resolved.yaml·meta 해시까지 전부 동일
+    assert [k for k in a if a[k] != b[k]] == [
+        "recipe.resolved.yaml"
+    ]  # images·masks·meta(해시)·labels 전부 동일
+    ra, rb = a["recipe.resolved.yaml"].decode("utf-8"), b["recipe.resolved.yaml"].decode("utf-8")
+    assert ra.splitlines()[0] == rb.splitlines()[0]  # 헤더의 pipeline_hash 동일
+    assert [ln for ln in ra.splitlines() if ln not in rb.splitlines()] == [
+        "  root: " + root0.as_posix()
+    ]
     # 라벨: ok 행마다 한 줄 이상, 정상 이미지는 빈 파일
     rows = read_manifest(root0 / "manifest.csv")
     for r in rows:

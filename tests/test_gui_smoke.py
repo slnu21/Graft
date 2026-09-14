@@ -178,7 +178,7 @@ def test_params_text_and_stage_thumbnail(qapp: QApplication) -> None:
     rec = default_recipe()
     text = params_text(rec.pipeline.geometry)
     assert "scale 0.8–1.25" in text and "method" not in text and "flip True" in text
-    assert params_text(rec.pipeline.blend).startswith("poisson_mode mixed")
+    assert params_text(rec.pipeline.blend).startswith("poisson_mode normal")
     bank = memory_bank([line_defect(14, 3)])
     ses = StudioSession(rec)
     ses.set_stage_field("placement", "margin_px", 4)

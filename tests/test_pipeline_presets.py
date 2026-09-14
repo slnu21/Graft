@@ -69,7 +69,7 @@ def test_poisson_graft_defaults_do_not_fall_back_on_disk() -> None:
     for d in r.sidecar["defects"]:
         assert d["blend"] == {
             "method": "poisson",
-            "mode": "mixed",
+            "mode": "normal",
             "mask_dilate_px": 5,
             "fallback": False,
         }

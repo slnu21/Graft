@@ -35,7 +35,8 @@ def bank_fingerprint(entries: Iterable[tuple[str, int]]) -> str:
 
 
 def pipeline_hash(resolved_recipe_yaml: str, version: str, bank_fp: str) -> str:
-    """사이드카·manifest에 남기는 파이프라인 해시. 레시피(resolved) + 패키지 버전 + 은행 지문."""
+    """사이드카·manifest에 남기는 파이프라인 해시. 레시피(``Recipe.hash_yaml()`` — resolved에서
+    ``output.root``·``count`` 제외) + 패키지 버전 + 은행 지문."""
     h = hashlib.sha256()
     h.update(resolved_recipe_yaml.encode("utf-8"))
     h.update(b"\0")

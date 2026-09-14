@@ -1,16 +1,27 @@
-# pip freeze 2026-09-13 (Python 3.12, Windows). Exact reproduction: pip install -r requirements-lock.txt
+# pip freeze 2026-09-14 (Python 3.12, Windows) — extras dev+gui+build (= v0.1.0 zip 빌드 환경). 정확 재현: pip install -r requirements-lock.txt
+# 코어만 필요하면 pip install -e . (순수 wheel 4개). 2026-09-13 lock 대비 코어·dev 버전 변화 없음, PySide6·PyInstaller 추가.
+altgraph==0.17.5
 annotated-types==0.8.0
 colorama==0.4.6
 iniconfig==2.3.0
 numpy==2.5.3
 opencv-python-headless==4.14.0.94
 packaging==26.3
+pefile==2024.8.26
 pluggy==1.6.0
 pydantic==2.13.5
 pydantic_core==2.46.5
 Pygments==2.21.0
+pyinstaller==6.22.3
+pyinstaller-hooks-contrib==2026.7
+PySide6==6.11.2
+PySide6_Addons==6.11.2
+PySide6_Essentials==6.11.2
 pytest==8.4.2
+pywin32-ctypes==0.2.3
 PyYAML==6.0.3
 ruff==0.16.7
+setuptools==84.0.0
+shiboken6==6.11.2
 typing-inspection==0.4.4
 typing_extensions==4.16.0

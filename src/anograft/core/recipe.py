@@ -7,7 +7,7 @@
 - 프리셋은 ``pipeline`` 아래 기본값 딕셔너리(``anograft/presets/*.yaml``). 병합 순서:
   코드 기본값 → 프리셋 → 사용자 YAML → CLI 오버라이드. 사용자가 스테이지의 ``method``를 바꾸면
   그 스테이지는 사용자 블록을 통째로 쓴다(프리셋의 다른 method 키가 섞이지 않게).
-- ``to_yaml()``은 필드 순서 고정(sort_keys=False) → 파이프라인 해시의 입력.
+- ``to_yaml()``은 필드 순서 고정(sort_keys=False). 파이프라인 해시의 입력은 ``hash_yaml()``(output.root·count 제외).
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from __future__ import annotations
 import importlib.resources
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Annotated, Any, Literal, Protocol, runtime_checkable
+from typing import Annotated, Any, ClassVar, Literal, Protocol, runtime_checkable
 
 import yaml
 from pydantic import (
@@ -364,10 +364,27 @@ class Recipe(_Strict):
         return self.model_dump(mode="json")
 
     def to_yaml(self) -> str:
-        """필드 순서 고정 덤프 — 파이프라인 해시 입력. 같은 레시피는 언제 덤프해도 같은 문자열."""
+        """필드 순서 고정 덤프(``recipe.resolved.yaml``). 같은 레시피는 언제 덤프해도 같은 문자열."""
         return yaml.safe_dump(
             self.to_dict(), sort_keys=False, allow_unicode=True, default_flow_style=None
         )
+
+    # 합성 결과(이미지 i의 픽셀·GT)에 영향이 없는 필드 — 파이프라인 해시에서 뺀다.
+    # root = 어디에 쓰는가, count = 몇 장 뽑는가(이미지 i는 index로만 정해진다). 나머지 output 키
+    # (class_ratio·defects_per_image)는 뽑기에 영향이 있으므로 남긴다.
+    HASH_EXCLUDE: ClassVar[tuple[tuple[str, ...], ...]] = (("output", "root"), ("output", "count"))
+
+    def hash_yaml(self) -> str:
+        """``pipeline_hash`` 입력 — ``to_yaml()``에서 ``HASH_EXCLUDE`` 키를 뺀 덤프.
+        ``--out``·``--count``만 바꾼 두 실행의 사이드카 해시가 같아진다(데브로그 07 결정)."""
+        data = self.to_dict()
+        for path in self.HASH_EXCLUDE:
+            node: Any = data
+            for key in path[:-1]:
+                node = node.get(key, {}) if isinstance(node, dict) else {}
+            if isinstance(node, dict):
+                node.pop(path[-1], None)
+        return yaml.safe_dump(data, sort_keys=False, allow_unicode=True, default_flow_style=None)
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> Recipe:

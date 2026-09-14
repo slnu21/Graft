@@ -1,5 +1,5 @@
-# 샘플 데이터로 첫 합성 — repo 루트에서 (상대경로는 현재 작업 디렉터리 기준):
-#   python tools/make_sample_yolo.py --out samples/metal
+# 샘플 데이터로 첫 합성 — repo 루트 또는 zip 을 푼 폴더에서 (상대경로는 현재 작업 디렉터리 기준; zip 이면 anograft → .\anograft.exe):
+#   anograft sample --out samples/metal                                # 샘플 이미지 22장 + YOLO 박스 (= python tools/make_sample_yolo.py)
 #   anograft bank import-yolo --images samples/metal/images --labels samples/metal/labels --names samples/metal/data.yaml `
 #       --out bank/sample --list-normals samples/metal/normals.txt
 #   anograft bank preview bank/sample --out out/bank-preview.png       # 추정 마스크 눈으로 확인 (amber = 추정, ellipse = 과라벨)
