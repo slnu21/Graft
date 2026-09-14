@@ -58,6 +58,8 @@ anograft-gui recipes/sample-poisson.yaml                                  # GUI 
 
 ![GUI 라벨 탭](assets/gui-label.png)
 
+![GUI 배치 탭](assets/gui-batch.png)
+
 ## 보유 데이터로
 
 | 가진 것 | 명령 |
@@ -66,7 +68,7 @@ anograft-gui recipes/sample-poisson.yaml                                  # GUI 
 | 이미지 + 마스크 PNG 쌍 | `anograft bank import-pairs --images … --masks … --class scratch --out bank/mine` (`--class-from-dir` · `--csv`) |
 | MVTec AD 로컬 사본 | `anograft dataset info mvtec-ad` → `anograft bank import-dataset mvtec-ad <root>/metal_nut --out bank/metal_nut` (내려받지 않음, CC BY-NC-SA) |
 | VisA 로컬 사본 | `anograft dataset info visa` → `anograft bank import-dataset visa <VisA>/candle --out bank/candle` (결함 유형 세분이 없어 클래스 `anomaly` 하나, CC BY-NC-SA) |
-| **결함 사진만**(라벨 없음) | GUI **라벨 탭** — 폴더 열기 → 사진 선택 → 브러시/폴리곤/자동 선택(박스를 끌면 GrabCut) → 클래스 입력 → **은행에 저장**(Ctrl+S). 라벨링 도구가 따로 필요 없다 (v0.5) |
+| **결함 사진만**(라벨 없음) | GUI **라벨 탭** — 폴더 열기 → 사진 선택 → 브러시/폴리곤/자동 선택(박스를 끌면 GrabCut) → 클래스 입력 → **은행에 저장**(Ctrl+S). 라벨링 도구가 따로 필요 없다 (v0.5). 그다음 스튜디오에서 미리보기 → **배치로 보내기** → 배치 탭 **생성 시작** — CLI 없이 끝까지 |
 
 그다음은 `recipe init` → `inputs.bank`·`inputs.targets`(정상 이미지 폴더 또는 목록) 수정 → `run`. 출력 `images/`·`labels/`·`data.yaml`은 기존 YOLO 학습셋에 그대로 합쳐집니다(같은 `names` 순서). `python tools/train_smoke.py --synthetic out/sample --base <기존셋> --out train/merged`가 합쳐서 `ultralytics` 1 epoch을 돌립니다(ultralytics는 별도 설치, `--dry-run`은 합치기만).
 
@@ -170,7 +172,7 @@ anograft-gui recipes/sample-poisson.yaml                                  # GUI 
 | Image + mask PNG pairs | `anograft bank import-pairs --images … --masks … --class scratch --out bank/mine` (`--class-from-dir`, `--csv`) |
 | Local MVTec AD copy | `anograft dataset info mvtec-ad` → `anograft bank import-dataset mvtec-ad <root>/metal_nut --out bank/metal_nut` (never downloaded; CC BY-NC-SA) |
 | Local VisA copy | `anograft dataset info visa` → `anograft bank import-dataset visa <VisA>/candle --out bank/candle` (no defect-type split, so one class `anomaly`; CC BY-NC-SA) |
-| **Only defect photos** (no labels) | GUI **Label tab** — open folder → pick a photo → brush / polygon / auto-select (drag a box → GrabCut) → type the class → **Save to bank** (Ctrl+S). No separate labelling tool needed (v0.5) |
+| **Only defect photos** (no labels) | GUI **Label tab** — open folder → pick a photo → brush / polygon / auto-select (drag a box → GrabCut) → type the class → **Save to bank** (Ctrl+S). No separate labelling tool needed (v0.5). Then preview in Studio → **Send to batch** → **Run** in the Batch tab — no CLI required |
 
 Then `recipe init` → edit `inputs.bank` / `inputs.targets` (normal-image folder or list) → `run`. The output `images/`, `labels/`, `data.yaml` merge straight into an existing YOLO set (same `names` order). `python tools/train_smoke.py --synthetic out/sample --base <your set> --out train/merged` merges and runs one `ultralytics` epoch (install ultralytics separately; `--dry-run` only merges).
 
