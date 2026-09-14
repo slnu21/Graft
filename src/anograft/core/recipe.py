@@ -423,16 +423,42 @@ class NoneDegradeConfig(_Strict):
 
 
 class CameraDegradeConfig(_Strict):
+    """카메라 재현. v0.4 추가 옵션(``motion_blur_px``·``vignette``·``gamma``)은 **null = off 이고 off 면 rng 를 소비하지
+    않는다** — v0.1 레시피의 난수 스트림·골든이 그대로다. 적용 순서 = 모션 블러 → 가우시안 블러 → 비네팅 → 노이즈 → 감마 → JPEG."""
+
     method: Literal["camera"] = "camera"
     noise_sigma: Range = (0.0, 2.0)
     blur_sigma: Range = (0.0, 0.6)
     jpeg_quality: IntRange | None = None  # null = off
+    motion_blur_px: Range | None = None  # 선형 모션 블러 커널 길이(px). null = off, < 1 이면 생략
+    motion_angle: Range = (
+        0.0,
+        180.0,
+    )  # 모션 방향(deg, 축이라 180 주기). motion_blur_px 가 있을 때만 소비
+    vignette: Range | None = (
+        None  # 모서리 감광 강도 [0, 1] — 1 이면 모서리가 완전히 검다. null = off
+    )
+    gamma: Range | None = None  # 톤 커브 지수(1 = 항등, < 1 밝게). null = off
 
-    @field_validator("noise_sigma", "blur_sigma")
+    @field_validator("noise_sigma", "blur_sigma", "motion_blur_px")
     @classmethod
-    def _non_negative(cls, v: tuple[float, float]) -> tuple[float, float]:
-        if v[0] < 0:
-            raise ValueError("σ 범위는 0 이상이어야 합니다")
+    def _non_negative(cls, v: tuple[float, float] | None) -> tuple[float, float] | None:
+        if v is not None and v[0] < 0:
+            raise ValueError("범위는 0 이상이어야 합니다")
+        return v
+
+    @field_validator("vignette")
+    @classmethod
+    def _vignette_unit(cls, v: tuple[float, float] | None) -> tuple[float, float] | None:
+        if v is not None and (v[0] < 0 or v[1] > 1):
+            raise ValueError("vignette 범위는 [0, 1] 안이어야 합니다")
+        return v
+
+    @field_validator("gamma")
+    @classmethod
+    def _gamma_positive(cls, v: tuple[float, float] | None) -> tuple[float, float] | None:
+        if v is not None and v[0] <= 0:
+            raise ValueError("gamma 범위는 양수여야 합니다")
         return v
 
     @field_validator("jpeg_quality")

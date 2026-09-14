@@ -11,6 +11,7 @@
 - **구조 정합 배치** `placement: structure-aware`(v0.4): 위치 = 그래디언트 크기 가중(`prefer` edges/flat/uniform · `strength` · `smooth_px`), 방향 = 후보 자리의 구조 텐서 지배 방향에 패치 주축 정렬(`align` along/across/none · `min_coherence` · `min_anisotropy` · `jitter_deg`). 시도마다 rng 2회. 사이드카 `placement`에 `aligned`·`angle_deg`·`orientation_deg`·`coherence`·`patch_axis_deg`·`anisotropy`.
 - **GrabCut ROI** `roi: grabcut`(`init` rect/otsu · `rect_margin` · `iters` · `work_px` 작업 해상도 · `erode_px`) — 시드는 대상 파일 이름의 crc32(폴더를 옮겨도 같은 ROI), 실패 시 Otsu 로 대체(경고). 프리셋 `structure-aware-graft`(poisson-graft + structure-aware + grabcut). 골든 +2. `core/structure.py`(그래디언트 크기·창 구조 텐서·마스크 주축).
 - `stable_seed`가 `core/seeds.py`로 이동(`bank.mask_from_box`에서 재export).
+- **열화 추가**(`degrade: camera`, v0.4): `motion_blur_px`(+`motion_angle`) 선형 모션 블러 · `vignette` 모서리 감광 · `gamma` 톤 커브 — 전부 `null` = off 이고 off 면 rng 를 소비하지 않는다(기존 레시피·골든 불변). 적용 순서 모션 → 가우시안 → 비네팅 → 노이즈 → 감마 → JPEG. 사이드카 `degrade`에 실제 값.
 
 ### Changed
 - `placement` 블록의 `method:` 생략은 `sampled`로 해석(v0.4 에서 union 이 되며 태그가 필수가 됐지만 v0.1~v0.3 레시피 호환). `with_method("placement", …)`는 하위 `roi` 블록을 유지.
