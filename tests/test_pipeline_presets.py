@@ -1,6 +1,5 @@
-"""프리셋 단위 엔드투엔드 — poisson-graft · hard-paste 가 ``Pipeline.from_recipe`` + 메모리 은행(실물 BankSource)으로 끝까지 돈다.
-gray/color 양쪽, 사이드카 구조, 결정성. alpha-paste(reinhard)·multiband-graft(multiband)는 아직 미구현이라 명확한 예외
-(stages-more-methods에서 골든 8장과 함께 이 목록에 들어온다)."""
+"""프리셋 단위 엔드투엔드 — 프리셋 4종 전부가 ``Pipeline.from_recipe`` + 메모리 은행(실물 BankSource)으로 끝까지 돈다.
+gray/color 양쪽, 사이드카 구조, 결정성. 픽셀 회귀는 ``test_pipeline_golden``(골든 8장)."""
 
 from __future__ import annotations
 
@@ -8,11 +7,10 @@ import numpy as np
 import pytest
 
 from anograft.core import recipe as R
-from anograft.core import registry
 from anograft.core.pipeline import Pipeline
 from tests.fixtures import disk_target, line_defect, memory_bank, pipeline_deps
 
-IMPLEMENTED = ["poisson-graft", "hard-paste"]
+IMPLEMENTED = ["poisson-graft", "hard-paste", "alpha-paste", "multiband-graft"]
 
 
 def _recipe(preset: str, seed: int = 20260914) -> R.Recipe:
@@ -99,13 +97,17 @@ def test_hard_paste_changes_only_inside_gt() -> None:
 
 
 @pytest.mark.parametrize(
-    ("preset", "stage", "pattern"),
-    [
-        ("multiband-graft", "blend", r"blend\.multiband"),
-        ("alpha-paste", "harmonize", r"harmonize\.reinhard"),
-    ],
+    ("preset", "blend", "harmonize"),
+    [("alpha-paste", "alpha", "reinhard"), ("multiband-graft", "multiband", "histmatch")],
 )
-def test_remaining_presets_report_not_implemented(preset: str, stage: str, pattern: str) -> None:
-    rec = _recipe(preset)
-    with pytest.raises(registry.StageNotImplementedError, match=pattern):
-        registry.build(stage, getattr(rec.pipeline, stage))
+def test_new_presets_run_their_methods_without_skip(
+    preset: str, blend: str, harmonize: str
+) -> None:
+    """alpha-paste · multiband-graft: 블렌딩·조화가 실제로 돌았다(skipped 없음, multiband는 levels_used ≥ 1)."""
+    r = _pipeline(preset).run_one(disk_target(128), 3)
+    assert r.status == "ok"
+    for d in r.sidecar["defects"]:
+        assert d["blend"]["method"] == blend and "skipped" not in d["blend"]
+        assert d["harmonize"]["method"] == harmonize and "skipped" not in d["harmonize"]
+        if blend == "multiband":
+            assert 1 <= d["blend"]["levels_used"] <= d["blend"]["levels"] == 4

@@ -35,6 +35,7 @@ def test_methods_lists_all_v01_choices(capsys: pytest.CaptureFixture[str]) -> No
         "프리셋:",
     ]:
         assert token in out
+    assert "미구현" not in out and "불가" not in out  # v0.1 method 전부 구현 (stages-more-methods)
 
 
 def test_methods_single_stage(capsys: pytest.CaptureFixture[str]) -> None:

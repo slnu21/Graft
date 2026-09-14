@@ -1,0 +1,76 @@
+"""골든 회귀 — 설계 §11: 64×64 합성 대상 + 합성 은행, 시드 고정, **프리셋 4종 × gray/color** → ``tests/golden/<preset>-<gray|color>.png``
+픽셀 바이트 일치(8 골든). 갱신은 ``pytest --update-golden``으로만(``conftest``) — 알고리즘을 의도적으로 바꿨을 때, 데브로그에 사유.
+
+PNG 바이트가 아니라 **디코드한 픽셀 배열**을 비교한다(zlib/OpenCV 버전에 따라 인코딩 바이트는 달라질 수 있다).
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+from anograft.core import recipe as R
+from anograft.core.pipeline import Pipeline
+from anograft.io import imgio
+from tests.fixtures import disk_target, line_defect, memory_bank, pipeline_deps
+
+GOLDEN_DIR = Path(__file__).parent / "golden"
+PRESETS = ["poisson-graft", "hard-paste", "alpha-paste", "multiband-graft"]
+SEED = 20260914
+SIZE = 64
+
+
+def _pipeline(preset: str) -> Pipeline:
+    rec = R.Recipe.from_dict(
+        {
+            "version": 1,
+            "name": preset,
+            "seed": SEED,
+            "inputs": {"bank": "b", "targets": "t"},
+            "output": {"root": "o", "count": 1, "defects_per_image": [2, 2]},
+            "pipeline": {
+                "preset": preset,
+                "placement": {"roi": {"method": "otsu", "erode_px": 2}, "margin_px": 6},
+            },
+        }
+    )
+    bank = memory_bank([line_defect(18, 4), line_defect(10, 6, cls="dent")])
+    return Pipeline.from_recipe(rec, pipeline_deps(rec, bank))
+
+
+def golden_path(preset: str, gray: bool) -> Path:
+    return GOLDEN_DIR / f"{preset}-{'gray' if gray else 'color'}.png"
+
+
+@pytest.mark.parametrize("gray", [False, True], ids=["color", "gray"])
+@pytest.mark.parametrize("preset", PRESETS)
+def test_preset_matches_golden(preset: str, gray: bool, update_golden: bool) -> None:
+    r = _pipeline(preset).run_one(disk_target(SIZE, gray=gray), 0)
+    assert r.status == "ok", r.warnings
+    assert len(r.instances) == 2  # 골든은 결함 2개가 다 붙은 결과여야 의미가 있다
+    path = golden_path(preset, gray)
+    if update_golden:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        imgio.write_image(path, r.image)
+        pytest.skip(f"golden 갱신: {path.name}")
+    assert path.exists(), f"골든 없음: {path.name} — `pytest --update-golden`으로 만든다"
+    expected, was_gray = imgio.read_image(path)  # 항상 HxWx3 승격
+    assert was_gray == gray
+    if gray:
+        expected = expected[:, :, 0]
+    assert expected.shape == r.image.shape and expected.dtype == r.image.dtype
+    diff = np.abs(expected.astype(int) - r.image.astype(int))
+    assert diff.max() == 0, (
+        f"{path.name}: {int((diff > 0).sum())}px 다름 (max {int(diff.max())}) — 의도한 변경이면 --update-golden"
+    )
+
+
+def test_golden_files_are_small_and_complete() -> None:
+    """8장 전부 있고 각 ≤ 10KB(커밋 대상)."""
+    for preset in PRESETS:
+        for gray in (False, True):
+            p = golden_path(preset, gray)
+            assert p.exists(), p.name
+            assert p.stat().st_size <= 10 * 1024, (p.name, p.stat().st_size)
