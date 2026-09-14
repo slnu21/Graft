@@ -89,6 +89,28 @@ def prepare(recipe: Recipe) -> Prepared:
     return Prepared(recipe, bank, targets, pipeline, ph, deps, warnings)
 
 
+def reprepare(prep: Prepared, recipe: Recipe) -> Prepared:
+    """은행·대상은 그대로 두고 레시피만 바뀐 경우(GUI 슬라이더·프리셋 변경) — deps·파이프라인·해시만 다시 만든다.
+    ``inputs.bank``/``inputs.targets``가 바뀌었으면 ``prepare``를 다시 불러야 한다(여기서는 검사만)."""
+    if (recipe.inputs.bank, recipe.inputs.targets) != (
+        prep.recipe.inputs.bank,
+        prep.recipe.inputs.targets,
+    ):
+        raise ValueError("은행 또는 대상 경로가 바뀌었습니다 — prepare()를 다시 부르세요")
+    warnings = list(prep.bank.warnings)
+    try:
+        warnings += recipe.validate_against(prep.bank)
+    except ValueError as e:
+        raise PrepareError(f"레시피가 은행과 맞지 않습니다: {e}") from e
+    deps = build_deps(recipe, prep.bank)
+    try:
+        pipeline = Pipeline.from_recipe(recipe, deps)
+    except (registry.StageNotImplementedError, registry.StageUnavailableError) as e:
+        raise PrepareError(f"실행할 수 없는 스테이지: {e}") from e
+    ph = pipeline_hash(recipe.to_yaml(), __version__, prep.bank.fingerprint())
+    return Prepared(recipe, prep.bank, list(prep.targets), pipeline, ph, deps, warnings)
+
+
 # ---------------------------------------------------------------------------
 # 이미지 한 장
 # ---------------------------------------------------------------------------
