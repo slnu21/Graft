@@ -89,7 +89,7 @@ def prepare(recipe: Recipe) -> Prepared:
         pipeline = Pipeline.from_recipe(recipe, deps)
     except (registry.StageNotImplementedError, registry.StageUnavailableError) as e:
         raise PrepareError(f"실행할 수 없는 스테이지: {e}") from e
-    ph = pipeline_hash(recipe.to_yaml(), __version__, bank.fingerprint())
+    ph = pipeline_hash(recipe.hash_yaml(), __version__, bank.fingerprint())
     return Prepared(recipe, bank, targets, pipeline, ph, deps, warnings)
 
 
@@ -111,7 +111,7 @@ def reprepare(prep: Prepared, recipe: Recipe) -> Prepared:
         pipeline = Pipeline.from_recipe(recipe, deps)
     except (registry.StageNotImplementedError, registry.StageUnavailableError) as e:
         raise PrepareError(f"실행할 수 없는 스테이지: {e}") from e
-    ph = pipeline_hash(recipe.to_yaml(), __version__, prep.bank.fingerprint())
+    ph = pipeline_hash(recipe.hash_yaml(), __version__, prep.bank.fingerprint())
     return Prepared(recipe, prep.bank, list(prep.targets), pipeline, ph, deps, warnings)
 
 

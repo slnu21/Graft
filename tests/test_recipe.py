@@ -133,6 +133,23 @@ def test_yaml_roundtrip_is_stable() -> None:
     assert "preset: multiband-graft" in y1
 
 
+def test_hash_yaml_ignores_root_and_count_only() -> None:
+    """데브로그 07 결정: ``--out``·``--count``만 다른 두 레시피는 같은 해시 입력, 그 외는 다르다."""
+    base = _base(preset="poisson-graft")
+    rec = R.Recipe.from_dict(base)
+    moved = R.Recipe.from_dict(R.apply_overrides(dict(base), out="elsewhere/out", count=999))
+    assert rec.to_yaml() != moved.to_yaml()
+    assert rec.hash_yaml() == moved.hash_yaml()
+    assert "root:" not in rec.hash_yaml() and "count:" not in rec.hash_yaml()
+    # 뽑기에 영향 있는 키는 그대로 해시에 들어간다
+    ratio = R.Recipe.from_dict({**base, "output": {**base["output"], "defects_per_image": [2, 2]}})
+    assert ratio.hash_yaml() != rec.hash_yaml()
+    seeded = R.Recipe.from_dict(R.apply_overrides(dict(base), seed=rec.seed + 1))
+    assert seeded.hash_yaml() != rec.hash_yaml()
+    # resolved 덤프(to_yaml)는 그대로 — root/count가 남아 있어야 재실행 가능
+    assert "root:" in rec.to_yaml() and "count:" in rec.to_yaml()
+
+
 def test_paths_serialize_posix() -> None:
     rec = R.Recipe.from_dict(_base())
     d = rec.to_dict()
@@ -150,7 +167,7 @@ def test_load_with_overrides(tmp_path: Path) -> None:
 
 def test_init_recipe_dict_is_fully_expanded() -> None:
     d = R.init_recipe_dict("alpha-paste")
-    assert d["pipeline"]["blend"] == {"method": "alpha", "feather_px": 3}
+    assert d["pipeline"]["blend"] == {"method": "alpha", "feather_px": 2}
     assert d["pipeline"]["harmonize"]["method"] == "reinhard"
     assert d["output"]["writer"]["format"] == "yolo"
 

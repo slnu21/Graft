@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import multiprocessing
 import sys
 from pathlib import Path
 
@@ -33,6 +35,7 @@ from anograft.preview import (
     source_tile,
     union_bbox,
 )
+from anograft.samples import yolo as sample_yolo
 
 EXIT_OK = 0
 EXIT_RECIPE_ERROR = 1
@@ -598,10 +601,31 @@ def build_parser() -> argparse.ArgumentParser:
     di.add_argument("name", nargs="?", default=None)
     di.set_defaults(func=cmd_dataset_info)
 
+    p = sub.add_parser(
+        "sample",
+        help="샘플 YOLO 세트(브러시드 메탈 + scratch/pit/stain) 생성 — 보유 데이터 없이 5분 시작",
+    )
+    sample_yolo.add_arguments(p)
+    p.set_defaults(func=sample_yolo.run_from_args)
+
     return parser
 
 
+def _console_fail_soft() -> None:
+    """cp949 콘솔에서 `→`·`≈` 같은 기호가 UnicodeEncodeError로 CLI를 죽이지 않게 — 인코딩은 그대로, 못 찍는 글자만 `?`."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            # 닫힌 스트림·특수 핸들이면 조용히 넘어간다
+            with contextlib.suppress(ValueError, OSError):
+                reconfigure(errors="replace")
+
+
 def main(argv: list[str] | None = None) -> int:
+    # PyInstaller(frozen) + spawn: 워커 프로세스는 이 exe를 다시 실행한다 — 여기서 잡아 주지 않으면 워커가 CLI 본체를 돈다.
+    # 비-frozen 환경에서는 no-op.
+    multiprocessing.freeze_support()
+    _console_fail_soft()
     parser = build_parser()
     args = parser.parse_args(argv)
     func = getattr(args, "func", None)

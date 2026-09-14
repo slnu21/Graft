@@ -1,5 +1,6 @@
 name: Release
-# 태그 push(v*) 시 PyPI publish. PyPI Trusted Publishing(OIDC) 사용 — API 토큰 불필요.
+# 태그 push(v*) 시 (1) PyPI publish — Trusted Publishing(OIDC), API 토큰 불필요 (2) Windows zip 빌드 → GitHub Release 자산.
+# (2)는 2026-09-14 추가, 첫 push 전이라 CI에서 미검증 — 로컬 tools/build_zip.ps1 과 같은 절차.
 on:
   push:
     tags: ["v*"]
@@ -29,3 +30,37 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           skip-existing: true   # 이미 올라간 버전이면 실패 대신 건너뜀(재실행 안전)
+
+  windows-zip:
+    # 파이썬 없는 PC용 단일 폴더 zip (PyInstaller onedir, CLI+GUI exe). 릴리스가 없으면 draft 로 만들고 자산을 올린다.
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Install (gui + build)
+        run: python -m pip install -e ".[gui,build]"
+      - name: Build zip
+        shell: pwsh
+        run: .\tools\build_zip.ps1
+      - name: Smoke (frozen CLI, spawn workers)
+        shell: pwsh
+        run: |
+          $ver = (Select-String -Path pyproject.toml -Pattern '^version\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+          $exe = "dist\anograft-$ver-win64\anograft.exe"
+          & $exe sample --out smoke\s --n-normal 2 --n-defect 2 --size 320 240
+          & $exe bank import-yolo --images smoke\s\images --labels smoke\s\labels --names smoke\s\data.yaml --out smoke\bank --list-normals smoke\s\normals.txt
+          & $exe recipe init --preset poisson-graft --bank smoke\bank --targets smoke\s\normals.txt --out smoke\out --count 4 --write smoke\r.yaml
+          & $exe run smoke\r.yaml --workers 2
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Upload to GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release view $env:TAG 2>$null
+          if ($LASTEXITCODE -ne 0) { gh release create $env:TAG --draft --title $env:TAG --notes "See CHANGELOG.md" }
+          gh release upload $env:TAG (Get-ChildItem dist\*.zip).FullName --clobber

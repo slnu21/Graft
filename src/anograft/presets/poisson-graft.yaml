@@ -1,4 +1,7 @@
-# Poisson Graft (기본) — NSA 계열. 결함 은행 → affine → ROI 샘플링 → Poisson(MIXED) → L채널 통계 정합 → 카메라 재현
+# Poisson Graft (기본) — NSA 계열. 결함 은행 → affine → ROI 샘플링 → Poisson(NORMAL) → L채널 통계 정합 → 카메라 재현
+# 2026-09-14(#759 샘플 실측, 데브로그 07): MIXED는 얼룩처럼 그래디언트가 약한 결함을 대상 텍스처로 덮어 지운다(hard-paste 대비 0.19)
+#   → 기본 NORMAL. 스크래치·핏처럼 그래디언트가 강한 결함은 `poisson_mode: mixed`가 더 자연스럽다.
+#   harmonize strength 0.5 → 0.3: 세 조화 방법 모두 정의상 결함 톤을 옅게 만든다(0.5에서 대비 0.51 → 0.3에서 0.60).
 pipeline:
   source:
     method: bank
@@ -19,12 +22,12 @@ pipeline:
     shrink_on_fail: { factor: 0.8, rounds: 3 }
   blend:
     method: poisson
-    poisson_mode: mixed
+    poisson_mode: normal
     mask_dilate_px: 5          # seamlessClone이 마스크를 3px 침식 → 얇은 결함 보존에 필수
     feather_px: 3
   harmonize:
     method: stats
-    strength: 0.5
+    strength: 0.3
     ring_px: 12
   degrade:
     method: camera

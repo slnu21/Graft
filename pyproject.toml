@@ -36,6 +36,8 @@ dev = ["pytest>=8,<9", "ruff>=0.5"]
 gui = ["PySide6>=6.6,<7"]
 # v1.0 선택 플러그인(SAM·확산). 없으면 해당 프리셋이 비활성 + 이유 노출 (fail-soft).
 torch = []
+# Windows zip 빌드 전용(tools/build_zip.ps1 · packaging/anograft.spec). 배포물에 PyInstaller 코드는 들어가지 않는다(부트로더 예외).
+build = ["pyinstaller>=6.6,<7"]
 
 [project.scripts]
 anograft = "anograft.cli:main"

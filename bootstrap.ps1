@@ -1,8 +1,11 @@
-# bootstrap.ps1 — 다른 PC에서 첫 실행: venv 생성 + 개발 설치. 요구사항은 Python >= 3.10 하나.
+﻿# bootstrap.ps1 — 다른 PC에서 첫 실행: venv 생성 + 개발 설치. 요구사항은 Python >= 3.10 하나.
 #   .\bootstrap.ps1            # pip 범위 설치 (pyproject)
 #   .\bootstrap.ps1 -Locked    # requirements-lock.txt의 정확한 버전으로 재현
+#   .\bootstrap.ps1 -Gui       # + PySide6 GUI        -Build: + PyInstaller (tools/build_zip.ps1 용)
 param(
-    [switch]$Locked
+    [switch]$Locked,
+    [switch]$Gui,
+    [switch]$Build
 )
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -22,7 +25,9 @@ if ($Locked -and (Test-Path "requirements-lock.txt")) {
     Write-Host "[bootstrap] requirements-lock.txt 로 설치" -ForegroundColor Cyan
     & $pip -m pip install -r requirements-lock.txt --quiet
 }
-$extras = if ($Gui) { "dev,gui" } else { "dev" }
+$extras = "dev"
+if ($Gui) { $extras += ",gui" }
+if ($Build) { $extras += ",gui,build" }
 Write-Host "[bootstrap] pip install -e .[$extras]" -ForegroundColor Cyan
 & $pip -m pip install -e ".[$extras]" --quiet
 & $pip -m anograft --version
