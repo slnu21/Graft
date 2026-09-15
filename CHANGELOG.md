@@ -4,6 +4,9 @@
 
 ## [Unreleased]
 
+### Changed
+- **ROI 캐시**(대상당 ROI 1회): 스튜디오 변형 k 개·카드 파라미터 편집·CLI `run` 의 대상 재추첨에서 같은 대상의 ROI(grabcut 은 1400² 에서 수 초~수십 초)를 다시 풀지 않는다 — `Pipeline.roi_cache`(LRU 16, 키 = 대상 경로·크기·ROI 설정), `runner.prepare` 가 켜고 `reprepare` 가 이어 받는다. 결과 바이트·사이드카 불변(ROI 스테이지는 rng 를 쓰지 않는다). 1400² grabcut 변형 2.74 s → 0.20 s.
+
 ## [0.7.0] - 2026-09-16
 
 v0.7 — **GUI 5탭 전부 실물**: 은행 탭 · 검수 탭 · COCO writer · DTD 텍스처. 흐름 = 라벨 → 은행 → 스튜디오 → 배치 → 검수 → 정리본.
