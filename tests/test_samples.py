@@ -262,6 +262,9 @@ def test_quickstart_builds_bank_normals_recipe(
     assert "소스" in r.line() and "dent-graft" in r.line()
     with pytest.raises(ValueError):
         quickstart(tmp_path / "x", shape="cube")
+    # 같은 폴더에 두 번 → 은행이 쌓이지 않고 같은 크기(멱등) — 소스가 두 배면 조명 유의성까지 왜곡된다
+    again = quickstart(tmp_path / "p", shape="plate", n_normal=2, n_defect=3, size=(320, 240))
+    assert again.n_sources == q.n_sources and len(Bank.load(again.bank)) == q.n_sources
     # 같은 결과를 CLI 한 줄로
     assert (
         main(

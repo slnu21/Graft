@@ -4,6 +4,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- 퀵스타트(GUI '샘플 데이터' · `sample --quickstart`)를 같은 폴더에 두 번 돌리면 은행이 두 배로 쌓여(`-dup`) 조명 유의성까지 왜곡되던 것 — 퀵스타트 은행은 늘 새로 만든다(멱등).
+
 ### Added
 - `bank merge --dedupe` — 같은 클래스에서 이미지·마스크 내용(sha256)이 같은 소스는 한 번만(같은 원본을 두 은행에 임포트한 경우). 내용이 다르면 id 가 같아도 종전처럼 `-dup`.
 - COCO writer `segmentation: rle` — 비압축 RLE(열 우선, pycocotools 규약, iscrowd 0). 폴리곤은 외곽 윤곽만이라 조각·구멍이 있는 마스크는 RLE 가 무손실. `mask_to_rle/rle_to_mask`.
