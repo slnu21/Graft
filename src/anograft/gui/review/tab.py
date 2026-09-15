@@ -240,6 +240,11 @@ class ReviewTab(QWidget):
         self.cb_next = QCheckBox("판정 후 다음으로")
         self.cb_next.setChecked(True)
         bl.addWidget(self.cb_next)
+        self.btn_reject_shown = QPushButton("표시된 것 전부 반려")
+        self.btn_reject_shown.setToolTip(
+            "현재 필터로 보이는 합성 결과를 모두 반려 — 예: 필터 '조명 뒤집힘 의심' 뒤에 한 번에"
+        )
+        bl.addWidget(self.btn_reject_shown)
         self.btn_next_unreviewed = QPushButton("다음 미검수 (N)")
         self.btn_next_unreviewed.setToolTip(
             "현재 위치 다음의 미검수 합성 결과로 이동(끝이면 처음부터)"
@@ -304,6 +309,7 @@ class ReviewTab(QWidget):
         self.grid.itemSelectionChanged.connect(self._on_select)
         self.btn_accept.clicked.connect(lambda: self.verdict("accept"))
         self.btn_reject.clicked.connect(lambda: self.verdict("reject"))
+        self.btn_reject_shown.clicked.connect(lambda: self.verdict_shown("reject"))
         self.btn_clear.clicked.connect(lambda: self.verdict(""))
         self.note.editingFinished.connect(self._on_note)
         QShortcut(QKeySequence("A"), self.grid, activated=lambda: self.verdict("accept"))
@@ -519,6 +525,21 @@ class ReviewTab(QWidget):
                 self._on_error(str(e))
         if n:
             self._after_change(ids[-1] if len(ids) == 1 else None)
+        return n
+
+    def verdict_shown(self, verdict: str) -> int:
+        """현재 필터로 표시된 합성 결과 전부에 같은 판정 — 뒤집힘 의심·폴백 같은 필터 뒤의 일괄 처리."""
+        ids = [it.index for it in self._rows if it.status == "ok"]
+        n = 0
+        for idx in ids:
+            try:
+                self.session.set_verdict(idx, verdict)
+                n += 1
+            except ReviewError as e:
+                self._on_error(str(e))
+        if n:
+            self._after_change(None)
+            self.status.emit(f"표시된 {n}건 {'반려' if verdict == 'reject' else verdict}")
         return n
 
     def next_unreviewed(self) -> str | None:

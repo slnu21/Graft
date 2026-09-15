@@ -147,3 +147,19 @@ def test_next_unreviewed_cycles(qapp: QApplication, output_root: Path) -> None: 
         t.next_unreviewed()
     assert t.session.counts()["unreviewed"] == 0 and t.next_unreviewed() is None
     t.close()
+
+
+def test_reject_shown_applies_to_filtered_rows(qapp: QApplication, output_root: Path) -> None:  # noqa: F811
+    """0.7.5+ — '표시된 것 전부 반려' 는 현재 필터의 합성 결과 전부(정상·skipped 제외)에 반려."""
+    t = ReviewTab()
+    t.autosave = False
+    assert t.open_root(output_root)
+    n_ok = sum(1 for it in t.session.items if it.status == "ok")
+    t.f_which.setCurrentIndex(t.f_which.findData("unreviewed"))
+    assert t.verdict_shown("reject") == n_ok
+    assert t.session.counts()["reject"] == n_ok and t.session.counts()["unreviewed"] == 0
+    # 미검수 필터엔 이제 아무것도 없다 → 0건
+    assert t.verdict_shown("reject") == 0
+    t.f_which.setCurrentIndex(t.f_which.findData("all"))
+    assert t.verdict_shown("accept") == n_ok and t.session.counts()["accept"] == n_ok
+    t.close()
