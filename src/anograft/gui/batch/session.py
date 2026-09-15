@@ -105,11 +105,30 @@ def run_batch(
     warn: Callable[[str], None] | None = None,
     should_stop: Callable[[], bool] | None = None,
 ) -> runner.RunSummary:
-    """``prepare`` + ``run``. ``PrepareError`` 는 ``BatchError`` 로."""
+    """``prepare`` + 배치 가능성 진단(경고로) + ``run``. ``PrepareError`` 는 ``BatchError`` 로."""
     try:
         prep = runner.prepare(recipe)
     except runner.PrepareError as e:
         raise BatchError(str(e)) from e
+    if warn is not None:
+        for w in (
+            prep.warnings
+        ):  # prepare 경고(축척·저신뢰·조명 …)도 로그에 — 종전엔 run 중 경고만 보였다
+            warn(w)
+        fit = runner.fit_diagnostic(
+            prep
+        )  # 워커 스레드라 ROI 몇 장은 괜찮다(캐시로 run 이 이어 쓴다)
+        if fit is not None:
+            fw = fit.warning()
+            if fw:
+                warn(fw)
+            else:
+                warn(
+                    "placement: 배치 가능성 OK — ROI 최대 폭 "
+                    + " · ".join(f"{n} {w:.0f}px" for n, w in fit.roi_widths)
+                    + " vs 패치 "
+                    + ", ".join(f"{c} {s:.0f}px" for c, s in fit.patch_sides.items())
+                )
     return runner.run(prep, workers=workers, progress=progress, warn=warn, should_stop=should_stop)
 
 
