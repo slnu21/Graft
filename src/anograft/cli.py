@@ -109,7 +109,11 @@ def cmd_recipe_init(args: argparse.Namespace) -> int:
         "# 모든 손잡이가 펼쳐져 있습니다. 스테이지의 method를 바꾸면 그 스테이지 키는 해당 method의 것만 남기세요.\n"
     )
     if args.write:
-        Path(args.write).write_text(header + text, encoding="utf-8")
+        out = Path(args.write)
+        out.parent.mkdir(
+            parents=True, exist_ok=True
+        )  # `recipes/new.yaml` 처럼 없는 폴더도 (KNOWN-ISSUES #10)
+        out.write_text(header + text, encoding="utf-8")
         print(f"레시피를 썼습니다: {args.write}")
     else:
         sys.stdout.write(header + text)

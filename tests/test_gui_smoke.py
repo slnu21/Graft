@@ -24,8 +24,9 @@ from anograft.bank.importers import yolo as Y
 from anograft.gui.app import TABS, MainWindow
 from anograft.gui.qt_image import from_qimage, to_qimage, to_qpixmap
 from anograft.gui.studio.canvas import CompareCanvas
-from anograft.gui.studio.panels import params_text, stage_thumbnail
+from anograft.gui.studio.panels import PipelinePanel, params_text, stage_thumbnail
 from anograft.gui.studio.session import StudioSession, default_recipe
+from anograft.gui.studio.variants import VariantStrip
 from anograft.gui.theme import apply_theme
 from tests.fixtures import fake_yolo_dataset
 
@@ -189,3 +190,29 @@ def test_params_text_and_stage_thumbnail(qapp: QApplication) -> None:
         th = stage_thumbnail(stage, steps, 40)
         assert th is not None and max(th.shape[:2]) <= 40, stage
     assert stage_thumbnail("blend", [], 40) is None
+
+
+def test_stage_cards_show_fail_soft_warnings_and_variant_tooltip(qapp: QApplication) -> None:
+    """KNOWN-ISSUES #1: 스테이지 경고(``<stage>: …``)가 그 카드에 보이고, 변형 카드의 잘린 사유는 툴팁에 원문."""
+    panel = PipelinePanel()
+    ws = (
+        "roi: mask_dir 로드 실패 roi/t01.png — ValueError: 비율이 다릅니다",
+        "placement: scratch/000 배치 실패 — ROI 없음 (시도 0, 축소 0)",
+    )
+    panel.set_trace([], ws)
+    shown = panel.stage_warnings()
+    assert set(shown) == {"placement"}  # ROI 는 배치 카드의 하위 블록 → roi: 경고도 배치 카드에
+    lines = shown["placement"].splitlines()
+    assert lines[0] == "⚠ " + ws[0] and lines[1] == "⚠ " + ws[1][len("placement:") :].strip()
+    assert not panel.cards["blend"].note.isVisibleTo(panel)
+    panel.set_trace([], ())  # 다음 결과가 정상이면 사라진다
+    assert panel.stage_warnings() == {}
+
+    variants = VariantStrip()
+    variants.reset(2)
+    variants.set_failed(0, ws[0])
+    item = variants.list.item(0)
+    assert item.text().startswith("v1 · ") and len(item.text()) <= len("v1 · ") + 28
+    assert item.toolTip() == ws[0]
+    variants.set_result(0, np.zeros((16, 16, 3), dtype=np.uint8), "ok")
+    assert item.toolTip() == ""

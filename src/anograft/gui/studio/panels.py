@@ -401,6 +401,13 @@ class StageCard(QFrame):
         self.params.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         body.addWidget(self.params, 1)
         lay.addLayout(body)
+        # fail-soft 경고(`<stage>: …`)를 그 스테이지 카드에 바로 보인다 — 로그에만 남으면 사용자는 원인을 못 본다
+        self.note = QLabel("")
+        self.note.setObjectName("Warn")
+        self.note.setWordWrap(True)
+        self.note.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.note.hide()
+        lay.addWidget(self.note)
         self._fill_methods()
         self.method.currentIndexChanged.connect(self._on_method)
 
@@ -430,6 +437,24 @@ class StageCard(QFrame):
                 break
         self.method.blockSignals(False)
         self.params.setText(params_text(cfg))
+
+    def set_warnings(self, messages: Sequence[str]) -> None:
+        """이 스테이지의 경고만(자기 접두 ``<stage>:`` 는 떼고). ROI 는 배치 카드의 하위 블록이라 ``roi:`` 경고는
+        배치 카드에 접두를 남긴 채 보인다. 비면 숨긴다."""
+        own = f"{self.stage}:"
+        prefixes = (own, "roi:") if self.stage == "placement" else (own,)
+        mine = [
+            (m[len(own) :].strip() if m.startswith(own) else m.strip())
+            for m in messages
+            if m.startswith(prefixes)
+        ]
+        if not mine:
+            self.note.hide()
+            self.note.setText("")
+            return
+        self.note.setText("\n".join(f"⚠ {m}" for m in mine))
+        self.note.setToolTip("\n".join(mine))
+        self.note.show()
 
     def set_thumb(self, image: np.ndarray | None) -> None:
         if image is None:
@@ -474,6 +499,11 @@ class PipelinePanel(QScrollArea):
         for stage, card in self.cards.items():
             card.sync(getattr(pipe, stage))
 
-    def set_trace(self, steps: Sequence[TraceStep] | None) -> None:
+    def set_trace(self, steps: Sequence[TraceStep] | None, warnings: Sequence[str] = ()) -> None:
         for stage, card in self.cards.items():
             card.set_thumb(stage_thumbnail(stage, steps) if steps else None)
+            card.set_warnings(warnings)
+
+    def stage_warnings(self) -> dict[str, str]:
+        """카드에 표시 중인 경고 {stage: text} — 테스트·상태 표시용."""
+        return {s: c.note.text() for s, c in self.cards.items() if not c.note.isHidden()}

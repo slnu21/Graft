@@ -67,12 +67,14 @@ class VariantStrip(QWidget):
             return
         item.setIcon(flat_icon(to_qpixmap(fit_long_side(image, THUMB_W))))
         item.setText(f"v{k + 1} · {caption}")
+        item.setToolTip("")
 
     def set_failed(self, k: int, reason: str) -> None:
         item = self.list.item(k)
         if item is not None:
             item.setIcon(QIcon())
             item.setText(f"v{k + 1} · {reason[:28]}")
+            item.setToolTip(reason)  # 28자에서 잘린 원문 (KNOWN-ISSUES #1: 원인이 보여야 한다)
 
     def select(self, k: int) -> None:
         self.list.blockSignals(True)

@@ -3,11 +3,14 @@ gray/color 양쪽, 사이드카 구조, 결정성. 픽셀 회귀는 ``test_pipel
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
 from anograft.core import recipe as R
-from anograft.core.pipeline import Pipeline
+from anograft.core.pipeline import Pipeline, skip_reason
+from anograft.io import imgio
 from tests.fixtures import disk_target, line_defect, memory_bank, pipeline_deps
 
 IMPLEMENTED = ["poisson-graft", "hard-paste", "alpha-paste", "multiband-graft"]
@@ -111,3 +114,53 @@ def test_new_presets_run_their_methods_without_skip(
         assert d["harmonize"]["method"] == harmonize and "skipped" not in d["harmonize"]
         if blend == "multiband":
             assert 1 <= d["blend"]["levels_used"] <= d["blend"]["levels"] == 4
+
+
+# ---------------------------------------------------------------------------
+# skipped 사유 — 근본 원인이 보여야 한다 (KNOWN-ISSUES #1)
+# ---------------------------------------------------------------------------
+
+
+def test_skip_reason_prefers_roi_warning_over_placement_consequence() -> None:
+    ws = (
+        "roi: mask_dir 로드 실패 x.png — ValueError",
+        "placement: s 배치 실패 — ROI 없음 (시도 0, 축소 0)",
+    )
+    assert skip_reason(ws) == ws[0]
+    assert skip_reason(ws[1:]) == ws[1]  # ROI 경고가 없으면 마지막 경고
+    assert skip_reason(()) == "배치된 결함 없음"
+
+
+def test_mask_dir_failure_is_the_skipped_reason_and_resized_mask_works(tmp_path: Path) -> None:
+    """mask_dir ROI 로 끝까지: (a) 마스크 파일이 없으면 reason 이 'roi: …' (placement 의 'ROI 없음'이 아니라),
+    (b) 대상보다 큰 같은 비율 마스크는 축소되어 합성이 성공하고 사이드카 roi.resized_from 이 남는다."""
+    rec = R.Recipe.from_dict(
+        {
+            "version": 1,
+            "name": "hard-paste",
+            "seed": 3,
+            "inputs": {"bank": "b", "targets": "t"},
+            "output": {"root": "o", "count": 1, "defects_per_image": [1, 1]},
+            "pipeline": {
+                "preset": "hard-paste",
+                "placement": {
+                    "roi": {"method": "mask_dir", "path": tmp_path.as_posix()},
+                    "margin_px": 4,
+                },
+            },
+        }
+    )
+    p = Pipeline.from_recipe(rec, pipeline_deps(rec, memory_bank()))
+    r = p.run_one(disk_target(96, name="t01.png"), 0)
+    assert r.status == "skipped" and r.reason is not None
+    assert r.reason.startswith("roi: mask_dir 로드 실패") and r.sidecar["roi"]["failed"] is True
+    assert any(w.startswith("placement:") for w in r.warnings)  # 결과 경고는 남되 사유는 원인
+
+    big = np.zeros(
+        (192, 192), dtype=np.uint8
+    )  # 원본 크기 마스크(2배) → 미리보기 축소 대상에 맞춰진다
+    big[40:150, 40:150] = 255
+    imgio.write_image(tmp_path / "t01.png", big)
+    r2 = p.run_one(disk_target(96, name="t01.png"), 0)
+    assert r2.status == "ok" and r2.sidecar["roi"]["resized_from"] == [192, 192]
+    assert r2.gt_mask[20:75, 20:75].any() and not r2.gt_mask[:18].any()

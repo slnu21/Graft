@@ -15,7 +15,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -35,6 +35,15 @@ _DEFECT_LOOP: tuple[tuple[str, str], ...] = (
     ("blend", "composite"),
     ("harmonize", "composite"),
 )
+
+
+def skip_reason(warnings: Sequence[str]) -> str:
+    """skipped 사유 한 줄. ROI 스테이지 경고(``roi:`` 접두)가 있으면 그것이 근본 원인이다 — placement 의
+    "ROI 없음"은 그 결과라서 마지막 경고를 그대로 쓰면 원인이 가려진다(KNOWN-ISSUES #1). 없으면 마지막 경고."""
+    for w in warnings:
+        if w.startswith("roi:"):
+            return w
+    return warnings[-1] if warnings else "배치된 결함 없음"
 
 
 @dataclass(frozen=True)
@@ -143,7 +152,7 @@ class Pipeline:
         h, w = ctx.target.image.shape[:2]
         gt = ctx.gt_mask if ctx.gt_mask is not None else np.zeros((h, w), dtype=np.uint8)
         status: str = "ok" if n_ok > 0 else "skipped"
-        reason = None if n_ok > 0 else (ctx.warnings[-1] if ctx.warnings else "배치된 결함 없음")
+        reason = None if n_ok > 0 else skip_reason(ctx.warnings)
         defects: list[dict[str, Any]] = [dict(d) for d in ctx.defect_logs]
         for (
             inst
