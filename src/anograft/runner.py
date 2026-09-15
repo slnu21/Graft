@@ -107,6 +107,29 @@ def build_deps(recipe: Recipe, bank: Bank, warnings: list[str] | None = None) ->
     return deps
 
 
+def scale_warning(recipe: Recipe, bank: Bank) -> str | None:
+    """µm/px 축척 정합이 (일부라도) 꺼진 채 돌아가면 한 줄 경고(KNOWN-ISSUES #6). ``physical_scale`` 은 소스·대상 **양쪽**에
+    피치가 있어야 동작하고 한쪽이라도 없으면 factor 1.0 으로 조용히 넘어가므로, prepare 에서 표면에 올린다.
+    비-bank 소스(self-cut·perlin)는 대상 자신에서 만들므로 해당 없음."""
+    if recipe.bankless or len(bank) == 0:
+        return None
+    no_pitch = bank.no_pitch_count()
+    target_pitch = recipe.inputs.um_per_px
+    if target_pitch is None and no_pitch == len(bank):
+        return (
+            "축척 정합 꺼짐 — 은행 소스 전부와 대상(inputs.um_per_px) 모두 µm/px 가 없어 결함이 픽셀 크기 그대로 이식됩니다. "
+            "다른 카메라/배율의 결함이면 임포트 --um-per-px 와 레시피 inputs.um_per_px 를 지정"
+        )
+    if target_pitch is None:
+        return f"축척 정합 꺼짐 — 대상 inputs.um_per_px 가 없어 은행 피치(소스 {len(bank) - no_pitch}개)가 쓰이지 않습니다"
+    if no_pitch:
+        return (
+            f"축척 정합 일부 꺼짐 — um_per_px 없는 소스 {no_pitch}/{len(bank)}개는 factor 1.0 으로 이식됩니다"
+            " (bank ls 의 no_um 열)"
+        )
+    return None
+
+
 def prepare(recipe: Recipe) -> Prepared:
     try:
         bank = (
@@ -121,6 +144,9 @@ def prepare(recipe: Recipe) -> Prepared:
         warnings += recipe.validate_against(bank)
     except ValueError as e:
         raise PrepareError(f"레시피가 은행과 맞지 않습니다: {e}") from e
+    scale_w = scale_warning(recipe, bank)
+    if scale_w:
+        warnings.append(scale_w)
     try:
         targets = list_targets(recipe.inputs.targets)
     except TargetsError as e:
@@ -344,6 +370,9 @@ def dry_run_table(prep: Prepared) -> list[tuple[str, str]]:
     r = prep.recipe
     probs = prep.class_probs
     counts = prep.bank.counts()
+    tags = getattr(r.pipeline.source, "tags", None)
+    if tags is not None and tags.active:
+        counts = {c: sum(1 for s in prep.bank.by_class(c) if tags.accepts(s.tags)) for c in counts}
     rows: list[tuple[str, str]] = [
         ("recipe", f"{r.name} (preset {r.pipeline.preset}, seed {r.seed})"),
         (
@@ -360,6 +389,8 @@ def dry_run_table(prep: Prepared) -> list[tuple[str, str]]:
         ("defects/image", f"{list(r.output.defects_per_image)}"),
         ("pipeline_hash", prep.pipeline_hash),
     ]
+    if tags is not None and tags.active:
+        rows.append(("source.tags", tags.describe()))
     for c, p in probs.items():
         expected = p * r.output.count * sum(r.output.defects_per_image) / 2.0
         rows.append(

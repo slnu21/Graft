@@ -149,10 +149,42 @@ class Output(_Strict):
 # ---------------------------------------------------------------------------
 
 
+class TagFilter(_Strict):
+    """은행 소스를 태그로 거른다(임포트 ``--tags`` 로 붙인 제품명 등). ``include`` 중 **하나라도** 가진 소스만(비면 전부),
+    ``exclude`` 중 하나라도 가지면 제외. 둘 다 비면 필터 없음. 클래스 목록·확률은 그대로고 클래스 **안의 풀**만 줄어든다."""
+
+    include: list[str] = Field(default_factory=list)
+    exclude: list[str] = Field(default_factory=list)
+
+    @property
+    def active(self) -> bool:
+        return bool(self.include or self.exclude)
+
+    def accepts(self, tags: Sequence[str]) -> bool:
+        have = set(tags)
+        if self.include and not have.intersection(self.include):
+            return False
+        return not have.intersection(self.exclude)
+
+    def describe(self) -> str:
+        parts = []
+        if self.include:
+            parts.append(f"include={list(self.include)}")
+        if self.exclude:
+            parts.append(f"exclude={list(self.exclude)}")
+        return " ".join(parts) or "(없음)"
+
+
 class BankSourceConfig(_Strict):
     method: Literal["bank"] = "bank"
     classes: list[str] | None = None  # null = class_ratio 키 (그것도 null이면 은행 전체)
+    tags: TagFilter = Field(default_factory=TagFilter)  # null 도 허용(= 필터 없음)
     min_sources_warn: int = Field(default=10, ge=0)
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def _tags_none(cls, v: Any) -> Any:
+        return {} if v is None else v
 
 
 class ColorJitterConfig(_Strict):
@@ -688,7 +720,7 @@ class Recipe(_Strict):
                 )
             return warnings
         bank_classes = set(bank.classes)
-        counts = bank.counts()
+        counts = dict(bank.counts())
         classes = self.effective_classes(bank)
         missing = sorted(set(classes) - bank_classes)
         if missing:
@@ -696,10 +728,22 @@ class Recipe(_Strict):
         empty = [c for c in classes if counts.get(c, 0) == 0]
         if empty:
             raise ValueError(f"소스가 0개인 클래스입니다: {empty}")
+        tags = self.pipeline.source.tags
+        by_class = getattr(bank, "by_class", None)
+        if tags.active and by_class is not None:
+            # 태그 필터 후 풀 크기로 다시 센다 — 전부 0 이면 치명, 일부 0 이면 그 클래스만 건너뛴다(스테이지가 skip)
+            counts = {c: sum(1 for s in by_class(c) if tags.accepts(s.tags)) for c in classes}
+            if all(n == 0 for n in counts.values()):
+                raise ValueError(f"태그 필터({tags.describe()}) 후 남는 소스가 없습니다")
+            for c in classes:
+                if counts[c] == 0:
+                    warnings.append(
+                        f"클래스 '{c}' 는 태그 필터({tags.describe()}) 후 소스 0개 — 그 클래스 결함은 건너뜁니다"
+                    )
         threshold = self.pipeline.source.min_sources_warn
         for c in classes:
             n = counts.get(c, 0)
-            if n < threshold:
+            if 0 < n < threshold:
                 warnings.append(
                     f"클래스 '{c}' 소스가 {n}개 — {threshold}개 미만이면 모델이 특정 소스를 외울 수 있습니다"
                 )
