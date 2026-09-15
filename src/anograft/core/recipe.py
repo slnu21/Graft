@@ -414,7 +414,9 @@ class StructureAwarePlacementConfig(_PlacementBase):
     """구조 정합 배치(v0.4). 위치 = 그래디언트 크기 가중(``prefer`` edges/flat/uniform, ``strength`` 지수, ``smooth_px`` 평활),
     방향 = 후보 자리의 구조 텐서 지배 방향에 패치 주축을 맞춘다(``align`` along = 결·에지 방향, across = 그에 수직).
     일관성 < ``min_coherence``(자리에 방향이 없음) 또는 패치 이방성 < ``min_anisotropy``(둥근 결함)면 정렬하지 않고
-    geometry 가 준 방향을 유지한다. ``jitter_deg``는 정렬각에 더하는 ±균등 잡음. 시도마다 rng 2회(자리·지터)."""
+    geometry 가 준 방향을 유지한다. ``jitter_deg``는 정렬각에 더하는 ±균등 잡음. 시도마다 rng 2회(자리·지터).
+    ``max_align_deg``(0.7.3) = 정렬 회전의 상한 — 이보다 큰 회전이 필요한 자리는 정렬하지 않는다(조명 의존 결함은
+    결 정렬보다 하이라이트 방향이 우선 → dent-graft 30). null = 제한 없음(정렬은 (-90, 90]). rng 소비는 같다."""
 
     method: Literal["structure-aware"] = "structure-aware"
     prefer: Literal["edges", "flat", "uniform"] = "edges"
@@ -424,6 +426,7 @@ class StructureAwarePlacementConfig(_PlacementBase):
     min_coherence: Unit = 0.2
     min_anisotropy: Unit = 0.1
     jitter_deg: float = Field(default=10.0, ge=0.0, le=90.0)
+    max_align_deg: float | None = Field(default=None, ge=0.0, le=90.0)
 
 
 PlacementConfig = Annotated[

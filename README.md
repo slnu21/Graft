@@ -108,7 +108,7 @@ anograft-gui recipes/sample-poisson.yaml                                  # GUI 
 | `perlin-texture` | DRAEM | 소스 = 펄린 노이즈 마스크 + 텍스처(대상 자신 증강 또는 `texture_dir`) · alpha β 0.4~1 | **은행 불필요** — 불규칙한 이상 영역 |
 | `structure-aware-graft` | 구조 정합 배치 | poisson-graft + 배치 `structure-aware`(그래디언트 큰 곳 선호 · 결·에지 방향에 정렬) · ROI `grabcut` | 스크래치가 결을 따르고 칩이 모서리에 생기는 부품. 무광·그림자로 Otsu가 안 갈리는 대상 |
 | `annulus-graft` | 링 ROI | poisson-graft + ROI `annulus`(중심·반경을 대상마다 자동 검출, `r_inner`/`r_outer` 비율) | **원형 부품의 가공 링 면에만** 결함을 놓는다 — otsu/grabcut 은 물체 전체를 허용해 중앙 리세스에도 떨어졌다. 촬영마다 부품이 움직여도 링이 따라간다 (v0.6) |
-| `dent-graft` | 조명 의존 결함 | poisson NORMAL + 회전 **±15°**·flip 끔·축척 0.9~1.1 · `structure-aware`(위치 균등, 방향은 결·접선 정렬, jitter 5°) · 조화 0.2 | **찍힘·덴트·눌림** — 3D 변형이라 보이는 모양이 곧 조명 효과. ±180° 로 돌리면 음영/하이라이트가 뒤집혀 물리적으로 불가능한 그림이 된다. 스크래치·얼룩은 다른 프리셋(±180 유지) (v0.6) |
+| `dent-graft` | 조명 의존 결함 | poisson NORMAL + 회전 **±15°**·flip 끔·축척 0.9~1.1 · `structure-aware`(위치 균등, 방향은 결·접선 정렬, jitter 5°, **정렬 상한 30°** — 그 이상 돌려야 하는 자리는 정렬 안 함) · 조화 0.2 | **찍힘·덴트·눌림** — 3D 변형이라 보이는 모양이 곧 조명 효과. ±180° 로 돌리면 음영/하이라이트가 뒤집혀 물리적으로 불가능한 그림이 된다. 스크래치·얼룩은 다른 프리셋(±180 유지) (v0.6) |
 
 기본값은 샘플 은행에서 "결함이 옅어지는 정도"(hard-paste 대비 마스크 안 L1 비율)를 재서 정했습니다 — 세 조화 방법 모두 정의상 결함 톤을 대상 쪽으로 당기므로 strength를 낮게 뒀습니다. 실데이터 학습 mAP 근거는 아직 없습니다(로드맵).
 
@@ -223,7 +223,7 @@ Same seed and target across the four presets (`preview --compare-methods blend|h
 | `perlin-texture` | DRAEM | source = Perlin-noise mask + texture (augmented self-window or `texture_dir`) · alpha β 0.4–1 | **No bank needed** — irregular anomaly regions |
 | `structure-aware-graft` | Structure-aware placement | poisson-graft + `structure-aware` placement (prefers high-gradient spots · aligns to grain/edge direction) · `grabcut` ROI | Parts where scratches follow the grain and chips sit on edges; matte/shadowed parts Otsu cannot segment |
 | `annulus-graft` | Ring ROI | poisson-graft + `annulus` ROI (centre/radius auto-detected per target, `r_inner`/`r_outer` as ratios) | **Round parts whose defects only occur on the machined ring** — otsu/grabcut allow the whole object and dropped defects into the central recess. The ring follows the part as it shifts between shots (v0.6) |
-| `dent-graft` | Lighting-dependent defects | poisson NORMAL + rotation **±15°**, no flip, scale 0.9–1.1 · `structure-aware` (uniform position, axis aligned to grain/tangent, 5° jitter) · harmonize 0.2 | **Dents, dings, indentations** — 3D deformations whose appearance *is* the lighting. Rotating ±180° flips shadow/highlight against a light that did not move, which the eye catches first. Scratches and stains keep ±180° in the other presets (v0.6) |
+| `dent-graft` | Lighting-dependent defects | poisson NORMAL + rotation **±15°**, no flip, scale 0.9–1.1 · `structure-aware` (uniform position, axis aligned to grain/tangent, 5° jitter, **alignment capped at 30°** — spots needing more are left unaligned) · harmonize 0.2 | **Dents, dings, indentations** — 3D deformations whose appearance *is* the lighting. Rotating ±180° flips shadow/highlight against a light that did not move, which the eye catches first. Scratches and stains keep ±180° in the other presets (v0.6) |
 
 Defaults were chosen by measuring how much each method fades the defect on the sample bank (in-mask L1 relative to hard-paste); all three harmonize methods pull defect tone toward the target by construction, so strengths are kept low. No real-data mAP evidence yet (roadmap).
 
