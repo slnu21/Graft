@@ -97,10 +97,13 @@ class MaskDirRoi:
             reason = "deps['read_mask'] 로더가 없습니다"
         else:
             try:
-                roi = R.roi_from_mask(self.read_mask(path), (h, w))
+                mask = self.read_mask(path)
+                roi = R.roi_from_mask(mask, (h, w))
             except Exception as e:  # 로더 실패는 그 대상 skip으로 끝나야 한다 (fail-soft)
                 reason = f"{type(e).__name__}: {e}"
             else:
+                if mask.shape[:2] != (h, w):  # 미리보기 축소 등 — 사이드카에 남긴다
+                    log["resized_from"] = [int(mask.shape[0]), int(mask.shape[1])]
                 return _finish(ctx, roi, log)
         log["failed"] = True
         log["reason"] = reason

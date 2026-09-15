@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import cv2
 import numpy as np
 import pytest
 
@@ -71,8 +72,30 @@ def test_roi_none_and_from_mask() -> None:
     assert R.roi_none((5, 7)).all() and R.roi_none((5, 7)).shape == (5, 7)
     m = np.array([[0, 127, 128, 255]], dtype=np.uint8)
     assert R.roi_from_mask(m, (1, 4)).tolist() == [[False, False, True, True]]
-    with pytest.raises(ValueError, match="크기"):
-        R.roi_from_mask(m, (2, 4))
+    with pytest.raises(ValueError, match="비율"):
+        R.roi_from_mask(m, (4, 4))  # 1×4 → 4×4 는 비율이 다르다 (1px 반올림 허용 범위 밖)
+
+
+def test_roi_from_mask_resizes_same_ratio_with_nearest() -> None:
+    """KNOWN-ISSUES #1: 원본 크기(1400²) 마스크가 미리보기 축소(1024²)에서도 같은 링을 가리켜야 한다. NEAREST + 이진화."""
+    big = np.zeros((1400, 1400), dtype=np.uint8)
+    cv2.circle(big, (700, 700), 510, 255, -1)
+    cv2.circle(big, (700, 700), 319, 0, -1)
+    small = R.roi_from_mask(big, (1024, 1024))
+    assert small.shape == (1024, 1024) and small.dtype == bool
+    s = 1024 / 1400
+    yy, xx = np.nonzero(small)
+    r = np.hypot(yy - 511.5, xx - 511.5)
+    assert r.min() >= 319 * s - 2 and r.max() <= 510 * s + 2  # 링 안쪽·바깥 반경이 배율대로
+    # 반올림으로 1px 어긋난 대상 크기(1400×1000 → 1024×731)도 같은 비율로 본다
+    rect = np.zeros((1000, 1400), dtype=np.uint8)
+    rect[200:800, 300:1100] = 255
+    assert R.roi_from_mask(rect, (731, 1024)).shape == (731, 1024)
+    # 회색값 마스크도 이진화되어 들어간다(LINEAR 오염 없음)
+    grey = np.full((200, 200), 200, dtype=np.uint8)
+    grey[:100] = 50
+    out = R.roi_from_mask(grey, (100, 100))
+    assert out[:50].sum() == 0 and out[50:].all()
 
 
 def test_distance_to_edge_counts_image_border() -> None:
@@ -131,10 +154,25 @@ def test_mask_dir_stage_without_loader_or_file_is_fail_soft(tmp_path: Path) -> N
     out = st.apply(context(t))
     assert out.roi is None and "ImageReadError" in out.log["roi"]["reason"]
 
-    # 크기가 다른 마스크도 예외 대신 skip
-    imgio.write_image(tmp_path / "missing.png", np.zeros((10, 10), dtype=np.uint8))
+    # 비율이 다른 마스크는 예외 대신 skip — 경고에 원인이 그대로 남는다
+    imgio.write_image(tmp_path / "missing.png", np.zeros((10, 20), dtype=np.uint8))
     out = st.apply(context(t))
     assert out.roi is None and "ValueError" in out.log["roi"]["reason"]
+    assert out.warnings[-1].startswith("roi: mask_dir 로드 실패") and "비율" in out.warnings[-1]
+
+
+def test_mask_dir_stage_resizes_full_size_mask_to_preview_target(tmp_path: Path) -> None:
+    """KNOWN-ISSUES #1: 대상이 축소본(48²)이고 마스크가 원본 크기(96²)여도 ROI 가 살아 있고 ``resized_from`` 이 남는다."""
+    t = disk_target(48, name="big.png")
+    m = np.zeros((96, 96), dtype=np.uint8)
+    m[20:60, 10:80] = 255
+    imgio.write_image(tmp_path / "big.png", m)
+    out = MaskDirRoi(MaskDirRoiConfig(path=tmp_path), {"read_mask": imgio.read_mask}).apply(
+        context(t)
+    )
+    assert out.roi is not None and out.roi.shape == (48, 48) and out.warnings == ()
+    assert out.log["roi"]["resized_from"] == [96, 96] and "failed" not in out.log["roi"]
+    assert out.roi[10:30, 5:40].all() and not out.roi[:9].any()
 
 
 # ---------------------------------------------------------------------------

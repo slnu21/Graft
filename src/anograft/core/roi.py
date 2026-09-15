@@ -194,11 +194,23 @@ def roi_grabcut(
 
 
 def roi_from_mask(mask: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
-    """외부 마스크(PNG 등)를 ROI로. ``>127`` 이진화. 크기가 다르면 ``ValueError``."""
+    """외부 마스크(PNG 등)를 ROI로. ``>127`` 이진화.
+
+    크기가 다르면 ``INTER_NEAREST`` 로 대상 크기에 맞춘다 — ROI 는 대략적 허용 영역이라 픽셀 정밀도가 필요 없고,
+    GUI 미리보기(긴 변 1024 축소)에서 원본 크기 마스크가 그대로 쓰여야 한다(KNOWN-ISSUES #1).
+    가로세로 비가 다르면(마스크가 다른 이미지의 것일 가능성) ``ValueError``.
+    """
     if mask.ndim == 3:
         mask = mask[:, :, 0]
-    if mask.shape[:2] != tuple(shape[:2]):
-        raise ValueError(f"ROI 마스크 크기 {mask.shape[:2]} 가 대상 {tuple(shape[:2])} 와 다릅니다")
+    h, w = int(shape[0]), int(shape[1])
+    mh, mw = mask.shape[:2]
+    if (mh, mw) != (h, w):
+        # 축소 반올림 오차 |mh·w − mw·h| ≤ ½(mh+mw) 는 허용, 그 이상은 다른 비율
+        if mh <= 0 or mw <= 0 or abs(mh * w - mw * h) > max(h, w, mh, mw):
+            raise ValueError(
+                f"ROI 마스크 크기 {(mh, mw)} 가 대상 {(h, w)} 와 비율이 다릅니다 — 다른 이미지의 마스크인지 확인"
+            )
+        mask = cv2.resize(binarize(mask), (w, h), interpolation=cv2.INTER_NEAREST)
     return binarize(mask) > 0
 
 

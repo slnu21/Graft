@@ -301,5 +301,7 @@ def test_pipeline_skips_image_when_roi_empty() -> None:
     r = p.run_one(dot, 0)  # 점 하나짜리 물체는 erode_px=2에 다 깎여 ROI 면적 0
     assert r.status == "skipped" and r.instances == ()
     assert r.sidecar["roi"]["area_px"] == 0
-    assert any("면적 0" in w for w in r.warnings) and "후보 중심 없음" in (r.reason or "")
+    # reason 은 근본 원인(roi 경고), placement 의 "후보 중심 없음"은 결과로 warnings 에만 (KNOWN-ISSUES #1)
+    assert (r.reason or "").startswith("roi: 면적 0")
+    assert any("후보 중심 없음" in w for w in r.warnings)
     assert np.array_equal(r.image, dot.image)

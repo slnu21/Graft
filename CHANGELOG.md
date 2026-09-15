@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+v0.6 — **실데이터 보정**(`KNOWN-ISSUES.md`, 경면 금속 토크스 소켓 1차 적용에서 나온 10건).
+
+### Fixed
+- **`mask_dir` ROI 가 미리보기 축소에서 깨지던 문제**(KNOWN-ISSUES #1): `roi_from_mask` 가 대상과 크기가 다른 마스크를 `INTER_NEAREST` 로 맞춘다(같은 비율만 — 비율이 다르면 "다른 이미지의 마스크" 로 실패). 사이드카 `roi.resized_from`. 스튜디오 1024·768·512 축소에서 원본 크기 ROI 마스크가 그대로 동작.
+- **skipped 사유가 결과("ROI 없음")가 아니라 원인("roi: mask_dir 로드 실패 …")을 가리킨다** — `Pipeline` 이 `roi:` 경고를 우선(`skip_reason`). CLI manifest·GUI 공통.
+- `recipe init --write recipes/new.yaml` 이 없는 상위 폴더를 만든다(KNOWN-ISSUES #10).
+
+### Added
+- 스튜디오 파이프라인 카드에 **fail-soft 경고 표시**(`⚠ <stage>: …`, ROI 경고는 배치 카드에) · 변형 카드의 잘린 사유는 툴팁에 원문 · 상태바에 "경고 n건 더".
+
 ## [0.5.0] - 2026-09-15
 
 v0.5 — **여기서부터 GUI 만으로 단독 사용**: 결함 사진 라벨링(라벨 탭) → 미리보기(스튜디오) → 데이터셋 생성(배치 탭). 여전히 샘플 데이터로만 검증.

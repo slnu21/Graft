@@ -366,7 +366,7 @@ class StudioTab(QWidget):
         self.canvas.set_images(
             res.target.image, synthetic, r.gt_mask if r.status == "ok" else None, r.instances, roi
         )
-        self.pipe.set_trace(res.steps)
+        self.pipe.set_trace(res.steps, r.warnings)  # fail-soft 경고를 해당 스테이지 카드에
         self._update_zoom_info()
         defects = [d for d in r.sidecar.get("defects", []) if "gt" in d]
         what = " · ".join(
@@ -379,4 +379,8 @@ class StudioTab(QWidget):
                 + (f" · 축소 {res.scale:.0%}" if res.scale < 1 else "")
             )
         else:
-            self.status.emit(f"v{res.job.index + 1}: skipped — {r.reason}")
+            extra = len(r.warnings) - 1
+            self.status.emit(
+                f"v{res.job.index + 1}: skipped — {r.reason}"
+                + (f" (경고 {extra}건 더 — 파이프라인 카드 참조)" if extra > 0 else "")
+            )

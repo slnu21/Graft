@@ -64,6 +64,13 @@ def test_recipe_init_then_check_roundtrip(
     assert "preset: multiband-graft" in captured.out
 
 
+def test_recipe_init_write_creates_parent_dirs(tmp_path: Path) -> None:
+    """KNOWN-ISSUES #10: ``--write recipes/new.yaml`` 처럼 없는 폴더도 만든다."""
+    target = tmp_path / "recipes" / "sub" / "new.yaml"
+    assert main(["recipe", "init", "--write", str(target)]) == EXIT_OK
+    assert target.is_file() and yaml.safe_load(target.read_text(encoding="utf-8"))["version"] == 1
+
+
 def test_recipe_init_to_stdout(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["recipe", "init"]) == EXIT_OK
     out = capsys.readouterr().out
