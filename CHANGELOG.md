@@ -7,6 +7,8 @@
 v0.7 — 은행 탭 · COCO writer · 검수 탭.
 
 ### Added
+- **검수 탭**(v0.7, GUI): `anograft run` 출력 폴더를 열어 합성 결과를 썸네일(GT 윤곽)로 보고 **채택(A)/반려(R)/보류(U)** — `review.csv` 자동 저장, 다중 선택, 메모, "판정 후 다음으로". 필터(미검수·채택·반려·폴백·skipped·클래스). 상세(이미지+GT, 클래스·소스·면적·blend·폴백·경고). **분포 히스토그램** — 합성 인스턴스(반려 제외) vs 은행 실제 소스의 면적/긴 변을 같은 로그 구간에(합성 `#00A188` · 실제 `#C8841C`). **정리본 내보내기** = 반려를 뺀 사본(정상 유지, skipped 행 제거, manifest 재작성, `annotations.json` 필터, mvtec 사본 포함). 배치가 끝나면 검수 탭 경로가 그 출력을 가리킨다.
+- CLI **`anograft dataset prune <root> --out <dir> [--review review.csv] [--drop-unreviewed]`** — 검수 탭과 같은 정리본(`io/prune.py`).
 - **`coco` writer**(v0.7): `output.writer: {format: coco}` → 정본 위에 `annotations.json`(COCO instances — images 는 합성+정상, categories 는 은행 classes 순서로 id 1-based, annotations 는 인스턴스 GT 마스크의 외곽 폴리곤 `segmentation`·`bbox`·`area`(픽셀 수)·`iscrowd 0`). 순수 JSON(pycocotools 불필요), 같은 결과 → 같은 바이트(`info` 에 시각 없음). 사이드카 `writer.image_id/annotation_ids`, manifest `label = annotations.json#<image_id>`. 배치 탭 출력 형식에 `coco`.
 - **은행 탭**(v0.7, GUI): 은행을 열어 소스를 타일 그리드로 보고(마스크 윤곽, 추정 amber, 저신뢰 빨간 테두리) 클래스·태그·저신뢰만·추정만·검색으로 거르고 id/신뢰도/면적/클래스로 정렬. 상세(크롭+마스크 오버레이 확대, 메타·flags). **삭제**(세 파일, `bank.yaml` classes 유지 — class id 불변, imports 이력) · **라벨 탭에서 다듬기**(크롭+현재 마스크를 라벨 탭 은행 소스 편집 모드로 → 저장하면 같은 id 에 덮어쓰기, `mask_origin: manual:<tool>`, 점수 제거). 은행이 바뀌면 같은 은행을 쓰는 스튜디오가 다시 준비되고, 라벨 탭 저장은 은행 탭을 새로고침한다. 레시피를 열면 그 은행을 자동으로 연다. `BankWriter.delete/replace_mask`.
 

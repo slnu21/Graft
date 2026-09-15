@@ -424,6 +424,25 @@ def cmd_bank_preview(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_dataset_prune(args: argparse.Namespace) -> int:
+    """검수(``review.csv``)에서 반려된 합성 이미지를 뺀 정리본 사본."""
+    from anograft.io.prune import PruneError, prune_dataset, read_review
+
+    try:
+        review = read_review(args.review) if args.review else None
+        s = prune_dataset(args.root, args.out, review, drop_unreviewed=args.drop_unreviewed)
+    except (PruneError, OSError) as e:
+        _err(f"정리 실패: {e}")
+        return EXIT_RECIPE_ERROR
+    print(
+        f"정리본 → {s.out.as_posix()}: 합성 {s.kept} 유지 · {s.dropped} 제외 · 정상 {s.normals} · "
+        f"skipped 행 {s.skipped} 제거 · 파일 {s.files}"
+    )
+    for w in s.warnings:
+        _err(f"경고: {w}")
+    return EXIT_OK
+
+
 def cmd_dataset_info(args: argparse.Namespace) -> int:
     names = adapter_names()
     if not args.name:
@@ -635,6 +654,17 @@ def build_parser() -> argparse.ArgumentParser:
     di = dsub.add_parser("info", help="이름·라이선스·URL·기대 폴더 구조·카테고리")
     di.add_argument("name", nargs="?", default=None)
     di.set_defaults(func=cmd_dataset_info)
+    dp = dsub.add_parser(
+        "prune",
+        help="검수 review.csv 에서 반려된 합성 이미지를 뺀 정리본 사본 (v0.7 검수 탭과 같은 동작)",
+    )
+    dp.add_argument("root", help="anograft run 출력 폴더 (manifest.csv)")
+    dp.add_argument("--out", required=True, help="정리본 폴더 (원본과 달라야 함)")
+    dp.add_argument("--review", default=None, help="review.csv 경로 (기본 <root>/review.csv)")
+    dp.add_argument(
+        "--drop-unreviewed", action="store_true", help="미검수도 제외하고 채택(accept)만 남긴다"
+    )
+    dp.set_defaults(func=cmd_dataset_prune)
 
     p = sub.add_parser(
         "sample",
