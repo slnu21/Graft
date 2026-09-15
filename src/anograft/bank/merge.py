@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 from collections.abc import Callable, Mapping, Sequence
@@ -41,6 +42,7 @@ class MergeSummary:
     copied: int = 0
     duplicates: int = 0
     renamed: int = 0
+    skipped_same: int = 0  # --dedupe: 이미지·마스크 바이트가 같은 소스(같은 클래스) — 건너뜀
     classes: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
@@ -65,9 +67,13 @@ def merge_banks(
     tags: Sequence[str] = (),
     rename: Mapping[str, str] | None = None,
     log: Logger | None = None,
+    dedupe: bool = False,
 ) -> MergeSummary:
+    """``dedupe`` 면 같은 클래스 안에서 **이미지+마스크 바이트가 같은** 소스는 한 번만 복사한다(같은 원본을 두 은행에
+    임포트한 경우). id 가 달라도 내용이 같으면 중복; 내용이 다르면 id 가 같아도 -dup 로 둘 다 남긴다."""
     log = log or (lambda _m: None)
     rename = dict(rename or {})
+    seen: set[tuple[str, str]] = set()  # (class, sha256(image+mask))
     out_p = Path(out)
     srcs = [Path(s) for s in sources]
     if not srcs:
@@ -112,6 +118,13 @@ def merge_banks(
                     summary.warnings.append(f"{s.name}/{cls}/{sid}: 메타 읽기 실패({e}) — 건너뜀")
                     log(summary.warnings[-1])
                     continue
+                if dedupe:
+                    digest = hashlib.sha256(img.read_bytes() + b"|" + msk.read_bytes()).hexdigest()
+                    if (new_cls, digest) in seen:
+                        summary.skipped_same += 1
+                        log(f"{s.name}/{cls}/{sid}: 내용이 같은 소스가 이미 있음 — 건너뜀")
+                        continue
+                    seen.add((new_cls, digest))
                 new_id = writer._unique_id(new_cls, sid)
                 if new_id != sid:
                     summary.duplicates += 1

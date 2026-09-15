@@ -677,6 +677,7 @@ def cmd_bank_merge(args: argparse.Namespace) -> int:
             tags=_split_csv(args.tags),
             rename=parse_rename(args.rename or []),
             log=(lambda m: _err(f"  {m}")) if args.verbose else None,
+            dedupe=args.dedupe,
         )
     except (MergeError, OSError, ValueError) as e:
         _err(f"병합 실패: {e}")
@@ -684,6 +685,7 @@ def cmd_bank_merge(args: argparse.Namespace) -> int:
     print(
         f"병합 완료 → {s.out.as_posix()}: 은행 {s.banks}개 · 소스 {s.copied}개 복사 · id 충돌 {s.duplicates} · "
         f"클래스 이름 변경 {s.renamed}"
+        + (f" · 내용 중복 건너뜀 {s.skipped_same}" if s.skipped_same else "")
     )
     print(f"  classes(id 순): {s.classes}")
     if s.warnings and not args.verbose:
@@ -944,6 +946,11 @@ def build_parser() -> argparse.ArgumentParser:
     bm.add_argument("banks", nargs="+", help="소스 은행 폴더들")
     bm.add_argument("--out", required=True, help="대상 은행(있으면 이어 씀, 소스와 달라야 함)")
     bm.add_argument("--tags", default=None, help="모든 소스에 더할 태그 a,b")
+    bm.add_argument(
+        "--dedupe",
+        action="store_true",
+        help="같은 클래스에서 이미지·마스크 내용이 같은 소스는 한 번만(같은 원본을 두 은행에 임포트한 경우)",
+    )
     bm.add_argument(
         "--rename",
         action="append",
