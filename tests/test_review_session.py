@@ -375,3 +375,46 @@ def test_lighting_direction_and_concentration(output_root: Path, tmp_path: Path)
     assert data.lighting_r_class == per
     page = s.write_report(tmp_path / "r.html").read_text(encoding="utf-8")
     assert "조명 방향" in page and ("조명 일관성 R" in page) == (rs is not None or rr is not None)
+
+
+def test_flipped_lighting_filter(output_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """0.7.3 — 실제 클래스 방향이 뚜렷할 때(R ≥ 0.5, n ≥ 3) 거기서 > 90° 벗어난 합성 인스턴스 = '조명 뒤집힘 의심' 필터."""
+    from anograft.core.appearance import angle_diff, circular_mean
+    from anograft.gui.review.session import FILTERS, IMAGE_KEYS
+
+    assert circular_mean([]) is None and abs(circular_mean([80, 100]) - 90.0) < 1e-6
+    assert abs(circular_mean([170, -170]) - 180.0) < 1e-6  # 경계를 넘어도 평균은 180
+    assert angle_diff(90, -90) == 180.0 and angle_diff(10, 350) == 20.0 and angle_diff(5, 5) == 0.0
+    assert "flipped" in FILTERS
+    s = ReviewSession()
+    items = s.load(output_root)
+    ok = [it for it in items if it.status == "ok"]
+    assert s.flipped_lighting() == set()  # 평탄한 합성물 · 실제 방향 없음 → 비어 있음
+    # 실제 spot 은 아래쪽(90°) 하이라이트로 뚜렷, crack 은 방향 없음
+    monkeypatch.setattr(
+        ReviewSession,
+        "real_by_class",
+        lambda self, key: {"spot": [88.0, 90.0, 92.0], "crack": [0.0, 180.0, 90.0, -90.0]},
+    )
+    assert s.real_lighting_direction() == {"spot": 90.0}
+    for it in ok:
+        s.item(it.index)
+        for k in IMAGE_KEYS:
+            it.appearance[k], it.appearance_cls[k] = [], []
+    # 첫 항목: spot 인스턴스가 −80°(뒤집힘) · 둘째: spot 60°(정상) · 셋째: crack 180°(방향 없는 클래스 → 무시)
+    ok[0].appearance["lighting"], ok[0].appearance_cls["lighting"] = [-80.0], ["spot"]
+    ok[1].appearance["lighting"], ok[1].appearance_cls["lighting"] = [60.0], ["spot"]
+    ok[2].appearance["lighting"], ok[2].appearance_cls["lighting"] = [180.0], ["crack"]
+    assert s.flipped_lighting() == {ok[0].index}
+    assert [it.index for it in s.filtered("flipped")] == [ok[0].index]
+    assert s.flipped_lighting(max_deg=170.0) == set() and len(s.flipped_lighting(max_deg=20.0)) == 2
+    from anograft.io.report import flipped_line
+
+    assert (
+        flipped_line(()) == ""
+        and "<b>3</b>건" in flipped_line(["a", "b", "c"])
+        and "외 2" in flipped_line([str(i) for i in range(14)])
+    )
+    assert s.report_data().flipped == [ok[0].index]
+    with pytest.raises(ReviewError):
+        s.filtered("bogus")

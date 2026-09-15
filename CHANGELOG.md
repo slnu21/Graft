@@ -4,6 +4,9 @@
 
 ## [Unreleased]
 
+### Added
+- 검수 탭 필터 **조명 뒤집힘 의심 flipped lighting** — 실제 클래스 방향이 뚜렷할 때(R ≥ 0.5, n ≥ 3) 그 평균 방향에서 90° 넘게 벗어난 인스턴스가 있는 이미지. 리포트에 목록 한 줄. `core/appearance.circular_mean/angle_diff`.
+
 ## [0.7.3] - 2026-09-16
 
 v0.7.2 후속 — 진단·시작 패치(조명 방향 지표·경고 · 배치 가능성 진단 · GUI 샘플 한 클릭 · ring 샘플 · `max_align_deg`). 레시피 스키마는 옵션 추가만.

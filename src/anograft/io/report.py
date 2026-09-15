@@ -41,6 +41,7 @@ class ReportData:
     hist_lighting: Any = None  # 조명 방향 각도(−180..180)
     lighting_r: tuple[float | None, float | None] = (None, None)  # 조명 일관성 R(합성, 실제)
     lighting_r_class: Mapping[str, tuple[float | None, float | None]] = field(default_factory=dict)
+    flipped: Sequence[str] = ()  # 조명 뒤집힘 의심 index(실제 클래스 방향에서 > 90°)
     bank_name: str = ""
     warnings: Sequence[str] = ()
 
@@ -54,6 +55,18 @@ def lighting_broken_classes(
         for c, (rs, rr) in per_class.items()
         if rs is not None and rr is not None and rr >= LIGHT_REAL_MIN and rs < LIGHT_SYNTH_MAX
     ]
+
+
+def flipped_line(flipped: Sequence[str]) -> str:
+    """조명 뒤집힘 의심 목록 한 줄(검수 탭 필터 '조명 뒤집힘 의심'과 같은 집합)."""
+    if not flipped:
+        return ""
+    shown = ", ".join(html.escape(i) for i in list(flipped)[:12])
+    more = f" 외 {len(flipped) - 12}" if len(flipped) > 12 else ""
+    return (
+        f'<p class="muted">조명 뒤집힘 의심 <b>{len(flipped)}</b>건 — 실제 클래스 방향에서 90° 넘게 벗어난 인스턴스가 있는 이미지: '
+        f"{shown}{more} (검수 탭 필터 '조명 뒤집힘 의심')</p>"
+    )
 
 
 def lighting_line(
@@ -169,6 +182,7 @@ code{{background:#f4f6f8;padding:1px 4px;border-radius:4px}}
 <h2>분포 Distribution <span class="muted">— 합성(반려 제외) vs 실제(은행 소스), 로그 구간</span></h2>
 <div class="grid">{svg_histogram(d.hist_area, "면적 area (px)")}{svg_histogram(d.hist_length, "긴 변 length (px)")}{svg_histogram(d.hist_contrast, "대비 contrast (gray, 마스크 − 링)")}{svg_histogram(d.hist_lighting, "조명 방향 lighting (°, 0 = →, 90 = ↓)")}</div>
 {lighting_line(d.lighting_r, d.lighting_r_class)}
+{flipped_line(d.flipped)}
 <h2>클래스별 인스턴스 <span class="muted">(채택 + 미검수)</span></h2>
 <table><tr><th>클래스</th><th>인스턴스</th></tr>{per_class or '<tr><td colspan="2" class="muted">없음</td></tr>'}</table>
 <h2>반려 Rejected ({len(d.rejected)})</h2>
