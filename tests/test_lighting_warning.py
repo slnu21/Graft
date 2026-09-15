@@ -136,7 +136,7 @@ def test_bank_ls_shows_light_r(tmp_path: Path, capsys: pytest.CaptureFixture[str
     w.finish({"importer": "test"})
     assert main(["bank", "ls", str(tmp_path / "b")]) == EXIT_OK
     cap = capsys.readouterr()
-    assert "lightR" in cap.out and "1.00" in cap.out and "–" in cap.out
+    assert "lightR" in cap.out and "1.00*" in cap.out and "–" in cap.out  # * = 유의한 조명 의존
     assert "조명 의존 클래스" in cap.err and "pit 1.00" in cap.err
     assert main(["bank", "ls", str(tmp_path / "b"), "--json"]) == EXIT_OK
     d = json.loads(capsys.readouterr().out)
