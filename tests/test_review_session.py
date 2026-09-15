@@ -157,3 +157,77 @@ def test_cli_dataset_prune(
     assert "1 제외" in out and (tmp_path / "p" / "manifest.csv").is_file()
     assert main(["dataset", "prune", str(output_root), "--out", str(output_root)]) != EXIT_OK
     assert "정리 실패" in capsys.readouterr().err
+
+
+# --- 리포트(v0.7.x) --------------------------------------------------------------
+
+
+def test_report_render_and_session_report(output_root: Path, tmp_path: Path) -> None:
+    from anograft.io.report import ReportData, render_report, skipped_reason_counts, svg_histogram
+
+    h = histogram([10, 100, 1000], [20, 200], bins=4)
+    svg = svg_histogram(h, "면적")
+    assert (
+        svg.startswith("<svg")
+        and svg.count("<rect") == 5
+        and "■ 합성 3" in svg
+        and "■ 실제 2" in svg
+    )
+    assert "분포 없음" in svg_histogram(None, "x") and "분포 없음" in svg_histogram(
+        histogram([], []), "x"
+    )
+    assert skipped_reason_counts(
+        ["placement: 배치 실패 — max_tries", "placement: 배치 실패 — x", "roi: 없음", ""]
+    ) == {
+        "placement: 배치 실패": 2,
+        "roi: 없음": 1,
+        "(사유 없음)": 1,
+    }
+    d = ReportData(
+        root="o",
+        recipe_name="<r>",
+        counts={"ok": 4, "accept": 1, "reject": 1},
+        rejected=[("3", "spot", "a<b")],
+    )
+    page = render_report(d)
+    assert (
+        "&lt;r&gt;" in page and "a&lt;b" in page and "50%" in page and "<svg" not in page
+    )  # 히스토그램 없음
+    s = ReviewSession()
+    items = s.load(output_root)
+    ok = [it for it in items if it.status == "ok"]
+    s.set_verdict(ok[0].index, "reject", "흐림")
+    data = s.report_data()
+    assert (
+        data.recipe_name == "rv"
+        and data.seed == 4
+        and data.preset == "hard-paste"
+        and len(data.pipeline_hash) >= 8
+    )
+    assert data.counts["reject"] == 1 and data.rejected == [
+        (ok[0].index, ", ".join(ok[0].classes), "흐림")
+    ]
+    assert sum(data.per_class.values()) == sum(len(s.item(x.index).instances) for x in ok[1:])
+    assert data.hist_area is not None and sum(data.hist_area.b) == 5 and data.bank_name
+    p = s.write_report()
+    assert p == output_root / "review-report.html" and "<svg" in p.read_text(encoding="utf-8")
+    p2 = s.write_report(tmp_path / "r" / "x.html")
+    assert p2.is_file()
+    assert (
+        main(
+            [
+                "dataset",
+                "report",
+                str(output_root),
+                "--out",
+                str(tmp_path / "cli.html"),
+                "--no-bank",
+            ]
+        )
+        == EXIT_OK
+    )
+    assert (
+        "은행 없음" in (tmp_path / "cli.html").read_text(encoding="utf-8")
+        or (tmp_path / "cli.html").is_file()
+    )
+    assert main(["dataset", "report", str(tmp_path / "nope")]) != EXIT_OK

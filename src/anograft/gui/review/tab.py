@@ -11,8 +11,8 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from PySide6.QtCore import QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QKeySequence, QPainter, QPixmap, QShortcut
+from PySide6.QtCore import QRectF, QSize, Qt, QUrl, Signal
+from PySide6.QtGui import QColor, QDesktopServices, QKeySequence, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -127,6 +127,7 @@ class ReviewTab(QWidget):
         self._thumbs: dict[str, QPixmap] = {}
         self._rows: list[ReviewItem] = []
         self.autosave = True
+        self.open_report_in_browser = True  # 테스트는 False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -163,10 +164,12 @@ class ReviewTab(QWidget):
         self.btn_pick.setFixedWidth(44)
         self.btn_open = QPushButton("열기 Open")
         self.btn_prune = QPushButton("정리본 내보내기 Export")
+        self.btn_report = QPushButton("리포트 Report")
         h.addWidget(self.root_edit, 1)
         h.addWidget(self.btn_pick)
         h.addWidget(self.btn_open)
         h.addWidget(self.btn_prune)
+        h.addWidget(self.btn_report)
         self.summary = QLabel("")
         self.summary.setObjectName("Muted")
         self.summary.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
@@ -283,6 +286,7 @@ class ReviewTab(QWidget):
         self.btn_open.clicked.connect(lambda: self.open_root(self.root_edit.text()))
         self.root_edit.returnPressed.connect(lambda: self.open_root(self.root_edit.text()))
         self.btn_prune.clicked.connect(self.export_pruned_dialog)
+        self.btn_report.clicked.connect(self.write_report)
         self.f_which.currentIndexChanged.connect(lambda _i: self.refresh_grid())
         self.f_cls.currentIndexChanged.connect(lambda _i: self.refresh_grid())
         self.dist_key.currentIndexChanged.connect(lambda _i: self.refresh_hist())
@@ -544,6 +548,23 @@ class ReviewTab(QWidget):
         self.status.emit(msg)
         return True
 
+    def write_report(self) -> Path | None:
+        """``<root>/review-report.html`` 을 쓰고 기본 브라우저로 연다."""
+        if not self.session.loaded:
+            self._on_error("출력 폴더를 먼저 여세요")
+            return None
+        try:
+            p = self.session.write_report()
+        except ReviewError as e:
+            self._on_error(str(e))
+            return None
+        msg = f"리포트: {p.as_posix()}"
+        self.result.setText(msg)
+        self.status.emit(msg)
+        if self.open_report_in_browser:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(p.as_posix()))
+        return p
+
     # ------------------------------------------------------------------ 표시
 
     def _on_error(self, msg: str) -> None:
@@ -553,6 +574,7 @@ class ReviewTab(QWidget):
     def refresh(self) -> None:
         self.summary.setText(self.session.summary_text() if self.session.loaded else "")
         self.btn_prune.setEnabled(self.session.loaded)
+        self.btn_report.setEnabled(self.session.loaded)
         self.refresh_grid()
         self.refresh_hist()
 

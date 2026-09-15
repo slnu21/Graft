@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,6 +32,7 @@ from anograft.io.prune import (
     read_review,
     write_review,
 )
+from anograft.io.report import ReportData, skipped_reason_counts, write_report
 
 FILTERS: tuple[str, ...] = ("all", "unreviewed", "accept", "reject", "fallback", "skipped")
 
@@ -298,6 +300,72 @@ class ReviewSession:
 
     def distribution(self, key: str = "area", *, bins: int = 12) -> Histogram:
         return histogram(self.synthetic_values(key), self.real_values(key), bins=bins, log=True)
+
+    # ------------------------------------------------------------------ 리포트
+
+    def report_data(self) -> ReportData:
+        """HTML 리포트 입력(Qt 없음). 사이드카는 여기서 전부 읽는다(클래스별 인스턴스 수)."""
+        if self.root is None:
+            raise ReviewError("출력 폴더를 먼저 여세요")
+        per_class: dict[str, int] = {}
+        rejected: list[tuple[str, str, str]] = []
+        for it in self.items:
+            if it.status != "ok":
+                continue
+            self.item(it.index)
+            if it.verdict == "reject":
+                rejected.append((it.index, ", ".join(it.classes), it.note))
+                continue
+            for inst in it.instances:
+                c = str(inst.get("class") or "?")
+                per_class[c] = per_class.get(c, 0) + 1
+        meta = self.recipe_meta
+        pipe = meta.get("pipeline") or {}
+        return ReportData(
+            root=self.root.as_posix(),
+            recipe_name=str(meta.get("name") or ""),
+            seed=meta.get("seed"),
+            preset=str(pipe.get("preset") or ""),
+            pipeline_hash=self._pipeline_hash(),
+            counts=self.counts(),
+            per_class=per_class,
+            rejected=rejected,
+            skipped_reasons=skipped_reason_counts(
+                [it.reason for it in self.items if it.status == "skipped"]
+            ),
+            hist_area=self.distribution("area"),
+            hist_length=self.distribution("length"),
+            bank_name=self.bank.name if self.bank is not None else "",
+            warnings=list(self.warnings),
+        )
+
+    def _pipeline_hash(self) -> str:
+        """``recipe.resolved.yaml`` 헤더 주석의 pipeline_hash(없으면 첫 사이드카)."""
+        assert self.root is not None
+        rr = self.root / "recipe.resolved.yaml"
+        if rr.is_file():
+            head = "\n".join(rr.read_text(encoding="utf-8").splitlines()[:5])
+            m = re.search(r"pipeline_hash\s*[=:]\s*([0-9a-f]+)", head)
+            if m:
+                return m.group(1)
+        for it in self.items:
+            if it.status == "ok" and it.sidecar:
+                try:
+                    return str(
+                        json.loads((self.root / it.sidecar).read_text(encoding="utf-8")).get(
+                            "pipeline_hash"
+                        )
+                        or ""
+                    )
+                except (OSError, ValueError):
+                    return ""
+        return ""
+
+    def write_report(self, path: str | Path | None = None) -> Path:
+        if self.root is None:
+            raise ReviewError("출력 폴더를 먼저 여세요")
+        out = Path(path) if path else self.root / "review-report.html"
+        return write_report(out, self.report_data())
 
     # ------------------------------------------------------------------ 정리본
 

@@ -5,6 +5,7 @@
 ## [Unreleased]
 
 ### Added
+- **검수 리포트**: 검수 탭 **리포트** 버튼 / `anograft dataset report <root> [--out x.html] [--no-bank]` → HTML 한 장(의존성 0, 인라인 SVG) — 합성/정상/skipped · 채택/반려/미검수/검수율/폴백 타일, 합성 vs 실제 면적·긴 변 히스토그램, 클래스별 인스턴스(채택+미검수), 반려 목록(index·클래스·메모), skipped 사유, 레시피·시드·프리셋·pipeline_hash. 기본 `<root>/review-report.html`.
 - **`anograft bank merge <a> <b> … --out <c> [--rename old=new] [--tags a,b]`** — 여러 은행을 하나로. 세 파일을 그대로 복사(크롭·마스크·추정 점수 보존), 클래스 이름 기준 병합(대상 순서 유지), id 충돌 `-dup<n>`, 은행 기본 `um_per_px` 를 소스 메타에 실체화, `merged_from` 기록. 대상이 은행이면 이어 쓴다.
 
 ### Changed
