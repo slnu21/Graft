@@ -32,7 +32,7 @@ from anograft.bank import Bank
 from anograft.bank.bank import BankError
 from anograft.core import recipe as R
 from anograft.core import registry
-from anograft.core.pipeline import Pipeline
+from anograft.core.pipeline import Pipeline, RoiCache
 from anograft.core.recipe import Recipe
 from anograft.core.seeds import image_rng, pipeline_hash
 from anograft.core.types import GraftResult
@@ -183,6 +183,7 @@ def prepare(recipe: Recipe) -> Prepared:
         pipeline = Pipeline.from_recipe(recipe, deps)
     except (registry.StageNotImplementedError, registry.StageUnavailableError) as e:
         raise PrepareError(f"실행할 수 없는 스테이지: {e}") from e
+    pipeline.roi_cache = RoiCache()  # 대상당 ROI 1회(스튜디오 변형·run 대상 재추첨)
     ph = pipeline_hash(recipe.hash_yaml(), __version__, bank.fingerprint())
     return Prepared(recipe, bank, targets, pipeline, ph, deps, warnings)
 
@@ -205,6 +206,8 @@ def reprepare(prep: Prepared, recipe: Recipe) -> Prepared:
         pipeline = Pipeline.from_recipe(recipe, deps)
     except (registry.StageNotImplementedError, registry.StageUnavailableError) as e:
         raise PrepareError(f"실행할 수 없는 스테이지: {e}") from e
+    # ROI 캐시는 이어 받는다 — 키에 ROI 설정이 들어 있어 다른 스테이지 파라미터를 바꿔도(카드 편집) grabcut 을 다시 풀지 않는다
+    pipeline.roi_cache = prep.pipeline.roi_cache or RoiCache()
     ph = pipeline_hash(recipe.hash_yaml(), __version__, prep.bank.fingerprint())
     return Prepared(recipe, prep.bank, list(prep.targets), pipeline, ph, deps, warnings)
 

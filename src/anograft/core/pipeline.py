@@ -11,10 +11,17 @@
     ctx = degrade → gtmask                          # 이미지당 1회
 
 스테이지가 결함 하나를 포기하면(``source``/``patch``/``placement``가 None) 그 결함만 건너뛴다. 예외를 던지지 않는다.
+
+**ROI 캐시**(v0.7.1): ROI 스테이지는 ``ctx.rng`` 를 쓰지 않고 대상·설정만의 함수이므로(grabcut 도 파일명 시드) 같은 대상이
+다시 오면 다시 풀지 않아도 결과가 같다. ``Pipeline.roi_cache = RoiCache()`` 를 두면 (대상 경로·크기·ROI 설정) 키로
+``roi``·로그·경고를 재사용한다 — 스튜디오 변형 k 개(같은 대상, grabcut 1400² 수십 초)와 CLI ``run`` 의 대상 재추첨에서
+효과. 사이드카에는 표시하지 않는다(캐시 적중 여부가 출력 바이트를 바꾸면 워커 수에 따라 결과가 달라진다).
 """
 
 from __future__ import annotations
 
+import json
+from collections import OrderedDict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
@@ -46,6 +53,51 @@ def skip_reason(warnings: Sequence[str]) -> str:
     return warnings[-1] if warnings else "배치된 결함 없음"
 
 
+class RoiCache:
+    """대상당 ROI 1회 — LRU. 값 = (roi 배열 | None, roi 로그, ROI 단계까지의 경고). 스레드 하나(워커)나 프로세스별로 쓴다."""
+
+    def __init__(self, max_items: int = 16) -> None:
+        self.max_items = max(1, int(max_items))
+        self._items: OrderedDict[
+            tuple, tuple[np.ndarray | None, dict[str, Any], tuple[str, ...]]
+        ] = OrderedDict()
+        self.hits = 0
+        self.misses = 0
+
+    @staticmethod
+    def key_for(target: TargetImage, roi_cfg: Any) -> tuple:
+        cfg = roi_cfg.model_dump(mode="json") if hasattr(roi_cfg, "model_dump") else roi_cfg
+        return (
+            target.path.as_posix(),
+            tuple(int(v) for v in target.image.shape[:2]),
+            bool(target.gray),
+            json.dumps(cfg, sort_keys=True, ensure_ascii=False, default=str),
+        )
+
+    def get(self, key: tuple) -> tuple[np.ndarray | None, dict[str, Any], tuple[str, ...]] | None:
+        v = self._items.get(key)
+        if v is None:
+            self.misses += 1
+            return None
+        self._items.move_to_end(key)
+        self.hits += 1
+        return v
+
+    def put(
+        self, key: tuple, roi: np.ndarray | None, log: Mapping[str, Any], warnings: tuple[str, ...]
+    ) -> None:
+        self._items[key] = (roi, dict(log), tuple(warnings))
+        self._items.move_to_end(key)
+        while len(self._items) > self.max_items:
+            self._items.popitem(last=False)
+
+    def clear(self) -> None:
+        self._items.clear()
+
+    def __len__(self) -> int:
+        return len(self._items)
+
+
 @dataclass(frozen=True)
 class TraceStep:
     stage: str
@@ -62,6 +114,7 @@ class Pipeline:
             raise ValueError(f"스테이지가 빠졌습니다: {missing}")
         self.recipe = recipe
         self.stages = dict(stages)
+        self.roi_cache: RoiCache | None = None  # runner.prepare 가 켠다(대상당 ROI 1회)
 
     @classmethod
     def from_recipe(cls, recipe: Recipe, deps: Mapping[str, Any] | None = None) -> Pipeline:
@@ -111,7 +164,7 @@ class Pipeline:
         rec = self.recipe
         ctx = Context.initial(rng if rng is not None else image_rng(rec.seed, index), target)
 
-        ctx = self.stages["roi"].apply(ctx)
+        ctx = self._apply_roi(ctx, target)
         roi_log = dict(ctx.log.get("roi", {}))  # begin_defect()가 log를 비우므로 여기서 붙잡아 둔다
         if trace:
             steps.append(TraceStep("roi", None, ctx))
@@ -143,6 +196,20 @@ class Pipeline:
                 steps.append(TraceStep(stage_key, None, ctx))
 
         return self._finish(ctx, index, n_defects, n_ok, roi_log), steps
+
+    def _apply_roi(self, ctx: Context, target: TargetImage) -> Context:
+        """ROI 스테이지 — 캐시가 있으면 (대상·설정) 키로 재사용. 결과 Context 는 직접 푼 것과 같다(rng 소비 0)."""
+        cache = self.roi_cache
+        if cache is None:
+            return self.stages["roi"].apply(ctx)
+        key = RoiCache.key_for(target, self.recipe.pipeline.placement.roi)
+        hit = cache.get(key)
+        if hit is not None:
+            roi, log, warnings = hit
+            return replace(ctx, roi=roi, warnings=warnings).with_log("roi", dict(log))
+        out = self.stages["roi"].apply(ctx)
+        cache.put(key, out.roi, out.log.get("roi", {}), out.warnings)
+        return out
 
     # ------------------------------------------------------------------
 
