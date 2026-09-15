@@ -5,6 +5,7 @@
 ## [Unreleased]
 
 ### Added
+- COCO writer `segmentation: rle` — 비압축 RLE(열 우선, pycocotools 규약, iscrowd 0). 폴리곤은 외곽 윤곽만이라 조각·구멍이 있는 마스크는 RLE 가 무손실. `mask_to_rle/rle_to_mask`.
 - `run --dry-run` 에 `geometry` 요약 행(scale·rotate·flip)과 `per_class <cls>` 행 · `bank ls --json` 에 `light_dir`.
 
 ## [0.7.6] - 2026-09-16

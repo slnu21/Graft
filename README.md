@@ -24,7 +24,7 @@ Graft는 알고리즘을 새로 만드는 도구가 아니라 그 사이를 메�
 - **7단계 파이프라인** `소스 → 기하 → 배치 → 블렌딩 → 조화 → 열화 → 정답 마스크` — 알고리즘은 각 단계의 `method`로 고릅니다(블렌딩: paste · alpha · Poisson · multiband, 조화: stats · Reinhard · 히스토그램 매칭, 배치: sampled · structure-aware, ROI: otsu · grabcut · none · mask_dir). 프리셋으로 시작하고 필요할 때만 펼칩니다.
 - **배치 허용 영역(ROI)** 이 기본값 — 배경에 붙은 결함은 학습에 해롭습니다.
 - **재현** — 레시피(YAML) + 시드가 같으면 워커 수와 무관하게 바이트 단위로 같은 데이터셋. 이미지마다 사이드카 JSON(소스 id · 변환 · 좌표 · 시드 · 파이프라인 해시).
-- **출력** — 정본은 이미지 + GT 마스크 + 사이드카 + `manifest.csv`. 그 위에 writer가 학습 형식을 덧붙입니다(YOLO `labels/*.txt` + `data.yaml` — 기존 학습셋에 그대로 합침 · `mvtec` — anomalib 이 읽는 `mvtec/<category>/{train,test,ground_truth}` 레이아웃, v0.4 · `coco` — `annotations.json`(instances: 폴리곤 segmentation·bbox·area, categories = 은행 classes) — Detectron2·mmdetection 용, v0.7).
+- **출력** — 정본은 이미지 + GT 마스크 + 사이드카 + `manifest.csv`. 그 위에 writer가 학습 형식을 덧붙입니다(YOLO `labels/*.txt` + `data.yaml` — 기존 학습셋에 그대로 합침 · `mvtec` — anomalib 이 읽는 `mvtec/<category>/{train,test,ground_truth}` 레이아웃, v0.4 · `coco` — `annotations.json`(instances: 폴리곤 segmentation(`segmentation: rle` 로 비압축 RLE — 조각·구멍 무손실)·bbox·area, categories = 은행 classes) — Detectron2·mmdetection 용, v0.7).
 
 ## 설치
 
@@ -169,7 +169,7 @@ Synthetic-defect methods (CutPaste, DRAEM, NSA, diffusion inpainting) exist, but
 - **7-stage pipeline** `source → geometry → placement → blend → harmonize → degrade → gt-mask` — pick algorithms per stage via `method` (blend: paste · alpha · Poisson · multiband; harmonize: stats · Reinhard · histogram matching; placement: sampled · structure-aware; ROI: otsu · grabcut · none · mask_dir). Start from a preset, unfold only what you need.
 - **Placement ROI is on by default** — defects pasted onto background hurt training.
 - **Reproducible** — same recipe (YAML) + seed ⇒ byte-identical dataset regardless of worker count. Per-image sidecar JSON (source id, transform, coordinates, seed, pipeline hash).
-- **Output** — canonical image + GT mask + sidecar + `manifest.csv`, plus a writer layer for training formats (YOLO `labels/*.txt` + `data.yaml`, mergeable into your existing set; `mvtec` — the `mvtec/<category>/{train,test,ground_truth}` layout anomalib reads, v0.4; `coco` — `annotations.json` (instances: polygon segmentation, bbox, area, categories = bank classes) for Detectron2/mmdetection, v0.7).
+- **Output** — canonical image + GT mask + sidecar + `manifest.csv`, plus a writer layer for training formats (YOLO `labels/*.txt` + `data.yaml`, mergeable into your existing set; `mvtec` — the `mvtec/<category>/{train,test,ground_truth}` layout anomalib reads, v0.4; `coco` — `annotations.json` (instances: polygon segmentation — or lossless uncompressed RLE with `segmentation: rle`, bbox, area, categories = bank classes) for Detectron2/mmdetection, v0.7).
 
 ### Install
 
