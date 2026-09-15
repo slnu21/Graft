@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-09-16
+
+v0.7.1 후속 — 흐름 다듬기(배치→검수 · 저신뢰 차례로 다듬기 · 대비 분포 · 스튜디오 µm/px · doctor). 포맷·스키마 변경 없음.
+
 ### Added
 - 스튜디오 변형 카드에 **저신뢰 소스 표시**(캡션 ⚠ + 툴팁에 소스 id) — 미리보기가 그럴듯해도 은행 마스크가 헐거우면 알 수 있게(KI #3).
 - **`anograft doctor [--json]`** — 환경 진단 한 장(버전·OpenCV 스레드·pydantic·Qt/PySide6·프리셋·불가 method·frozen·stdout 인코딩). 다른 PC 에서 문제를 보고할 때 첫 줄. **`bank ls --json`** — 스크립트용(클래스별 행 + 저신뢰 id + 태그).
@@ -116,7 +120,8 @@ v0.4 — CPU 알고리즘 확장. **여전히 샘플 데이터로만 검증**(�
 - GUI는 스튜디오 탭만. 재현은 같은 OS·OpenCV 부버전 범위(`seamlessClone` 솔버).
 - `release.yml`의 Windows zip 잡은 첫 push 전이라 CI에서 미검증(로컬 `tools/build_zip.ps1`와 같은 절차).
 
-[Unreleased]: https://github.com/slnu21/Graft/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/slnu21/Graft/compare/v0.7.2...HEAD
+[0.7.2]: https://github.com/slnu21/Graft/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/slnu21/Graft/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/slnu21/Graft/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/slnu21/Graft/compare/v0.5.0...v0.6.0
