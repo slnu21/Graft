@@ -168,25 +168,30 @@ def lighting_warning(recipe: Recipe, bank: Bank) -> str | None:
     if recipe.bankless or len(bank) == 0:
         return None
     geo = recipe.pipeline.geometry
-    lo, hi = geo.rotate
-    wide = (hi - lo) > LIGHT_ROTATE_MAX_DEG
-    if not wide and not geo.flip:
-        return None
     selected = set(recipe.effective_classes(bank))
-    directional = [
-        r
-        for r in bank.summary()
-        if r.cls in selected and r.light_r is not None and r.light_r >= LIGHT_REAL_MIN
-    ]
-    if not directional:
+    bad: list[str] = []
+    causes: set[str] = set()
+    for r in bank.summary():
+        if r.cls not in selected or r.light_r is None or r.light_r < LIGHT_REAL_MIN:
+            continue
+        eff = geo.for_class(r.cls)  # 클래스별 오버라이드가 있으면 그 범위로 판단
+        lo, hi = eff.rotate
+        wide = (hi - lo) > LIGHT_ROTATE_MAX_DEG
+        if not wide and not eff.flip:
+            continue
+        bad.append(f"{r.cls}(R {r.light_r:.2f}, n {r.light_n})")
+        if wide:
+            causes.add(f"rotate [{lo:g}, {hi:g}]")
+        if eff.flip:
+            causes.add("flip")
+    if not bad:
         return None
-    what = " · ".join(f"{r.cls}(R {r.light_r:.2f}, n {r.light_n})" for r in directional)
-    cause = " + ".join(
-        p for p, on in ((f"rotate [{lo:g}, {hi:g}]", wide), ("flip", geo.flip)) if on
-    )
+    what = " · ".join(bad)
+    cause = " + ".join(sorted(causes, key=lambda c: (c == "flip", c)))
     return (  # `geometry:` 접두 — 스튜디오가 기하 카드에 ⚠ 로 라우팅(스테이지 경고 규약)
-        f"geometry: 조명 의존 결함 {what} 을 {cause} 로 합성하면 하이라이트 방향이 뒤집힙니다 — 프리셋 dent-graft(±15°, flip 끔) "
-        f"또는 geometry.rotate 를 ±45° 안으로, flip false (검수 탭 '조명 방향' 분포로 확인)"
+        f"geometry: 조명 의존 결함 {what} 을 {cause} 로 합성하면 하이라이트 방향이 뒤집힙니다 — 프리셋 dent-graft(±15°, flip 끔), "
+        f"geometry.rotate 를 ±45° 안으로·flip false, 또는 그 클래스만 geometry.per_class: {{<class>: {{rotate: [-15, 15], flip: false}}}} "
+        f"(검수 탭 '조명 방향' 분포로 확인)"
     )
 
 
@@ -488,9 +493,9 @@ class FitDiagnostic:
 def patch_sides(prep: Prepared) -> dict[str, float]:
     """클래스별 패치 긴 변 중앙값 × ``geometry.scale`` 상한(px, 원본 해상도) — 뽑는 클래스만."""
     r = prep.recipe
-    scale_hi = float(r.pipeline.geometry.scale[1])
     sides: dict[str, float] = {}
     for c in r.effective_classes(prep.bank):
+        scale_hi = float(r.pipeline.geometry.for_class(c).scale[1])  # 클래스별 오버라이드 반영
         vals = []
         for s in prep.bank.by_class(c):
             ys, xs = np.nonzero(s.mask)

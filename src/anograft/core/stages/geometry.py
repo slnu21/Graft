@@ -114,13 +114,16 @@ class AffineGeometry:
         if src is None:
             return ctx.with_log("geometry", {"method": "affine", "skipped": "source 없음"})
         cfg = self.cfg
+        eff = cfg.for_class(
+            src.cls
+        )  # 클래스별 오버라이드(0.7.3) — 범위만 다르고 rng 소비는 같다(flip 여부 제외)
         rng = ctx.rng
 
         phys = physical_scale(src.um_per_px, ctx.target.um_per_px)
-        scale = phys.factor * float(rng.uniform(cfg.scale[0], cfg.scale[1]))
-        angle = float(rng.uniform(cfg.rotate[0], cfg.rotate[1]))
+        scale = phys.factor * float(rng.uniform(eff.scale[0], eff.scale[1]))
+        angle = float(rng.uniform(eff.rotate[0], eff.rotate[1]))
         flip_h = flip_v = False
-        if cfg.flip:
+        if eff.flip:
             flip_h = bool(rng.random() < 0.5)
             flip_v = bool(rng.random() < 0.5)
 
@@ -139,6 +142,7 @@ class AffineGeometry:
             "rotate": angle,
             "flip": [flip_h, flip_v],
             "elastic": elastic_log,
+            "per_class": eff.overridden,
             "patch_shape": [int(mask.shape[0]), int(mask.shape[1])],
             "mask_area_px": area,
         }
