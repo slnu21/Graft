@@ -4,6 +4,9 @@
 
 ## [Unreleased]
 
+### Added
+- 검수 리포트에 **기하 한 줄**(scale·rotate·flip·per_class) — 조명 히스토그램을 어떤 회전/flip 으로 만든 결과인지 리포트만 봐도 알 수 있게.
+
 ## [0.7.7] - 2026-09-16
 
 v0.7.6 의 퀵스타트 멱등 수정 + COCO RLE · `bank merge --dedupe` · dry-run 기하 행.

@@ -373,8 +373,12 @@ def test_lighting_direction_and_concentration(output_root: Path, tmp_path: Path)
     data = s.report_data()
     assert data.hist_lighting is not None and data.lighting_r == (rs, rr)
     assert data.lighting_r_class == per
+    assert (
+        data.geometry.startswith("scale ") and "flip both" in data.geometry
+    )  # 0.7.7+: 기하 맥락 한 줄
     page = s.write_report(tmp_path / "r.html").read_text(encoding="utf-8")
     assert "조명 방향" in page and ("조명 일관성 R" in page) == (rs is not None or rr is not None)
+    assert "기하 geometry" in page
 
 
 def test_flipped_lighting_filter(output_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
