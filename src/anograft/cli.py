@@ -25,6 +25,7 @@ from anograft.bank.mask_from_box import LOW_CONFIDENCE
 from anograft.bank.mask_from_box import METHODS as MASK_METHODS
 from anograft.core import recipe as R
 from anograft.core import registry
+from anograft.core.appearance import LIGHT_REAL_MIN
 from anograft.datasets import DatasetError, adapter_names, get_adapter, info_lines
 from anograft.io import imgio
 from anograft.io.targets import load_target
@@ -626,6 +627,8 @@ def bank_ls_json(bank: Bank, path: str) -> dict:
                 "estimated": r.estimated,
                 "low_confidence": r.low_conf,
                 "no_pitch": r.no_pitch,
+                "light_r": r.light_r,
+                "light_n": r.light_n,
                 "origins": dict(r.origins),
                 "tags": dict(r.tags),
             }
@@ -659,15 +662,23 @@ def cmd_bank_ls(args: argparse.Namespace) -> int:
     width = max((len(r.cls) for r in rows), default=5)
     print(
         f"  {'id':>3}  {'class'.ljust(width)}  {'n':>5}  {'area_med':>9}  {'exact':>5}  {'est':>5}  "
-        f"{'lowconf':>7}  {'no_um':>5}  origins · tags"
+        f"{'lowconf':>7}  {'no_um':>5}  {'lightR':>6}  origins · tags"
     )
     for r in rows:
         origins = ", ".join(f"{k}:{v}" for k, v in sorted(r.origins.items()))
         tags = ", ".join(f"{k}:{v}" for k, v in sorted(r.tags.items()))
+        light = "–" if r.light_r is None else f"{r.light_r:.2f}"
         print(
             f"  {r.class_id:>3}  {r.cls.ljust(width)}  {r.count:>5}  {r.area_median:>9.0f}  "
-            f"{r.exact:>5}  {r.estimated:>5}  {r.low_conf:>7}  {r.no_pitch:>5}  {origins}"
+            f"{r.exact:>5}  {r.estimated:>5}  {r.low_conf:>7}  {r.no_pitch:>5}  {light:>6}  {origins}"
             + (f" · {tags}" if tags else "")
+        )
+    directional = [r for r in rows if r.light_r is not None and r.light_r >= LIGHT_REAL_MIN]
+    if directional:
+        _err(
+            f"참고: 조명 의존 클래스(lightR ≥ {LIGHT_REAL_MIN}: "
+            f"{', '.join(f'{r.cls} {r.light_r:.2f}' for r in directional)}) — 회전 ±180/flip 프리셋은 하이라이트를 "
+            f"뒤집습니다. 프리셋 dent-graft 권장(run 이 경고합니다)"
         )
     low = bank.low_confidence()
     if low:

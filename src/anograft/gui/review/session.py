@@ -24,6 +24,16 @@ import yaml
 
 from anograft.bank import Bank
 from anograft.bank.bank import BankError
+from anograft.core.appearance import (  # noqa: F401 — 검수 탭·테스트가 여기서도 import 한다
+    APPEARANCE_FN,
+    LIGHT_RING_PX,
+    RING_PX,
+    circular_concentration,
+    mask_contrast,
+    mask_lighting,
+    mask_sharpness,
+    mask_texture,
+)
 from anograft.io import imgio
 from anograft.io.manifest import MANIFEST_FILE, read_manifest
 from anograft.io.prune import (
@@ -48,8 +58,6 @@ LINEAR_KEYS: tuple[str, ...] = (
     IMAGE_KEYS  # 외형 지표는 0·음수가 정상값 → 선형 구간(면적·길이는 로그)
 )
 FIXED_RANGE: dict[str, tuple[float, float]] = {"lighting": (-180.0, 180.0)}  # 각도는 구간 고정
-RING_PX = 8
-LIGHT_RING_PX = 2  # 조명 방향은 얇은 링 — 하이라이트 림이 1~2 px 라 8 px 링에선 질감에 묻힌다(샘플 pit: R 0.78→0.99)
 
 
 class ReviewError(ValueError):
@@ -128,86 +136,6 @@ def histogram(
     cb, _ = np.histogram(xb, bins=edges) if len(xb) else (np.zeros(bins, dtype=int), None)
     real_edges = tuple(float(10**e) if log else float(e) for e in edges)
     return Histogram(real_edges, tuple(int(v) for v in ca), tuple(int(v) for v in cb), log)
-
-
-def mask_contrast(gray: np.ndarray, mask: np.ndarray, *, ring_px: int = RING_PX) -> float | None:
-    """마스크 안 평균 그레이 − 둘레 링(폭 ``ring_px``, 마스크 제외) 평균. 어느 쪽이든 비면 None. 라벨 탭 통계와 같은 정의."""
-    m = mask > 0
-    if not m.any():
-        return None
-    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * ring_px + 1, 2 * ring_px + 1))
-    ring = cv2.dilate(m.astype(np.uint8), k) > 0
-    ring &= ~m
-    if not ring.any():
-        return None
-    g = gray.astype(np.float32)
-    return round(float(g[m].mean() - g[ring].mean()), 2)
-
-
-def mask_texture(gray: np.ndarray, mask: np.ndarray) -> float | None:
-    """마스크 안 Sobel 그래디언트 크기 평균(결함 내부의 질감·에지 에너지). 빈 마스크면 None."""
-    m = mask > 0
-    if not m.any():
-        return None
-    g = gray.astype(np.float32)
-    gx = cv2.Sobel(g, cv2.CV_32F, 1, 0, ksize=3)
-    gy = cv2.Sobel(g, cv2.CV_32F, 0, 1, ksize=3)
-    return round(float(np.sqrt(gx * gx + gy * gy)[m].mean()), 2)
-
-
-def mask_sharpness(gray: np.ndarray, mask: np.ndarray) -> float | None:
-    """마스크 안 라플라시안 분산(선명도 — 열화 블러가 결함을 뭉갰는지). 빈 마스크면 None."""
-    m = mask > 0
-    if not m.any():
-        return None
-    lap = cv2.Laplacian(gray.astype(np.float32), cv2.CV_32F, ksize=3)
-    return round(float(lap[m].var()), 2)
-
-
-def mask_lighting(
-    gray: np.ndarray, mask: np.ndarray, *, ring_px: int = LIGHT_RING_PX
-) -> float | None:
-    """둘레 링에서 밝은 쪽이 어느 방향인지 — 각도(°, 이미지 좌표: 0 = 오른쪽, 90 = 아래). KI #5 근거.
-
-    링 픽셀의 (밝기 − 링 평균) 을 무게로 중심→픽셀 단위벡터를 합해 방향을 얻는다. 조명이 한쪽에서 오는
-    움푹/볼록 결함은 하이라이트 림이 한 방향에 몰리므로 실제 소스는 각도가 한 곳에 모이고, 회전 ±180 으로
-    합성하면 고르게 퍼진다(→ ``circular_concentration``). 빈 마스크·링이면 None."""
-    m = mask > 0
-    if not m.any():
-        return None
-    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * ring_px + 1, 2 * ring_px + 1))
-    ring = cv2.dilate(m.astype(np.uint8), k) > 0
-    ring &= ~m
-    if not ring.any():
-        return None
-    ys, xs = np.nonzero(m)
-    cy, cx = float(ys.mean()), float(xs.mean())
-    ry, rx = np.nonzero(ring)
-    g = gray.astype(np.float32)
-    w = g[ry, rx] - float(g[ring].mean())
-    dy, dx = ry.astype(np.float32) - cy, rx.astype(np.float32) - cx
-    norm = np.hypot(dx, dy)
-    norm[norm == 0] = 1.0
-    vx, vy = float((w * dx / norm).sum()), float((w * dy / norm).sum())
-    if abs(vx) < 1e-6 and abs(vy) < 1e-6:
-        return None
-    return round(math.degrees(math.atan2(vy, vx)), 1)
-
-
-def circular_concentration(angles_deg: Sequence[float]) -> float | None:
-    """각도 집합의 평균 합벡터 길이 R (1 = 전부 같은 방향, 0 = 고르게 퍼짐). 비면 None."""
-    if not angles_deg:
-        return None
-    th = np.radians(np.asarray(list(angles_deg), dtype=np.float64))
-    return round(float(np.hypot(np.cos(th).mean(), np.sin(th).mean())), 3)
-
-
-APPEARANCE_FN = {
-    "contrast": mask_contrast,
-    "texture": mask_texture,
-    "sharpness": mask_sharpness,
-    "lighting": mask_lighting,
-}
 
 
 def _split(s: str) -> tuple[str, ...]:

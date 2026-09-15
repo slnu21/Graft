@@ -1,0 +1,144 @@
+"""core/appearance 의 조명 일관성 → 은행 요약 lightR → runner.lighting_warning(KNOWN-ISSUES #5 를 은행에서 미리 잡기)."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+from anograft import runner
+from anograft.bank import Bank
+from anograft.cli import EXIT_OK, main
+from anograft.core import recipe as R
+from anograft.core.appearance import (
+    LIGHT_MIN_N,
+    LIGHT_REAL_MIN,
+    gray_of,
+    lighting_of_sources,
+    mask_lighting,
+)
+from anograft.core.types import DefectSource
+
+
+def _dent(angle: str = "down", cls: str = "pit", k: int = 0) -> DefectSource:
+    """어두운 원 + 한쪽 림이 밝은 소스 — 조명 의존 결함의 최소 모형."""
+    img = np.full((40, 40, 3), 120, dtype=np.uint8)
+    m = np.zeros((40, 40), dtype=np.uint8)
+    m[14:26, 14:26] = 255
+    img[14:26, 14:26] = 60
+    if angle == "down":
+        img[26:29, 12:28] = 220
+    elif angle == "up":
+        img[11:14, 12:28] = 220
+    else:  # right
+        img[12:28, 26:29] = 220
+    return DefectSource(f"{cls}/{k:03d}", cls, img, m, None, (), "fixture", "png")
+
+
+def _flat(cls: str = "stain", k: int = 0) -> DefectSource:
+    """링이 균일한 소스 — 방향 없음(None)."""
+    img = np.full((30, 30, 3), 100, dtype=np.uint8)
+    m = np.zeros((30, 30), dtype=np.uint8)
+    m[10:20, 10:20] = 255
+    img[10:20, 10:20] = 160
+    return DefectSource(f"{cls}/{k:03d}", cls, img, m, None, (), "fixture", "png")
+
+
+def _recipe(preset: str, classes: list[str] | None = None, **geo) -> R.Recipe:
+    d: dict = {
+        "version": 1,
+        "name": "t",
+        "seed": 1,
+        "inputs": {"bank": "b", "targets": "n"},
+        "output": {"root": "o", "count": 1},
+        "pipeline": {"preset": preset},
+    }
+    if classes is not None:
+        d["pipeline"]["source"] = {"method": "bank", "classes": classes}
+    if geo:
+        d["pipeline"]["geometry"] = {"method": "affine", **geo}
+    return R.Recipe.from_dict(d)
+
+
+def test_lighting_of_sources_and_min_n() -> None:
+    down = [_dent("down", k=i) for i in range(3)]
+    assert abs(mask_lighting(gray_of(down[0].image), down[0].mask) - 90.0) < 5
+    r, n = lighting_of_sources([(s.image, s.mask) for s in down])
+    assert n == 3 and r is not None and r > 0.99
+    # n < LIGHT_MIN_N 이면 판단 보류(R 은 n=1 이면 항상 1 이라 오판)
+    r1, n1 = lighting_of_sources([(down[0].image, down[0].mask)])
+    assert (r1, n1) == (None, 1) and LIGHT_MIN_N == 3
+    # 방향이 제각각이면 R 낮음, 균일 링은 세지 않는다
+    mixed = [_dent("down"), _dent("up"), _dent("right"), _dent("up")]
+    r, n = lighting_of_sources([(s.image, s.mask) for s in mixed])
+    assert n == 4 and r < 0.5
+    assert lighting_of_sources([(f.image, f.mask) for f in [_flat(k=i) for i in range(3)]]) == (
+        None,
+        0,
+    )
+
+
+def test_bank_summary_light_r() -> None:
+    srcs = [_dent("down", k=i) for i in range(4)] + [_flat(k=i) for i in range(3)]
+    bank = Bank.from_sources(srcs, classes=["pit", "stain"])
+    rows = {r.cls: r for r in bank.summary()}
+    assert rows["pit"].light_r > 0.99 and rows["pit"].light_n == 4
+    assert rows["stain"].light_r is None and rows["stain"].light_n == 0
+
+
+def test_lighting_warning_rules() -> None:
+    bank = Bank.from_sources(
+        [_dent("down", k=i) for i in range(3)] + [_flat(k=i) for i in range(3)],
+        classes=["pit", "stain"],
+    )
+    # ±180 + flip (poisson-graft 기본) → 경고, 클래스·원인 명시
+    w = runner.lighting_warning(_recipe("poisson-graft"), bank)
+    assert w and "pit(R 1.00, n 3)" in w and "rotate [-180, 180] + flip" in w and "dent-graft" in w
+    # dent-graft(±15, flip 끔) → 없음
+    assert runner.lighting_warning(_recipe("dent-graft"), bank) is None
+    # 회전만 좁혀도 flip 이 켜져 있으면 경고(원인은 flip 만)
+    w = runner.lighting_warning(_recipe("poisson-graft", rotate=[-30, 30], flip=True), bank)
+    assert w and "flip" in w and "rotate" not in w.split("로 합성하면")[0].split(" 을 ")[1]
+    assert (
+        runner.lighting_warning(_recipe("poisson-graft", rotate=[-45, 45], flip=False), bank)
+        is None
+    )
+    # 조명 의존 클래스를 뽑지 않으면 없음
+    assert runner.lighting_warning(_recipe("poisson-graft", classes=["stain"]), bank) is None
+    # n < 3 이면 판단 보류
+    small = Bank.from_sources([_dent("down", k=i) for i in range(2)], classes=["pit"])
+    assert runner.lighting_warning(_recipe("poisson-graft"), small) is None
+    # 은행 없음 / 비-bank 소스
+    empty = Bank.from_sources([], name="(없음)")
+    assert runner.lighting_warning(_recipe("poisson-graft"), empty) is None
+    assert runner.lighting_warning(_recipe("self-cut"), bank) is None
+    assert LIGHT_REAL_MIN == 0.5
+
+
+def test_bank_ls_shows_light_r(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    from anograft.bank.importers.common import BankWriter, ImportOptions, ImportRecord
+
+    w = BankWriter(tmp_path / "b", name="b")
+    w.ensure_classes(["pit", "stain"])
+    for s in [_dent("down", k=i) for i in range(3)] + [_flat(k=i) for i in range(2)]:
+        rec = ImportRecord(
+            image=s.image,
+            gray=False,
+            mask=s.mask,
+            cls=s.cls,
+            origin="t",
+            id_hint=s.id.split("/")[1],
+        )
+        w.add(rec, ImportOptions(margin=8))
+    w.finish({"importer": "test"})
+    assert main(["bank", "ls", str(tmp_path / "b")]) == EXIT_OK
+    cap = capsys.readouterr()
+    assert "lightR" in cap.out and "1.00" in cap.out and "–" in cap.out
+    assert "조명 의존 클래스" in cap.err and "pit 1.00" in cap.err
+    assert main(["bank", "ls", str(tmp_path / "b"), "--json"]) == EXIT_OK
+    d = json.loads(capsys.readouterr().out)
+    by = {c["class"]: c for c in d["classes"]}
+    assert by["pit"]["light_r"] == 1.0 and by["pit"]["light_n"] == 3
+    assert by["stain"]["light_r"] is None and by["stain"]["light_n"] == 0

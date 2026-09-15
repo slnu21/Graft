@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from anograft.core.appearance import LIGHT_REAL_MIN, LIGHT_SYNTH_MAX
+
 SYNTH = "#00A188"
 REAL = "#C8841C"
 
@@ -41,10 +43,6 @@ class ReportData:
     lighting_r_class: Mapping[str, tuple[float | None, float | None]] = field(default_factory=dict)
     bank_name: str = ""
     warnings: Sequence[str] = ()
-
-
-LIGHT_REAL_MIN = 0.5  # 실제 소스의 R 이 이 이상이면 '조명 방향이 있는 클래스'
-LIGHT_SYNTH_MAX = 0.3  # 그 클래스의 합성 R 이 이 미만이면 회전이 방향을 뒤집고 있다
 
 
 def lighting_broken_classes(
