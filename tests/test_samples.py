@@ -110,3 +110,129 @@ def test_sample_feeds_import_yolo(tmp_path: Path) -> None:
     bank = Bank.load(tmp_path / "bank")
     assert bank.classes == ["scratch", "pit", "stain"] and len(bank) >= 4
     assert len(imgio.read_path_list(normals)) == 2
+
+
+def test_generate_ring_shape_places_defects_on_face(tmp_path: Path) -> None:
+    """0.7.3 ``--shape ring`` — 원형 부품(링 면 + 어두운 리세스): Otsu 전경이 링, 라벨 중심이 전부 링 면 안, 재현."""
+    import numpy as np
+
+    from anograft.core import roi as roi_mod
+
+    root = tmp_path / "ring"
+    s = sample_yolo.generate(root, n_normal=1, n_defect=4, size=(320, 320), seed=9, shape="ring")
+    assert s.total == 5 and s.n_boxes >= 4
+    imgs = sorted((root / "images").glob("*.png"))
+    assert [p.stem for p in imgs] == [f"ring_{i:03d}" for i in range(5)]
+    n_checked = 0
+    for p in imgs[1:]:
+        img, _ = imgio.read_image(p)
+        fit = roi_mod.detect_disk(img)
+        assert fit is not None and 100 < fit.radius < 160
+        cx, cy, radius = fit.center[0], fit.center[1], fit.radius
+        otsu = roi_mod.roi_otsu(img, "auto", 0).roi
+        assert (
+            not otsu[int(cy), int(cx)] and otsu[int(cy), int(cx + 0.75 * radius)]
+        )  # 홈은 배경, 면은 전경
+        h, w = img.shape[:2]
+        for ln in (root / "labels" / f"{p.stem}.txt").read_text(encoding="utf-8").splitlines():
+            _cid, x, y, _bw, _bh = (float(v) for v in ln.split())
+            d = np.hypot(x * w - cx, y * h - cy)
+            assert 0.5 * radius < d < radius, (p.stem, d, radius)
+            n_checked += 1
+    assert n_checked == s.n_boxes
+    # 재현 · 판(plate)은 종전 인자와 같은 결과
+    again = tmp_path / "ring2"
+    sample_yolo.generate(again, n_normal=1, n_defect=4, size=(320, 320), seed=9, shape="ring")
+    assert _tree(root) == _tree(again)
+    with pytest.raises(ValueError):
+        sample_yolo.generate(tmp_path / "x", n_normal=1, n_defect=0, shape="cube")
+
+
+def test_ring_sample_feeds_annulus_dent_graft(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """KNOWN-ISSUES 2차 절차 3단계를 샘플로: ring 샘플 → import → ``recipe init --preset dent-graft --roi annulus`` → run.
+    배치 중심이 전부 검출된 링(annulus 0.55~0.9 R) 안에 있다."""
+    import json
+
+    import numpy as np
+
+    from anograft.core import roi as roi_mod
+
+    root = tmp_path / "ring"
+    assert (
+        main(
+            [
+                "sample",
+                "--out",
+                str(root),
+                "--shape",
+                "ring",
+                "--n-normal",
+                "2",
+                "--n-defect",
+                "4",
+                "--size",
+                "320",
+                "320",
+                "--seed",
+                "11",
+            ]
+        )
+        == EXIT_OK
+    )
+    bank, normals = tmp_path / "bank", tmp_path / "normals.txt"
+    assert (
+        main(
+            [
+                "bank",
+                "import-yolo",
+                "--images",
+                str(root / "images"),
+                "--labels",
+                str(root / "labels"),
+                "--names",
+                str(root / "data.yaml"),
+                "--out",
+                str(bank),
+                "--list-normals",
+                str(normals),
+            ]
+        )
+        == EXIT_OK
+    )
+    recipe, out = tmp_path / "r.yaml", tmp_path / "out"
+    args = ["--bank", str(bank), "--targets", str(normals), "--out", str(out), "--count", "2"]
+    assert (
+        main(
+            [
+                "recipe",
+                "init",
+                "--preset",
+                "dent-graft",
+                "--roi",
+                "annulus",
+                *args,
+                "--write",
+                str(recipe),
+            ]
+        )
+        == EXIT_OK
+    )
+    capsys.readouterr()
+    assert main(["run", str(recipe), "--workers", "0"]) == EXIT_OK
+    assert "ok 2" in capsys.readouterr().out
+    n = 0
+    for meta in sorted((out / "meta").glob("*.json")):
+        sc = json.loads(meta.read_text(encoding="utf-8"))
+        if sc.get("normal"):
+            continue
+        img, _ = imgio.read_image(out / "images" / f"{meta.stem}.png")
+        fit = roi_mod.detect_disk(img)
+        assert fit is not None and sc["roi"]["method"] == "annulus"
+        for d in sc["defects"]:
+            cx, cy = d["placement"]["center"]
+            dist = np.hypot(cx - fit.center[0], cy - fit.center[1])
+            assert 0.5 * fit.radius < dist < 0.95 * fit.radius, (meta.stem, dist, fit.radius)
+            n += 1
+    assert n >= 2

@@ -42,7 +42,7 @@ Graft는 알고리즘을 새로 만드는 도구가 아니라 그 사이를 메�
 
 ```powershell
 # zip 이면 anograft → .\anograft.exe
-anograft sample --out samples/metal                                       # 샘플 이미지 22장 + YOLO 박스 라벨
+anograft sample --out samples/metal                                       # 샘플 이미지 22장 + YOLO 박스 라벨 (--shape ring: 원형 부품 — annulus ROI·dent-graft 연습)
 anograft bank import-yolo --images samples/metal/images --labels samples/metal/labels `
     --names samples/metal/data.yaml --out bank/sample --list-normals samples/metal/normals.txt
 anograft bank ls bank/sample                                              # 클래스별 소스 수 · 마스크 출처(정확/추정) · 저신뢰 · µm/px (--json 스크립트용)
@@ -170,7 +170,7 @@ No data needed — the bundled sample set (brushed metal + scratch/pit/stain) ru
 
 ```powershell
 # zip: anograft → .\anograft.exe
-anograft sample --out samples/metal
+anograft sample --out samples/metal                                       # --shape ring: a round part for the annulus ROI / dent-graft path
 anograft bank import-yolo --images samples/metal/images --labels samples/metal/labels `
     --names samples/metal/data.yaml --out bank/sample --list-normals samples/metal/normals.txt
 anograft bank ls bank/sample

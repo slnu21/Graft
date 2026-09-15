@@ -236,6 +236,7 @@ anograft bank preview bank/torx --out bank-preview.png  # 빨간 테두리 = 저
 # 3. 링 ROI 레시피 (#2 #4) — annulus-graft, r_inner/r_outer 를 스튜디오 ROI 오버레이에 맞춰 조정(실측 0.56~0.9)
 anograft recipe init --preset annulus-graft --bank bank/torx --targets ok/ --out out/torx-annulus --count 40 --write recipes/torx-annulus.yaml
 #    찍힘이면 dent-graft 도 (#5, 0.7.3): --preset dent-graft --roi annulus  (피치를 알면 --um-per-px <피치>)
+#    (데이터 없이 이 단계를 먼저 연습: anograft sample --out samples/ring --shape ring → import → 위 init)
 anograft run recipes/torx-annulus.yaml --workers 4          # stderr 경고: 축척 정합 · 저신뢰 · skipped 사유(ROI 폭 vs 패치)
 
 # 4. 검수 (GUI 검수 탭 또는) — 반려하고 정리본 + 리포트
