@@ -7,6 +7,7 @@
 v0.7 — 은행 탭 · COCO writer · 검수 탭.
 
 ### Added
+- **`coco` writer**(v0.7): `output.writer: {format: coco}` → 정본 위에 `annotations.json`(COCO instances — images 는 합성+정상, categories 는 은행 classes 순서로 id 1-based, annotations 는 인스턴스 GT 마스크의 외곽 폴리곤 `segmentation`·`bbox`·`area`(픽셀 수)·`iscrowd 0`). 순수 JSON(pycocotools 불필요), 같은 결과 → 같은 바이트(`info` 에 시각 없음). 사이드카 `writer.image_id/annotation_ids`, manifest `label = annotations.json#<image_id>`. 배치 탭 출력 형식에 `coco`.
 - **은행 탭**(v0.7, GUI): 은행을 열어 소스를 타일 그리드로 보고(마스크 윤곽, 추정 amber, 저신뢰 빨간 테두리) 클래스·태그·저신뢰만·추정만·검색으로 거르고 id/신뢰도/면적/클래스로 정렬. 상세(크롭+마스크 오버레이 확대, 메타·flags). **삭제**(세 파일, `bank.yaml` classes 유지 — class id 불변, imports 이력) · **라벨 탭에서 다듬기**(크롭+현재 마스크를 라벨 탭 은행 소스 편집 모드로 → 저장하면 같은 id 에 덮어쓰기, `mask_origin: manual:<tool>`, 점수 제거). 은행이 바뀌면 같은 은행을 쓰는 스튜디오가 다시 준비되고, 라벨 탭 저장은 은행 탭을 새로고침한다. 레시피를 열면 그 은행을 자동으로 연다. `BankWriter.delete/replace_mask`.
 
 ## [0.6.0] - 2026-09-15

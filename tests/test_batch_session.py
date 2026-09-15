@@ -69,6 +69,8 @@ def test_set_recipe_fills_overrides_and_build_applies_them(
     s.writer = "pairs"
     assert s.build_recipe().output.writer.format == "pairs"
     s.writer = "coco"
+    assert s.build_recipe().output.writer.format == "coco"  # v0.7 writer
+    s.writer = "voc"
     with pytest.raises(BatchError, match="writer"):
         s.build_recipe()
     s.writer, s.count = "yolo", 0

@@ -18,7 +18,7 @@ from anograft import runner
 from anograft.core import recipe as R
 from anograft.core.types import GraftResult
 
-WRITER_FORMATS: tuple[str, ...] = ("yolo", "pairs", "mvtec")
+WRITER_FORMATS: tuple[str, ...] = ("yolo", "pairs", "mvtec", "coco")
 Progress = Callable[[int, int, GraftResult], None]
 
 

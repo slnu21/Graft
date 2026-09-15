@@ -103,8 +103,17 @@ class MvtecWriterConfig(_Strict):
     layout_dir: str = Field(default="mvtec", min_length=1, pattern=r"^[A-Za-z0-9_.-]+$")
 
 
+class CocoWriterConfig(_Strict):
+    """정본 위에 ``annotations.json``(COCO instances — 폴리곤 segmentation·bbox·area, categories = 은행 classes, id 1-based)."""
+
+    format: Literal["coco"] = "coco"
+    description: str = "anograft synthetic defects"
+    supercategory: str = "defect"
+
+
 WriterConfig = Annotated[
-    YoloWriterConfig | PairsWriterConfig | MvtecWriterConfig, Field(discriminator="format")
+    YoloWriterConfig | PairsWriterConfig | MvtecWriterConfig | CocoWriterConfig,
+    Field(discriminator="format"),
 ]
 
 
