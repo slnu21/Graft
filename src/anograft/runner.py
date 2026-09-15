@@ -163,7 +163,8 @@ LIGHT_ROTATE_MAX_DEG = 90.0  # rotate 범위 폭이 이보다 크면(±45 초과
 
 def lighting_warning(recipe: Recipe, bank: Bank) -> str | None:
     """조명 의존 클래스(실제 소스의 하이라이트 방향 일관성 R ≥ LIGHT_REAL_MIN, n ≥ 3)를 rotate 폭 > 90° 또는 flip 으로
-    합성하면 한 줄(KNOWN-ISSUES #5). 은행에서 미리 잡는다 — 검수 탭 '조명 방향' 분포는 사후 확인."""
+    합성하면 한 줄(KNOWN-ISSUES #5). 은행에서 미리 잡는다 — 검수 탭 '조명 방향' 분포는 사후 확인.
+    ``geometry:`` 접두를 달아 스튜디오가 기하 카드에 표시한다(prepare 경고 중 스테이지 접두가 있는 것만 카드로)."""
     if recipe.bankless or len(bank) == 0:
         return None
     geo = recipe.pipeline.geometry
@@ -183,21 +184,14 @@ def lighting_warning(recipe: Recipe, bank: Bank) -> str | None:
     cause = " + ".join(
         p for p, on in ((f"rotate [{lo:g}, {hi:g}]", wide), ("flip", geo.flip)) if on
     )
-    return (
-        f"조명 의존 결함 {what} 을 {cause} 로 합성하면 하이라이트 방향이 뒤집힙니다 — 프리셋 dent-graft(±15°, flip 끔) "
+    return (  # `geometry:` 접두 — 스튜디오가 기하 카드에 ⚠ 로 라우팅(스테이지 경고 규약)
+        f"geometry: 조명 의존 결함 {what} 을 {cause} 로 합성하면 하이라이트 방향이 뒤집힙니다 — 프리셋 dent-graft(±15°, flip 끔) "
         f"또는 geometry.rotate 를 ±45° 안으로, flip false (검수 탭 '조명 방향' 분포로 확인)"
     )
 
 
-def prepare(recipe: Recipe) -> Prepared:
-    try:
-        bank = (
-            Bank.from_sources([], name="(없음)")
-            if recipe.inputs.bank is None
-            else Bank.load(recipe.inputs.bank)
-        )
-    except BankError as e:
-        raise PrepareError(str(e)) from e
+def _prepare_warnings(recipe: Recipe, bank: Bank) -> list[str]:
+    """은행 경고 + 레시피↔은행 대조 + 축척·저신뢰·조명 한 줄 경고 — ``prepare``·``reprepare`` 공용."""
     warnings = list(bank.warnings)
     try:
         warnings += recipe.validate_against(bank)
@@ -210,6 +204,19 @@ def prepare(recipe: Recipe) -> Prepared:
     ):
         if w:
             warnings.append(w)
+    return warnings
+
+
+def prepare(recipe: Recipe) -> Prepared:
+    try:
+        bank = (
+            Bank.from_sources([], name="(없음)")
+            if recipe.inputs.bank is None
+            else Bank.load(recipe.inputs.bank)
+        )
+    except BankError as e:
+        raise PrepareError(str(e)) from e
+    warnings = _prepare_warnings(recipe, bank)
     try:
         targets = list_targets(recipe.inputs.targets)
     except TargetsError as e:
@@ -232,11 +239,9 @@ def reprepare(prep: Prepared, recipe: Recipe) -> Prepared:
         prep.recipe.inputs.targets,
     ):
         raise ValueError("은행 또는 대상 경로가 바뀌었습니다 — prepare()를 다시 부르세요")
-    warnings = list(prep.bank.warnings)
-    try:
-        warnings += recipe.validate_against(prep.bank)
-    except ValueError as e:
-        raise PrepareError(f"레시피가 은행과 맞지 않습니다: {e}") from e
+    warnings = _prepare_warnings(
+        recipe, prep.bank
+    )  # 축척·저신뢰·조명 경고는 레시피에 따라 바뀐다(카드 편집)
     deps = build_deps(recipe, prep.bank, warnings)
     try:
         pipeline = Pipeline.from_recipe(recipe, deps)

@@ -349,3 +349,49 @@ def test_variant_card_marks_low_confidence_sources(
         win.worker.stop()
         win.close()
         qapp.processEvents()
+
+
+def test_geometry_card_shows_lighting_warning(
+    qapp: QApplication, bank_and_normals: tuple[Path, Path], tmp_path: Path
+) -> None:
+    """0.7.2+ — prepare 경고 중 ``geometry:`` 접두(조명 의존 클래스 × ±180/flip)는 기하 카드 ⚠ 로, 변형이 바뀌어도 남는다."""
+    from anograft.bank.importers.common import BankWriter, ImportOptions, ImportRecord
+    from tests.test_lighting_warning import _dent
+
+    _bank, normals = bank_and_normals
+    bank = tmp_path / "dents"
+    w = BankWriter(bank, name="dents")
+    w.ensure_classes(["pit"])
+    for i in range(3):
+        s = _dent("down", k=i)
+        w.add(
+            ImportRecord(
+                image=s.image, gray=False, mask=s.mask, cls="pit", origin="t", id_hint=f"{i:03d}"
+            ),
+            ImportOptions(margin=8),
+        )
+    w.finish({"importer": "test"})
+    ses = StudioSession(default_recipe(bank=bank.as_posix(), targets=normals.as_posix()))
+    ses.set_stage_field("placement", "margin_px", 4)
+    ses.set_stage_field("roi", "erode_px", 2)
+    ses.set_field(("pipeline", "source", "min_sources_warn"), 1)
+    ses.set_n_variants(1)
+    ses.set_long_side(64)
+    win = MainWindow(ses)
+    try:
+        win.show()
+        tab = win.studio
+        tab.open_inputs(bank.as_posix(), normals.as_posix())
+        assert _pump(qapp, lambda: ses.prepared is not None)
+        assert any(m.startswith("geometry:") for m in ses.warnings)
+        assert _pump(qapp, lambda: "geometry" in tab.pipe.stage_warnings())
+        assert "조명 의존" in tab.pipe.stage_warnings()["geometry"]
+        # 회전을 ±15 로 조이고 flip 을 끄면(reprepare) 경고가 사라진다
+        ses.set_stage_field("geometry", "rotate", (-15.0, 15.0))
+        ses.set_stage_field("geometry", "flip", False)
+        tab.request_previews()
+        assert _pump(qapp, lambda: "geometry" not in tab.pipe.stage_warnings())
+    finally:
+        win.worker.stop()
+        win.close()
+        qapp.processEvents()
