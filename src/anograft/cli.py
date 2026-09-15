@@ -205,10 +205,13 @@ def cmd_run(args: argparse.Namespace) -> int:
         _err(str(e))
         return EXIT_RECIPE_ERROR
     if args.dry_run:
-        for k, v in runner.dry_run_table(prep):
+        fit = runner.fit_diagnostic(prep)
+        for k, v in runner.dry_run_table(prep, fit=fit):
             print(f"{k:>14}: {v}")
         for w in prep.warnings:
             _err(f"경고: {w}")
+        if fit is not None and (fw := fit.warning()):
+            _err(f"경고: {fw}")
         print("(dry-run — 파일을 쓰지 않았습니다)")
         return EXIT_OK
 

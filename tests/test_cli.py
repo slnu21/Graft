@@ -236,6 +236,9 @@ def test_run_dry_run_writes_nothing(
     assert main(["run", str(workspace["recipe"]), "--dry-run"]) == EXIT_OK
     out = capsys.readouterr().out
     assert "pipeline_hash" in out and "class spot" in out and "dry-run" in out
+    assert (
+        "roi width" in out and "fit spot" in out and "fit crack" in out
+    )  # 배치 가능성 진단(0.7.3)
     assert not (workspace["root"] / "out").exists()
 
 
