@@ -235,6 +235,16 @@ class LabelSession:
         self.dirty = False
         self.draft = None
 
+    def set_mask(self, mask: np.ndarray, *, tool: str = "png") -> None:
+        """배열 마스크를 현재 마스크로(은행 소스 편집 — 크롭과 같은 크기). 되돌리기 가능."""
+        self._require()
+        if mask.shape[:2] != self.shape:
+            raise LabelError(f"마스크 크기 {mask.shape[:2]} ≠ 이미지 {self.shape}")
+        self.push_undo()
+        self.mask = binarize(mask)
+        self.tools_used.add(tool)
+        self.dirty = False
+
     def load_mask(self, path: str | Path) -> None:
         """기존 마스크 PNG(같은 크기)를 현재 마스크로. 되돌리기 가능."""
         self._require()

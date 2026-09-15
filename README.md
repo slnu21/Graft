@@ -71,6 +71,7 @@ anograft-gui recipes/sample-poisson.yaml                                  # GUI 
 | MVTec AD 로컬 사본 | `anograft dataset info mvtec-ad` → `anograft bank import-dataset mvtec-ad <root>/metal_nut --out bank/metal_nut` (내려받지 않음, CC BY-NC-SA) |
 | VisA 로컬 사본 | `anograft dataset info visa` → `anograft bank import-dataset visa <VisA>/candle --out bank/candle` (결함 유형 세분이 없어 클래스 `anomaly` 하나, CC BY-NC-SA) |
 | **결함 사진만**(라벨 없음) | GUI **라벨 탭** — 폴더 열기 → 사진 선택 → 브러시/폴리곤/자동 선택(박스를 끌면 GrabCut) → 클래스 입력 → **은행에 저장**(Ctrl+S). 라벨링 도구가 따로 필요 없다 (v0.5). 그다음 스튜디오에서 미리보기 → **배치로 보내기** → 배치 탭 **생성 시작** — CLI 없이 끝까지 |
+| 은행 정리 | GUI **은행 탭**(v0.7) — 소스 그리드(저신뢰 빨간 테두리) · 필터/정렬 · 삭제 · **라벨 탭에서 다듬기**(마스크를 고쳐 같은 id 에 덮어쓰기). `bank ls`/`bank preview` 의 GUI 판 |
 | YOLO 라벨을 GUI 에서 다듬기 | 라벨 탭에서 `images/` 를 열면 옆의 `labels/<stem>.txt`(+`data.yaml`)를 찾아 **YOLO 초안**으로 마스크를 미리 채운다(박스 → GrabCut 추정, 폴리곤 → 채움, 목록에 `▸`). 손보고 저장하면 `manual:mixed`, 그대로 저장하면 임포터와 같은 `yolo-box:*` (v0.6) |
 | 결함이 생겨도 되는 면만 지정(ROI) | 라벨 탭 **저장 대상 → ROI 마스크**: 정상 이미지 폴더를 열고 허용 영역을 칠해 `<mask_dir>/<stem>.png` 로 저장 → 레시피 `placement.roi: {method: mask_dir, path: <mask_dir>}`. 원형 부품은 파일 없이 `annulus` ROI (v0.6) |
 
@@ -183,6 +184,7 @@ In the Studio, the **pipeline cards** on the right let you pick each stage's met
 | Local MVTec AD copy | `anograft dataset info mvtec-ad` → `anograft bank import-dataset mvtec-ad <root>/metal_nut --out bank/metal_nut` (never downloaded; CC BY-NC-SA) |
 | Local VisA copy | `anograft dataset info visa` → `anograft bank import-dataset visa <VisA>/candle --out bank/candle` (no defect-type split, so one class `anomaly`; CC BY-NC-SA) |
 | **Only defect photos** (no labels) | GUI **Label tab** — open folder → pick a photo → brush / polygon / auto-select (drag a box → GrabCut) → type the class → **Save to bank** (Ctrl+S). No separate labelling tool needed (v0.5). Then preview in Studio → **Send to batch** → **Run** in the Batch tab — no CLI required |
+| Tidy the bank | GUI **Bank tab** (v0.7) — source grid (red border = low confidence), filter/sort, delete, **Refine in Label** (fix the mask and overwrite the same id). The GUI counterpart of `bank ls` / `bank preview` |
 | Refine YOLO labels in the GUI | Open `images/` in the Label tab: the neighbouring `labels/<stem>.txt` (+`data.yaml`) is loaded as a **YOLO draft** that pre-fills the mask (box → GrabCut estimate, polygon → fill; `▸` in the list). Edited masks save as `manual:mixed`, untouched ones as `yolo-box:*` like the importer (v0.6) |
 | Restrict where defects may go (ROI) | Label tab **Save as → ROI mask**: open the normal-image folder, paint the allowed surface, save to `<mask_dir>/<stem>.png` → recipe `placement.roi: {method: mask_dir, path: <mask_dir>}`. Round parts need no files — use the `annulus` ROI (v0.6) |
 

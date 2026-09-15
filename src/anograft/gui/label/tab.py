@@ -13,6 +13,10 @@ Ctrl+S 은행에 저장 · PageDown/PageUp 다음/이전 이미지.
 라벨이 있는 이미지는 ``▸`` 표시. **ROI 모드** — 오른쪽 "저장 대상" 을 ROI 로 바꾸면 은행 대신 ``<mask_dir>/<stem>.png``
 (``placement.roi: mask_dir`` 형식) 로 저장하고, 이미지를 열 때 같은 이름의 ROI 가 있으면 불러온다. 정상 이미지 폴더를 열어
 "결함이 생겨도 되는 면" 을 칠한다.
+
+(v0.7) **은행 소스 편집** — 은행 탭 "라벨 탭에서 다듬기" 가 ``begin_bank_edit(root, id, image, gray, mask)`` 로 크롭과 현재
+마스크를 연다. 저장(Ctrl+S)은 은행에 새 소스를 더하는 대신 ``source_updated(root, id, mask, tool)`` 를 내보내고 은행 탭이 같은 id 에
+덮어쓴다. 다른 이미지를 열면 편집 모드가 끝난다.
 """
 
 from __future__ import annotations
@@ -20,6 +24,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
+import numpy as np
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
@@ -72,6 +77,9 @@ class LabelTab(QWidget):
     status = Signal(str)
     bank_saved = Signal(str)  # 은행 루트(posix) — 스튜디오가 같은 은행이면 다시 준비
     roi_saved = Signal(str)  # 저장된 ROI PNG(posix)
+    source_updated = Signal(
+        str, str, object, str
+    )  # (은행 루트 posix, source id, 마스크 ndarray, 도구) — 은행 소스 편집 저장
 
     def __init__(self, session: LabelSession | None = None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -79,6 +87,9 @@ class LabelTab(QWidget):
         self.folder: Path | None = None
         self.files: list[Path] = []
         self.confirm_discard: Callable[[], bool] | None = self._ask_discard  # 테스트는 None
+        self.edit_target: tuple[str, str] | None = (
+            None  # (은행 루트, source id) — 은행 소스 편집 모드
+        )
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -436,6 +447,7 @@ class LabelTab(QWidget):
     def open_image(self, path: str | Path) -> bool:
         if not self._may_discard():
             return False
+        self._end_bank_edit()
         try:
             self.session.load_image(path)
         except imgio.ImageReadError as e:
@@ -449,6 +461,54 @@ class LabelTab(QWidget):
         if extra:
             msg += " · " + extra
         self.refresh()
+        self.status.emit(msg)
+        return True
+
+    # ------------------------------------------------------------------ 은행 소스 편집 (v0.7)
+
+    def begin_bank_edit(
+        self, root: str, source_id: str, image: np.ndarray, gray: bool, mask: np.ndarray
+    ) -> bool:
+        """은행 크롭 + 현재 마스크를 열어 다듬는다. 저장하면 ``source_updated`` 로 같은 id 에 덮어쓴다."""
+        if not self._may_discard():
+            return False
+        self.session.set_image(image, gray, path=None)
+        try:
+            self.session.set_mask(mask)
+        except LabelError as e:
+            self._on_error(str(e))
+            return False
+        self.edit_target = (root, source_id)
+        self.set_mode(MODE_BANK)
+        self.canvas.set_session(self.session)
+        self.origin.setText(f"은행 소스 {source_id}")
+        self.cls.setEditText(source_id.split("/", 1)[0])
+        self.result.setText("")
+        self._set_draft_enabled(False)
+        self.draft_info.setText("은행 소스 편집 중 — 저장하면 같은 id 의 마스크를 덮어쓴다")
+        self.btn_save.setText("은행 소스 갱신 Update source  (Ctrl+S)")
+        self.refresh()
+        self.status.emit(f"은행 소스 편집: {source_id} — 다듬은 뒤 Ctrl+S")
+        return True
+
+    def _end_bank_edit(self) -> None:
+        if self.edit_target is None:
+            return
+        self.edit_target = None
+        self._on_mode()  # 저장 버튼 문구 복원
+
+    def save_bank_edit(self) -> bool:
+        assert self.edit_target is not None and self.session.mask is not None
+        root, sid = self.edit_target
+        if not np.any(self.session.mask):
+            self._on_error("마스크가 비어 있습니다 — 소스를 지우려면 은행 탭에서 삭제")
+            return False
+        used = self.session.tools_used - {"morph", "png"}
+        tool = next(iter(used)) if len(used) == 1 else ("mixed" if used else "brush")
+        self.source_updated.emit(root, sid, self.session.mask.copy(), tool)
+        self.session.dirty = False
+        msg = f"은행 소스 갱신 요청: {sid} (manual:{tool})"
+        self.result.setText(msg)
         self.status.emit(msg)
         return True
 
@@ -528,7 +588,13 @@ class LabelTab(QWidget):
         self.defect_box.setVisible(not roi)
         self.defect_title.setVisible(not roi)
         self.btn_save.setText(
-            "ROI 저장 Save ROI  (Ctrl+S)" if roi else "은행에 저장 Save to bank  (Ctrl+S)"
+            "ROI 저장 Save ROI  (Ctrl+S)"
+            if roi
+            else (
+                "은행 소스 갱신 Update source  (Ctrl+S)"
+                if self.edit_target is not None
+                else "은행에 저장 Save to bank  (Ctrl+S)"
+            )
         )
         if self.folder is not None:
             self.list_title.setText(
@@ -605,6 +671,8 @@ class LabelTab(QWidget):
         return True
 
     def save(self) -> bool:
+        if self.edit_target is not None:
+            return self.save_bank_edit()
         return self.save_roi() if self.mode == MODE_ROI else self.save_to_bank()
 
     def step(self, delta: int) -> None:
