@@ -401,11 +401,34 @@ class StudioTab(QWidget):
         r = res.result
         if r.status == "ok":
             caption = ", ".join(sorted({i.cls for i in r.instances})) or "ok"
-            self.variants.set_result(k, promote_to_bgr(r.image), caption)
+            low = self._low_confidence_sources(r)
+            tooltip = "소스: " + ", ".join(self._source_ids(r))
+            if low:
+                caption += " ⚠"
+                tooltip += (
+                    "\n⚠ 저신뢰 추정 마스크 소스: " + ", ".join(low) + " — 은행 탭에서 다듬기"
+                )
+            self.variants.set_result(k, promote_to_bgr(r.image), caption, tooltip)
         else:
             self.variants.set_failed(k, r.reason or "skipped")
         if k == self.session.variant_index:
             self._show(res)
+
+    @staticmethod
+    def _source_ids(r) -> list[str]:
+        return [
+            str(d.get("source", {}).get("source_id", ""))
+            for d in r.sidecar.get("defects", [])
+            if "gt" in d
+        ]
+
+    def _low_confidence_sources(self, r) -> list[str]:
+        """이 변형에 쓰인 소스 중 confidence < 0.5(KNOWN-ISSUES #3) — 미리보기가 그럴듯해도 마스크가 헐거울 수 있다."""
+        prep = self.session.prepared
+        if prep is None or prep.bank is None:
+            return []
+        low = {s.id for s in prep.bank.low_confidence()}
+        return [sid for sid in self._source_ids(r) if sid in low]
 
     def _on_failed(self, err: JobError) -> None:
         if err.job.kind == KIND_PREPARE:
