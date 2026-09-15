@@ -127,3 +127,46 @@ def test_fit_diagnostic_skips_unreadable_target(tmp_path: Path) -> None:
     )  # 목록의 없는 파일은 prepare 를 막지 않는다(실행 시 그 인덱스만 skipped)
     fit = runner.fit_diagnostic(prep, n_targets=2)
     assert fit is not None and [n for n, _ in fit.roi_widths] == ["n0.png"]  # missing.png 는 건너뜀
+
+
+def test_roi_max_width_and_fit_from_widths(tmp_path: Path) -> None:
+    from anograft.bank.importers import yolo as Y
+    from anograft.core.stages.placement import roi_max_width
+
+    roi = np.zeros((40, 60), dtype=bool)
+    roi[10:30, 5:55] = True  # 20 px 높이 띠 → 내접원 지름 ≈ 20
+    assert 18.0 <= roi_max_width(roi, 0) <= 20.0
+    assert roi_max_width(roi, 12) < roi_max_width(roi, 0)  # 테두리 여유가 폭을 깎는다
+    assert roi_max_width(None, 0, (40, 60)) >= 38.0 and roi_max_width(None, 0) == 0.0
+    assert roi_max_width(np.zeros((8, 8), dtype=bool), 0) == 0.0
+    d = fake_yolo_dataset(tmp_path / "ds")
+    normals = tmp_path / "normals.txt"
+    Y.import_yolo(
+        d["images"],
+        d["labels"],
+        d["names"],
+        tmp_path / "bank",
+        mask_from="rect",
+        list_normals=normals,
+    )
+    rec = R.Recipe.from_dict(
+        {
+            "version": 1,
+            "name": "t",
+            "seed": 1,
+            "inputs": {"bank": (tmp_path / "bank").as_posix(), "targets": normals.as_posix()},
+            "output": {"root": (tmp_path / "o").as_posix(), "count": 1},
+            "pipeline": {
+                "preset": "hard-paste",
+                "source": {"method": "bank", "min_sources_warn": 1},
+            },
+        }
+    )
+    prep = runner.prepare(rec)
+    sides = runner.patch_sides(prep)
+    assert set(sides) == {"spot", "crack"}
+    fit = runner.fit_from_widths(prep, [("x.png", 1000.0)])
+    assert fit is not None and fit.patch_sides == sides and set(fit.verdicts().values()) == {"가능"}
+    assert runner.fit_from_widths(prep, []) is None
+    tiny = runner.fit_from_widths(prep, [("x.png", 2.0)])
+    assert tiny is not None and set(tiny.verdicts().values()) == {"불가"}

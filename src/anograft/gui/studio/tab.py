@@ -71,6 +71,9 @@ class StudioTab(QWidget):
         self.session = session
         self.worker = worker
         self._results: dict[int, PreviewResult] = {}
+        self._fit: runner.FitDiagnostic | None = (
+            None  # 마지막 미리보기의 배치 가능성 진단(테스트·상태용)
+        )
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -211,6 +214,20 @@ class StudioTab(QWidget):
             f"대상 {t.name if t else '–'} · 은행 {ses.prepared.bank.name if ses.prepared else '–'} · "
             f"레시피 {ses.recipe.name} ({ses.recipe.pipeline.preset}, seed {ses.recipe.seed})"
         )
+
+    def _fit_warnings(self, res: PreviewResult, roi: np.ndarray | None) -> list[str]:
+        """이 대상의 허용 영역 최대 폭(미리보기 ROI ÷ 축소 배율 = 원본 px) vs 클래스별 패치 폭 — 빠듯/불가면 배치 카드 ⚠."""
+        prep = self.session.prepared
+        if prep is None or roi is None:
+            return []
+        from anograft.core.stages.placement import roi_max_width
+
+        margin = int(getattr(self.session.recipe.pipeline.placement, "margin_px", 0))
+        width = roi_max_width(roi, margin) / max(res.scale, 1e-6)
+        fit = runner.fit_from_widths(prep, [(res.target.path.name, round(width, 1))])
+        self._fit = fit
+        w = fit.warning() if fit is not None else None
+        return [w] if w else []
 
     def _update_zoom_info(self) -> None:
         w, h = self.canvas.image_size()
@@ -448,8 +465,8 @@ class StudioTab(QWidget):
         self.canvas.set_images(
             res.target.image, synthetic, r.gt_mask if r.status == "ok" else None, r.instances, roi
         )
-        self.pipe.set_trace(  # prepare 경고(geometry: 조명 …) + 결과의 fail-soft 경고를 해당 스테이지 카드에
-            res.steps, [*self.session.warnings, *r.warnings]
+        self.pipe.set_trace(  # prepare 경고(geometry: 조명 …) + 결과의 fail-soft 경고 + 배치 가능성 진단을 카드에
+            res.steps, [*self.session.warnings, *r.warnings, *self._fit_warnings(res, roi)]
         )
         self._update_zoom_info()
         defects = [d for d in r.sidecar.get("defects", []) if "gt" in d]

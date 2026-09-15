@@ -103,6 +103,18 @@ def fits_at(
     return not (existing is not None and existing[y0 : y0 + mh, x0 : x0 + mw][crop].any())
 
 
+def roi_max_width(
+    roi: np.ndarray | None, margin_px: int, shape: tuple[int, int] | None = None
+) -> float:
+    """허용 영역(ROI ∧ 테두리 여유)의 최대 폭 = 내접원 지름(px). ROI 가 None 이면 ``shape`` 전체. 비면 0."""
+    if roi is None:
+        if shape is None:
+            return 0.0
+        roi = np.ones(shape, dtype=bool)
+    allowed = allowed_centers(roi, margin_px, None)
+    return float(distance_to_edge(allowed).max()) * 2.0 if allowed.any() else 0.0
+
+
 def fit_diagnostic(
     allowed: np.ndarray,
     original_mask: np.ndarray | None,

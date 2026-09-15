@@ -416,3 +416,37 @@ def test_main_window_sample_button_builds_and_opens(qapp: QApplication, tmp_path
         win.worker.stop()
         win.close()
         qapp.processEvents()
+
+
+def test_placement_card_warns_when_patch_cannot_fit(
+    qapp: QApplication, bank_and_normals: tuple[Path, Path]
+) -> None:
+    """0.7.3 — 미리보기 ROI(축소본 ÷ 배율)로 잰 허용 폭 vs 패치 폭이 '불가'면 배치 카드 ⚠(placement: … skipped 예상)."""
+    bank, normals = bank_and_normals
+    ses = StudioSession(default_recipe(bank=bank.as_posix(), targets=normals.as_posix()))
+    ses.set_stage_field("placement", "margin_px", 4)
+    ses.set_stage_field("roi", "erode_px", 2)
+    ses.set_field(("pipeline", "source", "min_sources_warn"), 1)
+    ses.set_stage_field("geometry", "scale", (6.0, 8.0))  # 패치 폭 × 8 ≫ 64 px 대상
+    ses.set_n_variants(1)
+    ses.set_long_side(64)
+    win = MainWindow(ses)
+    try:
+        win.show()
+        tab = win.studio
+        tab.open_inputs(bank.as_posix(), normals.as_posix())
+        assert _pump(qapp, lambda: ses.prepared is not None)
+        assert _pump(qapp, lambda: tab._fit is not None)
+        assert set(tab._fit.verdicts().values()) == {"불가"}
+        assert _pump(qapp, lambda: "placement" in tab.pipe.stage_warnings())
+        assert "skipped 예상" in tab.pipe.stage_warnings()["placement"]
+        # 배율을 정상으로 돌리면(reprepare + 새 미리보기) 카드 경고가 걷힌다
+        ses.set_stage_field("geometry", "scale", (0.8, 1.0))
+        tab.request_previews()
+        assert _pump(
+            qapp, lambda: tab._fit is not None and "불가" not in tab._fit.verdicts().values()
+        )
+    finally:
+        win.worker.stop()
+        win.close()
+        qapp.processEvents()
