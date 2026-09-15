@@ -177,7 +177,7 @@ A~N 제품 결함을 X 에 이식하는 설계 의도에서는 이 기능이 핵
 
 ## 9. GUI 를 레시피 인자 없이 켜면 빈 화면
 
-> **해결(v0.6, 2026-09-15 `label-yolo-roi`)** — 최근 레시피 복원(`QSettings` slnu21/Graft) + 없으면 스튜디오 캔버스 ko/en 4단계 안내. 상대경로 문제는 그대로(레시피는 cwd 기준 — 절대경로 권장).
+> **해결(v0.6, 2026-09-15 `label-yolo-roi`)** — 최근 레시피 복원(`QSettings` slnu21/Graft) + 없으면 스튜디오 캔버스 ko/en 4단계 안내. 상대경로는 v0.7.x `recipe-relative-paths` 에서 **cwd 우선, 없으면 레시피 파일 기준**으로 해석(입력 경로 4개, `output.root` 제외).
 
 **증상** — `anograft-gui.exe` 를 그냥 실행하면 아무것도 로드되지 않아 무엇을 해야 할지 알 수 없다.
 
