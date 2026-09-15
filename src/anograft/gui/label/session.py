@@ -73,6 +73,12 @@ class LabelStats:
 NAMES_FILES: tuple[str, ...] = ("data.yaml", "data.yml", "classes.txt")
 
 
+def lighting_word(deg: float) -> str:
+    """각도 → 8방향 낱말(이미지 좌표: 0 = 오른쪽, 90 = 아래). Qt 없음 — 탭·테스트 공용."""
+    words = ("오른", "오른아래", "아래", "왼아래", "왼", "왼위", "위", "오른위")
+    return words[int(((deg + 22.5) % 360) // 45)]
+
+
 @dataclass(frozen=True)
 class DraftItem:
     line_no: int

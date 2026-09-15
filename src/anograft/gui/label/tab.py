@@ -55,6 +55,7 @@ from anograft.gui.label.session import (
     LabelError,
     LabelSession,
     find_yolo_label,
+    lighting_word,
     roi_png_path,
 )
 from anograft.gui.studio.panels import h4
@@ -72,12 +73,6 @@ TOOL_BUTTONS: tuple[tuple[str, str, str], ...] = (
 MODE_BANK = "bank"
 MODE_ROI = "roi"
 LABELED_MARK = "▸ "  # 목록에서 YOLO 라벨이 있는 이미지 표시
-
-
-def lighting_word(deg: float) -> str:
-    """각도 → 8방향 낱말(이미지 좌표: 0 = 오른쪽, 90 = 아래)."""
-    words = ("오른", "오른아래", "아래", "왼아래", "왼", "왼위", "위", "오른위")
-    return words[int(((deg + 22.5) % 360) // 45)]
 
 
 class LabelTab(QWidget):
