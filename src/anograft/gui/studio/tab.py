@@ -357,7 +357,9 @@ class StudioTab(QWidget):
         self.worker.set_prepared(ses.prepared)  # reprepare 로 파이프라인이 바뀌었을 수 있다
         self._results.clear()
         self.variants.reset(ses.n_variants, ses.variant_index)
-        self.pipe.set_trace(None)
+        self.pipe.set_trace(
+            None, self.session.warnings
+        )  # prepare 경고(접두 있는 것)는 카드에 남긴다
         order = [ses.variant_index] + [k for k in range(ses.n_variants) if k != ses.variant_index]
         for k in order:
             self.worker.submit(
@@ -446,7 +448,9 @@ class StudioTab(QWidget):
         self.canvas.set_images(
             res.target.image, synthetic, r.gt_mask if r.status == "ok" else None, r.instances, roi
         )
-        self.pipe.set_trace(res.steps, r.warnings)  # fail-soft 경고를 해당 스테이지 카드에
+        self.pipe.set_trace(  # prepare 경고(geometry: 조명 …) + 결과의 fail-soft 경고를 해당 스테이지 카드에
+            res.steps, [*self.session.warnings, *r.warnings]
+        )
         self._update_zoom_info()
         defects = [d for d in r.sidecar.get("defects", []) if "gt" in d]
         what = " · ".join(
