@@ -212,7 +212,7 @@ FileNotFoundError: [Errno 2] No such file or directory: 'recipes\\gbs1005.yaml'
 동작이 확인된 부분도 함께 남긴다.
 
 - YOLO 임포트, 은행 누적, 재현성(같은 명령 → 마스크 10개 해시 동일), 한글 클래스명(UTF-8 폴더·`bank.yaml` 정상), YOLO writer 출력(`nc: 1` · `names: [찍힘]`), 워커 병렬 `run`(ok 37 · skipped 3 · 오류 0) 모두 정상.
-- 스킵 3건은 전부 `placement: 배치 실패 — max_tries 소진`. 링 폭보다 큰 결함 패치가 들어갈 자리를 못 찾은 경우로, 좁은 ROI 를 쓰면 예상되는 동작이다. 다만 **ROI 폭 대비 패치 크기**를 사전에 알려 주는 진단이 있으면 좋겠다.
+- 스킵 3건은 전부 `placement: 배치 실패 — max_tries 소진`. 링 폭보다 큰 결함 패치가 들어갈 자리를 못 찾은 경우로, 좁은 ROI 를 쓰면 예상되는 동작이다. 다만 **ROI 폭 대비 패치 크기**를 사전에 알려 주는 진단이 있으면 좋겠다. → **0.7.3 `run --dry-run`** 의 `roi width`·`fit <class>` 행(가능/빠듯/불가)과 `placement:` 경고.
 - GrabCut ROI 는 1400×1400 에서 미리보기 1장당 수십 초가 걸려 대화형 사용에 부담이 있다(`work_px` 조정 여지).
 
 ---
@@ -237,6 +237,7 @@ anograft bank preview bank/torx --out bank-preview.png  # 빨간 테두리 = 저
 anograft recipe init --preset annulus-graft --bank bank/torx --targets ok/ --out out/torx-annulus --count 40 --write recipes/torx-annulus.yaml
 #    찍힘이면 dent-graft 도 (#5, 0.7.3): --preset dent-graft --roi annulus  (피치를 알면 --um-per-px <피치>)
 #    (데이터 없이 이 단계를 먼저 연습: anograft sample --out samples/ring --shape ring → import → 위 init)
+anograft run recipes/torx-annulus.yaml --dry-run            # roi width(링 폭) vs fit <class>(패치 폭) — 불가/빠듯이면 geometry.scale·erode_px 먼저
 anograft run recipes/torx-annulus.yaml --workers 4          # stderr 경고: 축척 정합 · 저신뢰 · skipped 사유(ROI 폭 vs 패치)
 
 # 4. 검수 (GUI 검수 탭 또는) — 반려하고 정리본 + 리포트

@@ -36,7 +36,7 @@ from anograft.core.appearance import LIGHT_REAL_MIN
 from anograft.core.pipeline import Pipeline, RoiCache
 from anograft.core.recipe import Recipe
 from anograft.core.seeds import image_rng, pipeline_hash
-from anograft.core.types import GraftResult
+from anograft.core.types import Context, GraftResult
 from anograft.io import imgio
 from anograft.io.targets import TargetsError, list_targets, load_target
 from anograft.io.writers import WriterSummary, make_writer
@@ -437,7 +437,97 @@ def compare_methods(
     return out
 
 
-def dry_run_table(prep: Prepared) -> list[tuple[str, str]]:
+@dataclass(frozen=True)
+class FitDiagnostic:
+    """``--dry-run`` 의 배치 가능성 진단 — 대상 몇 장의 ROI 최대 폭(내접원 지름, 테두리 여유 뺀 것) vs 클래스별 패치 폭.
+    KNOWN-ISSUES 부록("ROI 폭 대비 패치 크기를 사전에 알려 주는 진단"): 좁은 링에 큰 패치면 max_tries 를 다 쓰고 skipped 가 된다."""
+
+    roi_widths: list[tuple[str, float]]  # (대상 파일명, 허용 영역 최대 폭 px)
+    patch_sides: dict[str, float]  # 클래스 → 패치 긴 변 중앙값 × geometry.scale 상한 (px)
+    scale_hi: float
+    shrink_floor: float  # shrink_on_fail 로 줄어드는 최소 배율(factor^rounds)
+
+    @property
+    def min_width(self) -> float:
+        return min((w for _, w in self.roi_widths), default=0.0)
+
+    def verdicts(self) -> dict[str, str]:
+        """클래스 → '가능' · '빠듯' · '불가' (가장 좁은 대상 기준)."""
+        w = self.min_width
+        out: dict[str, str] = {}
+        for c, side in self.patch_sides.items():
+            if side * self.shrink_floor > w:
+                out[c] = "불가"
+            elif side > w * 0.8:
+                out[c] = "빠듯"
+            else:
+                out[c] = "가능"
+        return out
+
+    def warning(self) -> str | None:
+        v = self.verdicts()
+        bad = [c for c, s in v.items() if s == "불가"]
+        tight = [c for c, s in v.items() if s == "빠듯"]
+        if not bad and not tight:
+            return None
+        parts = []
+        if bad:
+            parts.append(
+                f"클래스 {', '.join(bad)} 는 패치가 ROI 최대 폭 {self.min_width:.0f}px 보다 커서(shrink_on_fail 뒤에도) "
+                "어디에도 못 들어갑니다 → skipped 예상"
+            )
+        if tight:
+            parts.append(f"클래스 {', '.join(tight)} 는 빠듯합니다(폭의 80% 초과)")
+        return (
+            "placement: "
+            + " · ".join(parts)
+            + " — geometry.scale 상한을 낮추거나 placement.margin_px·roi.erode_px 를 줄이거나 ROI 를 넓히세요"
+        )
+
+
+def fit_diagnostic(prep: Prepared, n_targets: int = 3) -> FitDiagnostic | None:
+    """처음 ``n_targets`` 장의 ROI 를 실제로 풀어(캐시 사용, rng 0회) 허용 영역 최대 폭을 재고 클래스별 패치 폭과 견준다.
+    비-bank 소스·대상 없음이면 None. 파일 읽기 실패한 대상은 건너뛴다."""
+    r = prep.recipe
+    if r.bankless or not prep.targets or len(prep.bank) == 0:
+        return None
+    from anograft.core.roi import distance_to_edge
+    from anograft.core.stages.placement import allowed_centers
+
+    margin = int(getattr(r.pipeline.placement, "margin_px", 0))
+    widths: list[tuple[str, float]] = []
+    for path in prep.targets[: max(1, n_targets)]:
+        try:
+            target = load_target(path, r.inputs.um_per_px)
+        except (OSError, imgio.ImageReadError):
+            continue
+        ctx = prep.pipeline._apply_roi(Context.initial(np.random.default_rng(0), target), target)
+        roi = ctx.roi
+        if roi is None:
+            h, w = target.image.shape[:2]
+            roi = np.ones((h, w), dtype=bool)
+        allowed = allowed_centers(roi, margin, None)
+        width = float(distance_to_edge(allowed).max()) * 2.0 if allowed.any() else 0.0
+        widths.append((path.name, round(width, 1)))
+    if not widths:
+        return None
+    geo = r.pipeline.geometry
+    scale_hi = float(geo.scale[1])
+    sides: dict[str, float] = {}
+    for c in r.effective_classes(prep.bank):
+        vals = []
+        for s in prep.bank.by_class(c):
+            ys, xs = np.nonzero(s.mask)
+            if len(xs):
+                vals.append(float(max(xs.max() - xs.min() + 1, ys.max() - ys.min() + 1)))
+        if vals:
+            sides[c] = round(float(np.median(vals)) * scale_hi, 1)
+    shrink = r.pipeline.placement.shrink_on_fail
+    floor = float(shrink.factor**shrink.rounds) if shrink.rounds > 0 else 1.0
+    return FitDiagnostic(widths, sides, scale_hi, floor)
+
+
+def dry_run_table(prep: Prepared, *, fit: FitDiagnostic | None = None) -> list[tuple[str, str]]:
     """``--dry-run`` 출력 행 ``(항목, 값)`` — 파일을 쓰지 않고 배분·경고까지만."""
     r = prep.recipe
     probs = prep.class_probs
@@ -468,6 +558,22 @@ def dry_run_table(prep: Prepared) -> list[tuple[str, str]]:
         rows.append(
             (f"class {c}", f"p={p:.3f} · 소스 {counts.get(c, 0)} · 기대 결함 수 ≈ {expected:.0f}")
         )
+    if fit is not None:
+        rows.append(
+            (
+                "roi width",
+                " · ".join(f"{n} {w:.0f}px" for n, w in fit.roi_widths)
+                + f" (허용 영역 최대 폭 = 내접원 지름, 테두리 여유 제외 · {len(fit.roi_widths)}장)",
+            )
+        )
+        v = fit.verdicts()
+        for c, side in fit.patch_sides.items():
+            rows.append(
+                (
+                    f"fit {c}",
+                    f"패치 긴 변 중앙값 × scale {fit.scale_hi:g} = {side:.0f}px → {v.get(c, '?')}",
+                )
+            )
     return rows
 
 
