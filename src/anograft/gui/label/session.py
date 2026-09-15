@@ -197,6 +197,9 @@ class LabelSession:
         self.draft_confidence: list[
             MaskConfidence
         ] = []  # apply_draft 박스마다 — 손대지 않고 저장하면 메타로
+        self.last_auto_confidence: MaskConfidence | None = (
+            None  # 마지막 auto_select 의 타당성(상태줄 안내용)
+        )
 
     # ------------------------------------------------------------------ 로드
 
@@ -221,6 +224,7 @@ class LabelSession:
         self.auto_methods_used.clear()
         self.dirty = False
         self.draft = None
+        self.last_auto_confidence = None
 
     def set_image(self, image: np.ndarray, gray: bool = False, path: Path | None = None) -> None:
         """배열로 직접(테스트·은행 크롭 편집)."""
@@ -234,6 +238,7 @@ class LabelSession:
         self.auto_methods_used.clear()
         self.dirty = False
         self.draft = None
+        self.last_auto_confidence = None
 
     def set_mask(self, mask: np.ndarray, *, tool: str = "png") -> None:
         """배열 마스크를 현재 마스크로(은행 소스 편집 — 크롭과 같은 크기). 되돌리기 가능."""
@@ -335,7 +340,12 @@ class LabelSession:
             raise LabelError(
                 f"알 수 없는 자동 선택 방법 {method!r} (선택: {', '.join(AUTO_METHODS)})"
             )
+        assert self.mask is not None and self.image is not None
+        before = self.mask.copy()
         used = self._estimate_box(box, method, margin=margin)
+        self.last_auto_confidence = mask_confidence(
+            self.image, self.mask & ~before, tuple(int(v) for v in box), margin=margin
+        )
         self.tools_used.add("auto")
         self.dirty = True
         return used

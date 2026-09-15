@@ -409,3 +409,14 @@ def test_main_window_recent_recipe_and_empty_state(qapp: QApplication, tmp_path:
     finally:
         win.close()
         qapp.processEvents()
+
+
+def test_auto_select_status_shows_confidence(tab: LabelTab, qapp: QApplication) -> None:
+    msgs: list[str] = []
+    tab.status.connect(msgs.append)
+    tab.canvas.set_tool("auto")
+    tab.auto_method.setCurrentText("grabcut")
+    _drag(tab.canvas, [(40.0, 40.0), (90.0, 90.0)])  # a_blob 의 얼룩(64,64 r14) 둘레
+    qapp.processEvents()
+    auto = [m for m in msgs if m.startswith("자동 선택")]
+    assert auto and "confidence" in auto[-1] and tab.result.text() == auto[-1]
