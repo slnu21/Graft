@@ -222,3 +222,17 @@ def test_load_mask_png_requires_same_size(tmp_path: Path) -> None:
     imgio.write_image(tmp_path / "bad.png", np.zeros((32, 32), dtype=np.uint8))
     with pytest.raises(LabelError, match="크기"):
         s.load_mask(tmp_path / "bad.png")
+
+
+def test_auto_select_records_confidence_for_status(tmp_path: Path) -> None:
+    """v0.7.x — 라벨 탭 자동 선택 뒤 상태줄에 보여 줄 타당성 점수."""
+    s = LabelSession()
+    s.set_image(blob_image(96, [(48, 48, 12)]), path=Path("b.png"))
+    assert s.last_auto_confidence is None
+    s.auto_select((30, 30, 36, 36), "grabcut")
+    c = s.last_auto_confidence
+    assert c is not None and c.score >= 0.9 and c.flags == ()
+    s.auto_select((30, 30, 36, 36), "rect")  # 박스 그대로 → box-edge
+    assert s.last_auto_confidence is not None and "box-edge" in s.last_auto_confidence.flags
+    s.set_image(blob_image(64), path=Path("c.png"))
+    assert s.last_auto_confidence is None

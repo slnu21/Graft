@@ -48,6 +48,7 @@ from PySide6.QtWidgets import (
 )
 
 from anograft.bank.bank import BANK_FILE, read_bank_meta
+from anograft.bank.mask_from_box import LOW_CONFIDENCE
 from anograft.bank.mask_from_box import METHODS as AUTO_METHODS
 from anograft.gui.label.canvas import LabelCanvas
 from anograft.gui.label.session import (
@@ -388,7 +389,7 @@ class LabelTab(QWidget):
         self.auto_method.currentTextChanged.connect(lambda m: setattr(c, "auto_method", m))
         c.zoom_changed.connect(lambda _z: self._update_zoom_info())
         c.edited.connect(self.refresh)
-        c.auto_done.connect(lambda m: self.status.emit(f"자동 선택: {m}"))
+        c.auto_done.connect(self._on_auto_done)
         c.error.connect(self._on_error)
         self.um.valueChanged.connect(lambda _v: self._refresh_stats())
         self.btn_save.clicked.connect(self.save)
@@ -787,6 +788,17 @@ class LabelTab(QWidget):
         return bool(added)
 
     # ------------------------------------------------------------------ 표시
+
+    def _on_auto_done(self, method: str) -> None:
+        """자동 선택 결과 + 타당성 점수(mask_confidence) — 저신뢰면 다듬으라고 알린다."""
+        conf = self.session.last_auto_confidence
+        msg = f"자동 선택: {method}"
+        if conf is not None:
+            msg += f" · confidence {conf.score:.2f}"
+            if conf.score < LOW_CONFIDENCE:
+                msg += f" ⚠ 저신뢰({', '.join(conf.flags) or '-'}) — 브러시/지우개로 다듬거나 다른 방법으로"
+        self.result.setText(msg)
+        self.status.emit(msg)
 
     def _on_tool(self, tool: str) -> None:
         b = self.tool_buttons.get(tool)
