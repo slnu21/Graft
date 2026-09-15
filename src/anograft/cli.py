@@ -448,6 +448,61 @@ def cmd_dataset_prune(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def doctor_info() -> dict:
+    """환경 진단 — 다른 PC 에서 문제를 보고받을 때 첫 줄에 붙일 것(의존성 버전·Qt·스레드·프리셋·frozen 여부)."""
+    import os
+    import platform
+
+    import cv2
+    import numpy as np
+    import pydantic
+
+    info: dict = {
+        "anograft": __version__,
+        "python": platform.python_version(),
+        "platform": platform.platform(),
+        "frozen": bool(getattr(sys, "frozen", False)),
+        "executable": sys.executable,
+        "cwd": Path.cwd().as_posix(),
+        "numpy": np.__version__,
+        "opencv": cv2.__version__,
+        "opencv_threads": int(cv2.getNumThreads()),
+        "pydantic": pydantic.VERSION,
+        "cpu_count": os.cpu_count(),
+        "presets": R.preset_names(),
+        "methods_unusable": [
+            f"{i.stage}.{i.method}: {i.reason}" for i in registry.list_methods(None) if not i.usable
+        ],
+        "stdout_encoding": getattr(sys.stdout, "encoding", None),
+    }
+    try:
+        from anograft.gui import qt_available
+
+        ok, reason = qt_available()
+        info["gui"] = "ok" if ok else f"불가 — {reason}"
+        if ok:
+            import PySide6
+
+            info["pyside6"] = PySide6.__version__
+    except Exception as e:  # GUI 진단이 CLI 를 죽이면 안 된다
+        info["gui"] = f"진단 실패 — {e}"
+    return info
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    info = doctor_info()
+    if args.json:
+        import json
+
+        print(json.dumps(info, ensure_ascii=False, indent=1))
+        return EXIT_OK
+    for k, v in info.items():
+        if isinstance(v, list):
+            v = ", ".join(str(x) for x in v) if v else "(없음)"
+        print(f"{k:>18}: {v}")
+    return EXIT_OK
+
+
 def cmd_dataset_textures(args: argparse.Namespace) -> int:
     """텍스처셋(DTD)에서 perlin-texture 용 목록 파일을 만든다 — 은행에 넣지 않는다."""
     from anograft.datasets.dtd import DtdAdapter, write_texture_list
@@ -552,12 +607,47 @@ def cmd_bank_merge(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def bank_ls_json(bank: Bank, path: str) -> dict:
+    """``bank ls --json`` — 스크립트용(요약 + 클래스별 행 + 저신뢰 id)."""
+    return {
+        "name": bank.name,
+        "path": Path(path).as_posix(),
+        "n_sources": len(bank),
+        "um_per_px": bank.um_per_px,
+        "no_pitch": bank.no_pitch_count(),
+        "imports": len(bank.imports),
+        "classes": [
+            {
+                "id": r.class_id,
+                "class": r.cls,
+                "n": r.count,
+                "area_median": r.area_median,
+                "exact": r.exact,
+                "estimated": r.estimated,
+                "low_confidence": r.low_conf,
+                "no_pitch": r.no_pitch,
+                "origins": dict(r.origins),
+                "tags": dict(r.tags),
+            }
+            for r in bank.summary()
+        ],
+        "low_confidence_ids": [s.id for s in bank.low_confidence()],
+        "tags": bank.tag_counts(),
+        "warnings": list(bank.warnings),
+    }
+
+
 def cmd_bank_ls(args: argparse.Namespace) -> int:
     try:
         bank = Bank.load(args.bank)
     except BankError as e:
         _err(str(e))
         return EXIT_RECIPE_ERROR
+    if getattr(args, "json", False):
+        import json
+
+        print(json.dumps(bank_ls_json(bank, args.bank), ensure_ascii=False, indent=1))
+        return EXIT_OK
     no_pitch = bank.no_pitch_count()
     print(
         f"은행 {bank.name} ({Path(args.bank).as_posix()}) — 소스 {len(bank)} · "
@@ -743,6 +833,7 @@ def build_parser() -> argparse.ArgumentParser:
     bm.add_argument("--verbose", action="store_true")
     bm.set_defaults(func=cmd_bank_merge)
     bl = bsub.add_parser("ls", help="클래스 | 소스 수 | 면적 중앙값 | 마스크 출처(정확/추정)")
+    bl.add_argument("--json", action="store_true", help="JSON 으로(스크립트용)")
     bl.add_argument("bank")
     bl.set_defaults(func=cmd_bank_ls)
 
@@ -792,6 +883,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--drop-unreviewed", action="store_true", help="미검수도 제외하고 채택(accept)만 남긴다"
     )
     dp.set_defaults(func=cmd_dataset_prune)
+
+    p = sub.add_parser(
+        "doctor", help="환경 진단(버전·Qt·스레드·프리셋·불가 method) — 문제 보고 첫 줄에"
+    )
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_doctor)
 
     p = sub.add_parser(
         "sample",

@@ -525,3 +525,34 @@ def test_dataset_info_and_import_dataset_cli(
         == EXIT_RECIPE_ERROR
     )
     assert "카테고리 폴더" in capsys.readouterr().err
+
+
+def test_bank_ls_json_and_doctor(
+    workspace: dict[str, Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """v0.7.x — 스크립트용 JSON 출력과 환경 진단."""
+    import json
+
+    assert main(["bank", "ls", str(workspace["bank"]), "--json"]) == EXIT_OK
+    d = json.loads(capsys.readouterr().out)
+    assert d["n_sources"] == 5 and [c["class"] for c in d["classes"]] == ["spot", "crack"]
+    assert set(d["classes"][0]) >= {
+        "n",
+        "estimated",
+        "low_confidence",
+        "no_pitch",
+        "origins",
+        "tags",
+    }
+    assert isinstance(d["low_confidence_ids"], list) and d["no_pitch"] == 5
+    assert main(["doctor"]) == EXIT_OK
+    out = capsys.readouterr().out
+    assert "anograft" in out and "opencv" in out and "presets" in out and "dent-graft" in out
+    assert main(["doctor", "--json"]) == EXIT_OK
+    info = json.loads(capsys.readouterr().out)
+    assert (
+        info["anograft"]
+        and info["frozen"] is False
+        and "gui" in info
+        and info["methods_unusable"] == []
+    )
