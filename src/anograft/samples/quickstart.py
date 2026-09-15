@@ -67,7 +67,11 @@ def quickstart(
     )
     preset, roi = PRESET_FOR_SHAPE[shape]
     # 은행에서 조명 의존 클래스(lightR ≥ 0.5, n ≥ 3)를 찾아 그 클래스만 ±15°·flip 끔 — 샘플 pit 이 그렇다(KI #5 를 처음부터 맞게)
-    dent = tuple(r.cls for r in Bank.load(bank).summary() if r.directional)
+    rows = [r for r in Bank.load(bank).summary() if r.directional]
+    dent = tuple(r.cls for r in rows)
+    dent_map = {
+        r.cls: R.dent_override_for(r.light_dir) for r in rows
+    }  # 위/아래 조명이면 horizontal 까지
     data = R.init_recipe_dict(
         preset,
         name=f"sample-{shape}",
@@ -76,7 +80,7 @@ def quickstart(
         out=(root / "out").as_posix(),
         count=count,
         roi=roi,
-        dent_classes=dent,
+        dent_classes=dent_map,
     )
     src = data["pipeline"]["source"]
     src["min_sources_warn"] = 3  # 샘플은 클래스당 몇 장뿐 — 경고로 화면을 덮지 않게

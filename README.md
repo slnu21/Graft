@@ -122,7 +122,7 @@ anograft-gui recipes/sample-poisson.yaml                                  # GUI 
 | 단계 | 어디서 | 무엇 |
 |---|---|---|
 | 은행 | `anograft bank ls` · 은행 탭 요약 · `bank preview` 화살표 | 클래스별 **lightR**(실제 소스들의 하이라이트 방향 일관성, 1 = 전부 같은 쪽). `*` = 유의(R ≥ 0.5 이고 n·R² ≥ 2.9 — 클래스당 몇 장이면 우연히도 크므로) |
-| 레시피 | `recipe init --bank … --auto-dent` · `--dent-class 찍힘` | 그 클래스만 `geometry.per_class: {찍힘: {rotate: [-15, 15], flip: false}}` — 스크래치는 그대로 ±180° |
+| 레시피 | `recipe init --bank … --auto-dent` · `--dent-class 찍힘` | 그 클래스만 `geometry.per_class: {찍힘: {rotate: [-15, 15], flip: horizontal}}`(조명이 위/아래에서 오면 좌우 뒤집기는 안전 — 옆이면 `vertical`, 모르면 `none`) — 스크래치는 그대로 ±180° |
 | 실행 전 | `run --dry-run` · `recipe check` · 스튜디오 기하 카드 ⚠ | 유의한 클래스를 rotate 폭 > 90° 또는 flip 으로 돌리면 경고. 카드의 **▶ 조명 클래스만 ±15°·flip 끔** 이 한 번에 고침 |
 | 미리보기 | 스튜디오 변형 카드 **↯** | 인스턴스의 하이라이트가 실제 방향과 90° 넘게 다르면 표시 |
 | 검수 | 검수 탭 분포 **조명 방향** · 필터 **조명 뒤집힘 의심** · `run --report` | 합성 vs 실제 각도 분포와 클래스별 R, 뒤집힌 이미지 목록. `dataset prune --drop-flipped` 로 제외 |
@@ -254,7 +254,7 @@ A dent's appearance *is* the lighting, so rotating it ±180° puts the highlight
 | Step | Where | What |
 |---|---|---|
 | Bank | `anograft bank ls` · Bank-tab summary · `bank preview` arrows | Per-class **lightR** (how consistently the real sources' highlights point one way; 1 = all the same). `*` = significant (R ≥ 0.5 and n·R² ≥ 2.9 — a handful of sources can be high by chance) |
-| Recipe | `recipe init --bank … --auto-dent` · `--dent-class dent` | Only that class gets `geometry.per_class: {dent: {rotate: [-15, 15], flip: false}}` — scratches keep ±180° |
+| Recipe | `recipe init --bank … --auto-dent` · `--dent-class dent` | Only that class gets `geometry.per_class: {dent: {rotate: [-15, 15], flip: horizontal}}` (a horizontal flip is safe when the light comes from above/below; `vertical` for side light, `none` if unknown) — scratches keep ±180° |
 | Before running | `run --dry-run` · `recipe check` · Studio geometry card ⚠ | Warns when a significant class is rotated more than 90° or flipped. The card's **▶ dent classes only: ±15°, no flip** fixes it in one click |
 | Preview | Studio variant card **↯** | Shown when an instance's highlight differs from the real direction by more than 90° |
 | Review | Review-tab **lighting** histogram · filter **flipped lighting** · `run --report` | Synthetic vs real angle distribution, per-class R, list of flipped images. `dataset prune --drop-flipped` removes them |
