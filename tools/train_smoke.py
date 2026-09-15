@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import shutil
 import sys
 from dataclasses import dataclass
@@ -164,6 +165,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--epochs", type=int, default=1)
     ap.add_argument("--imgsz", type=int, default=320)
     args = ap.parse_args(argv)
+    for stream in (
+        sys.stdout,
+        sys.stderr,
+    ):  # cp1252/cp949 콘솔에서 한글 요약이 CLI를 죽이지 않게(anograft.cli 와 같은 규칙)
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            with contextlib.suppress(ValueError, OSError):
+                reconfigure(errors="replace")
     try:
         summary = merge_yolo_sets(
             Path(args.synthetic), Path(args.out), base=Path(args.base) if args.base else None

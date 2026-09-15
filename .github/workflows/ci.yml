@@ -38,6 +38,8 @@ jobs:
           python -m pip install --no-deps --force-reinstall dist/*.whl
           python -c "import anograft; print('import OK', anograft.__version__)"
       - name: CLI e2e on the installed wheel
+        env:
+          PYTHONIOENCODING: utf-8   # windows 러너 콘솔은 cp1252 — 한글 CLI 출력
         # 설치된 wheel 의 콘솔 스크립트로 한 바퀴 — 프리셋 YAML 이 wheel 에 들어갔는지, 엔트리포인트·spawn 워커·writer·검수 CLI 가
         # 소스 트리 없이 도는지(cwd 를 옮겨서). train_smoke --dry-run 은 YOLO 출력을 학습셋 레이아웃으로 합치기만(ultralytics 없음).
         run: |
