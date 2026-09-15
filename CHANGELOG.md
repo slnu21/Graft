@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-09-16
+
+v0.7.0 후속 패치 — ROI 캐시(스튜디오 속도) · 레시피 상대경로 폴백 · `bank merge` · 검수 리포트 · 자동 선택 점수 · CI wheel e2e. 포맷·스키마 변경 없음.
+
 ### Added
 - 라벨 탭 **자동 선택 뒤 타당성 점수**: 상태줄·결과 칸에 `confidence 0.xx`, 0.5 미만이면 `⚠ 저신뢰(flags) — 다듬거나 다른 방법으로`(임포터·초안과 같은 `mask_confidence`).
 - **검수 리포트**: 검수 탭 **리포트** 버튼 / `anograft dataset report <root> [--out x.html] [--no-bank]` → HTML 한 장(의존성 0, 인라인 SVG) — 합성/정상/skipped · 채택/반려/미검수/검수율/폴백 타일, 합성 vs 실제 면적·긴 변 히스토그램, 클래스별 인스턴스(채택+미검수), 반려 목록(index·클래스·메모), skipped 사유, 레시피·시드·프리셋·pipeline_hash. 기본 `<root>/review-report.html`.
@@ -104,7 +108,8 @@ v0.4 — CPU 알고리즘 확장. **여전히 샘플 데이터로만 검증**(�
 - GUI는 스튜디오 탭만. 재현은 같은 OS·OpenCV 부버전 범위(`seamlessClone` 솔버).
 - `release.yml`의 Windows zip 잡은 첫 push 전이라 CI에서 미검증(로컬 `tools/build_zip.ps1`와 같은 절차).
 
-[Unreleased]: https://github.com/slnu21/Graft/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/slnu21/Graft/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/slnu21/Graft/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/slnu21/Graft/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/slnu21/Graft/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/slnu21/Graft/compare/v0.4.0...v0.5.0
