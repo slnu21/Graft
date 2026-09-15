@@ -236,3 +236,51 @@ def test_ring_sample_feeds_annulus_dent_graft(
             assert 0.5 * fit.radius < dist < 0.95 * fit.radius, (meta.stem, dist, fit.radius)
             n += 1
     assert n >= 2
+
+
+def test_quickstart_builds_bank_normals_recipe(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """0.7.3 ``quickstart`` — 샘플 → 은행 → 정상 목록 → 펼친 레시피(plate: poisson-graft · ring: dent-graft + annulus)."""
+    from anograft.samples.quickstart import quickstart
+
+    q = quickstart(tmp_path / "p", shape="plate", n_normal=2, n_defect=3, size=(320, 240))
+    assert q.bank.is_dir() and q.normals.is_file() and q.recipe.is_file() and q.n_sources >= 3
+    data = yaml.safe_load(q.recipe.read_text(encoding="utf-8"))
+    assert q.preset == "poisson-graft" and data["pipeline"]["preset"] == "poisson-graft"
+    assert data["inputs"]["bank"] == q.bank.as_posix() and data["output"]["root"].endswith("/out")
+    assert data["pipeline"]["source"]["min_sources_warn"] == 3
+    r = quickstart(tmp_path / "r", shape="ring", n_normal=2, n_defect=3, size=(320, 320))
+    rd = yaml.safe_load(r.recipe.read_text(encoding="utf-8"))
+    assert r.preset == "dent-graft" and rd["pipeline"]["placement"]["roi"]["method"] == "annulus"
+    assert "소스" in r.line() and "dent-graft" in r.line()
+    with pytest.raises(ValueError):
+        quickstart(tmp_path / "x", shape="cube")
+    # 같은 결과를 CLI 한 줄로
+    assert (
+        main(
+            [
+                "sample",
+                "--out",
+                str(tmp_path / "c"),
+                "--quickstart",
+                "--n-normal",
+                "2",
+                "--n-defect",
+                "2",
+                "--size",
+                "240",
+                "180",
+            ]
+        )
+        == EXIT_OK
+    )
+    out = capsys.readouterr().out
+    assert "은행" in out and "anograft run" in out and (tmp_path / "c" / "recipe.yaml").is_file()
+    assert (
+        main(["recipe", "check", str(tmp_path / "c" / "recipe.yaml")]) == EXIT_OK
+    )  # 빈 클래스는 classes 로 제외
+    cd = yaml.safe_load((tmp_path / "c" / "recipe.yaml").read_text(encoding="utf-8"))
+    bank = Bank.load(tmp_path / "c" / "bank")
+    empty = [c for c, n in bank.counts().items() if n == 0]
+    assert (cd["pipeline"]["source"]["classes"] is None) == (not empty)
