@@ -76,6 +76,8 @@ anograft-gui recipes/sample-poisson.yaml                                  # GUI 
 
 `bank ls`의 `est`·origins 열에서 `ellipse` 폴백 비율이 높으면(가늘고 희미한 스크래치) `--mask-from otsu`나 `--min-box`를 조정하세요 — 박스는 결함 경계가 아닙니다.
 
+**여러 제품의 결함을 한 은행에** — 임포트마다 `--tags prodA,lot3` 로 표시해 두고, 레시피 `pipeline.source.tags: {include: [prodA, prodC], exclude: [old]}` 로 골라 씁니다(클래스는 그대로, 클래스 안의 풀만 줄어듦 · `run --dry-run` 이 필터 후 소스 수를 보여줌). **다른 카메라/배율의 결함**은 크기가 틀어지므로 임포트 `--um-per-px` 와 레시피 `inputs.um_per_px` 를 둘 다 지정하세요 — 한쪽이라도 없으면 축척 정합이 꺼진 채(`factor 1.0`) 돌아가고, `bank ls` 의 `no_um` 열과 `run`/GUI 상태바가 이를 경고합니다.
+
 **라벨링한 결함이 하나도 없다면** — 정상 이미지만으로 `self-cut`(CutPaste) · `perlin-texture`(DRAEM) 프리셋이 돕니다: `anograft recipe init --preset self-cut --targets <정상 폴더> --write r.yaml`(`inputs.bank: null`) → `run`. 클래스는 `cutpaste`/`anomaly` 하나(이상 탐지 이진 학습용). `preview --compare-methods source`로 세 소스를 나란히.
 
 ## 프리셋
@@ -182,6 +184,8 @@ In the Studio, the **pipeline cards** on the right let you pick each stage's met
 Then `recipe init` → edit `inputs.bank` / `inputs.targets` (normal-image folder or list) → `run`. The output `images/`, `labels/`, `data.yaml` merge straight into an existing YOLO set (same `names` order). `python tools/train_smoke.py --synthetic out/sample --base <your set> --out train/merged` merges and runs one `ultralytics` epoch (install ultralytics separately; `--dry-run` only merges).
 
 If `bank ls` shows many `ellipse` fallbacks (thin, faint scratches), try `--mask-from otsu` or adjust `--min-box` — a box is not a defect boundary.
+
+**Several products in one bank** — tag each import (`--tags prodA,lot3`) and select in the recipe with `pipeline.source.tags: {include: [prodA, prodC], exclude: [old]}` (classes stay the same, only the pool inside each class shrinks; `run --dry-run` shows the filtered counts). **Defects shot with another camera/magnification** come out the wrong size unless both `--um-per-px` at import and `inputs.um_per_px` in the recipe are set — with either missing, physical scaling is silently off (`factor 1.0`); the `no_um` column of `bank ls` and the `run`/GUI status bar warn about it.
 
 **No labelled defects at all?** The `self-cut` (CutPaste) and `perlin-texture` (DRAEM) presets run on normal images alone: `anograft recipe init --preset self-cut --targets <normals> --write r.yaml` (`inputs.bank: null`) → `run`. Single class (`cutpaste` / `anomaly`) for binary anomaly training; `preview --compare-methods source` shows the three sources side by side.
 

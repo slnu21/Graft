@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 import statistics
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -54,6 +54,8 @@ class ClassSummary:
     exact: int  # mask_origin이 png/yolo-polygon
     estimated: int  # mask_origin이 yolo-box:*
     origins: Mapping[str, int]
+    no_pitch: int = 0  # um_per_px 미지정(은행 기본값도 없음) — 축척 정합에서 빠지는 소스
+    tags: Mapping[str, int] = field(default_factory=dict)  # 태그별 소스 수
 
 
 class Bank:
@@ -114,8 +116,11 @@ class Bank:
             srcs = self._by_class[c]
             areas = [int(np.count_nonzero(s.mask)) for s in srcs]
             origins: dict[str, int] = {}
+            tags: dict[str, int] = {}
             for s in srcs:
                 origins[s.mask_origin] = origins.get(s.mask_origin, 0) + 1
+                for t in s.tags:
+                    tags[t] = tags.get(t, 0) + 1
             est = sum(n for o, n in origins.items() if o.startswith(ESTIMATED_PREFIX))
             out.append(
                 ClassSummary(
@@ -126,9 +131,23 @@ class Bank:
                     exact=len(srcs) - est,
                     estimated=est,
                     origins=origins,
+                    no_pitch=sum(1 for s in srcs if s.um_per_px is None),
+                    tags=tags,
                 )
             )
         return out
+
+    def no_pitch_count(self) -> int:
+        """``um_per_px`` 가 없는 소스 수 — 이 소스들은 축척 정합(``physical_scale``)에서 factor 1.0 으로 빠진다."""
+        return sum(1 for s in self.sources() if s.um_per_px is None)
+
+    def tag_counts(self) -> dict[str, int]:
+        """은행 전체의 태그별 소스 수(정렬)."""
+        out: dict[str, int] = {}
+        for s in self.sources():
+            for t in s.tags:
+                out[t] = out.get(t, 0) + 1
+        return dict(sorted(out.items()))
 
     # ------------------------------------------------------------------ 로드
 

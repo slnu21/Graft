@@ -12,8 +12,8 @@ v0.5.0 을 실제 산업 데이터에 처음 적용하며 드러난 것들. 각 
 | 3 | 박스→마스크 자동 추정이 저대비 경면 표면에서 실패한다 | 높음 | 알고리즘 한계 | 예정 `mask-confidence`(SAM 은 v1.0) |
 | 4 | `mask_dir` 는 대상마다 파일이 필요해 실무 부담이 크다 | 중간 | 설계 공백 | ✅ v0.6 `roi-annulus`(원형) · 예정 `label-yolo-roi`(임의 형상 ROI 편집) |
 | 5 | 회전 기본값 ±180° 가 조명 의존 결함에 물리적으로 맞지 않는다 | 중간 | 기본값 | 예정 `preset-rotate`(`dent-graft` 신설) |
-| 6 | µm/px 축척 정합이 사실상 꺼진 채로 돌아간다 | 중간 | 기본값 | 예정 `source-tags-scale` |
-| 7 | 은행 소스의 태그를 선택에 쓸 수 없다 | 중간 | 기능 누락 | 예정 `source-tags-scale` |
+| 6 | µm/px 축척 정합이 사실상 꺼진 채로 돌아간다 | 중간 | 기본값 | ✅ v0.6 `source-tags-scale` |
+| 7 | 은행 소스의 태그를 선택에 쓸 수 없다 | 중간 | 기능 누락 | ✅ v0.6 `source-tags-scale` |
 | 8 | GUI 가 기존 YOLO 라벨을 읽지 못한다 | 낮음 | 기능 누락 | 예정 `label-yolo-roi` |
 | 9 | GUI 를 레시피 인자 없이 켜면 빈 화면 | 낮음 | UX | 예정 `label-yolo-roi` |
 | 10 | `recipe init --write` 가 상위 폴더를 만들지 않는다 | 낮음 | 버그 | ✅ v0.6 `roi-mask-resize` |
@@ -129,6 +129,8 @@ AREA_RATIO_MAX = 0.95
 
 ## 6. µm/px 축척 정합이 사실상 꺼진 채로 돌아간다
 
+> **해결(v0.6, 2026-09-15 `source-tags-scale`)** — `runner.prepare` 가 소스·대상 피치 상태를 보고 "축척 정합 꺼짐/일부 꺼짐" 한 줄을 경고(CLI stderr · 스튜디오 상태바 · 배치 로그). `bank ls` 헤더에 `미지정 n/N`, 클래스별 `no_um` 열. 기본값 자체는 바꾸지 않았다(피치는 사용자만 안다).
+
 **증상** — 서로 다른 카메라/배율로 찍은 결함이 대상에서 물리적으로 틀린 크기가 된다.
 
 **원인** — `core/scale.py` 의 `physical_scale` 은 소스·대상 **양쪽 모두** 피치가 있어야 동작하고, 한쪽이라도 없으면 `factor 1.0` + 사유로 조용히 no-op 한다. 그런데 `bank import-*` 의 `--um-per-px` 도, 레시피 `inputs.um_per_px` 도 기본이 미지정이다. 결과적으로 기본 경로에서는 축척 정합이 **항상 꺼져 있다.**
@@ -142,6 +144,8 @@ A~N 제품 결함을 X 에 이식하는 설계 의도에서는 이 기능이 핵
 ---
 
 ## 7. 은행 소스의 태그를 선택에 쓸 수 없다
+
+> **해결(v0.6, 2026-09-15 `source-tags-scale`)** — `pipeline.source.tags: {include, exclude}`. `BankSource` 가 클래스별 풀을 태그로 거른 뒤(순서 유지) 뽑고, `validate_against` 가 필터 후 수로 경고/실패를 판단한다. `bank ls` 가 태그별 수를 보여 준다.
 
 **증상** — `--tags` 로 제품명 등을 붙여 저장할 수 있고 `<class>/<id>.json` 에도 남지만, 합성할 때 "A·C·F 제품 결함만 사용" 같은 통제가 불가능하다.
 

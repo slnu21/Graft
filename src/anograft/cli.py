@@ -438,22 +438,31 @@ def cmd_bank_ls(args: argparse.Namespace) -> int:
     except BankError as e:
         _err(str(e))
         return EXIT_RECIPE_ERROR
+    no_pitch = bank.no_pitch_count()
     print(
         f"은행 {bank.name} ({Path(args.bank).as_posix()}) — 소스 {len(bank)} · "
-        f"um_per_px {bank.um_per_px} · 임포트 {len(bank.imports)}회"
+        f"um_per_px {bank.um_per_px} (미지정 {no_pitch}/{len(bank)}) · 임포트 {len(bank.imports)}회"
     )
     rows = bank.summary()
     if not rows:
         print("  (클래스 없음)")
     width = max((len(r.cls) for r in rows), default=5)
     print(
-        f"  {'id':>3}  {'class'.ljust(width)}  {'n':>5}  {'area_med':>9}  {'exact':>5}  {'est':>5}  origins"
+        f"  {'id':>3}  {'class'.ljust(width)}  {'n':>5}  {'area_med':>9}  {'exact':>5}  {'est':>5}  "
+        f"{'no_um':>5}  origins · tags"
     )
     for r in rows:
         origins = ", ".join(f"{k}:{v}" for k, v in sorted(r.origins.items()))
+        tags = ", ".join(f"{k}:{v}" for k, v in sorted(r.tags.items()))
         print(
             f"  {r.class_id:>3}  {r.cls.ljust(width)}  {r.count:>5}  {r.area_median:>9.0f}  "
-            f"{r.exact:>5}  {r.estimated:>5}  {origins}"
+            f"{r.exact:>5}  {r.estimated:>5}  {r.no_pitch:>5}  {origins}"
+            + (f" · {tags}" if tags else "")
+        )
+    if no_pitch:
+        _err(
+            f"참고: um_per_px 없는 소스 {no_pitch}개 — 대상 inputs.um_per_px 를 줘도 이 소스들은 축척 정합 없이(factor 1.0) "
+            f"이식됩니다. 임포트 시 --um-per-px 또는 bank.yaml 의 um_per_px 로 지정"
         )
     for w in bank.warnings:
         _err(f"경고: {w}")
