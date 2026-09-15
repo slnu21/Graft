@@ -13,6 +13,7 @@ from PySide6.QtCore import QSignalBlocker, QSize, Qt, Signal
 from PySide6.QtGui import QIcon, QPixmap, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QComboBox,
+    QDoubleSpinBox,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -170,6 +171,7 @@ class StripBar(QWidget):
 
 class InputsPanel(QWidget):
     open_requested = Signal(str, str)  # bank, targets
+    um_per_px_changed = Signal(object)  # float | None — 대상 픽셀 피치(축척 정합, KNOWN-ISSUES #6)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -190,6 +192,26 @@ class InputsPanel(QWidget):
                 ("폴더", self._pick_targets_dir),
                 ("목록", self._pick_targets_file),
             )
+        )
+        self.um = QDoubleSpinBox()
+        self.um.setDecimals(3)
+        self.um.setRange(0.0, 10000.0)
+        self.um.setSingleStep(0.5)
+        self.um.setSpecialValueText("모름")
+        self.um.setToolTip(
+            "대상 픽셀 피치 µm/px (inputs.um_per_px) — 은행 소스에도 피치가 있어야 축척 정합이 켜진다. 0 = 모름(정합 끔)"
+        )
+        self.um.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        um_row = QHBoxLayout()
+        um_row.setSpacing(5)
+        um_lab = QLabel("µm/px")
+        um_lab.setObjectName("Muted")
+        um_lab.setFixedWidth(40)
+        um_row.addWidget(um_lab)
+        um_row.addWidget(self.um, 1)
+        lay.addLayout(um_row)
+        self.um.editingFinished.connect(
+            lambda: self.um_per_px_changed.emit(self.um.value() or None)
         )
         self.btn_open = QPushButton("열기 Open")
         self.btn_open.clicked.connect(
@@ -236,6 +258,9 @@ class InputsPanel(QWidget):
     def sync(self, recipe: R.Recipe, summary: str) -> None:
         self.bank.setText(recipe.inputs.bank_key())  # 빈칸 = 은행 없음(self-cut·perlin)
         self.targets.setText(recipe.inputs.targets.as_posix())
+        self.um.blockSignals(True)
+        self.um.setValue(float(recipe.inputs.um_per_px or 0.0))
+        self.um.blockSignals(False)
         self.summary.setText(summary)
 
 
