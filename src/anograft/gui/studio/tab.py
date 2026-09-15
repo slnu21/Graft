@@ -231,7 +231,7 @@ class StudioTab(QWidget):
     def _sync_fix(self) -> None:
         """기하 카드의 '고치기' 버튼 — prepare 경고에 `geometry:`(조명) 가 있을 때만."""
         has = any(w.startswith("geometry:") for w in self.session.warnings)
-        self.pipe.cards["geometry"].set_fix("▶ 조명 클래스만 ±15°·flip 끔" if has else None)
+        self.pipe.cards["geometry"].set_fix("▶ 조명 클래스만 ±15°·안전한 flip" if has else None)
 
     def _on_fix(self, stage: str) -> None:
         """기하 카드 '고치기' — 조명 의존 클래스에 `DENT_OVERRIDE` 를 per_class 로(다른 클래스는 그대로)."""
@@ -244,10 +244,15 @@ class StudioTab(QWidget):
         per = {
             c: o.model_dump() for c, o in self.session.recipe.pipeline.geometry.per_class.items()
         }
+        prep = self.session.prepared
+        dirs = {r.cls: r.light_dir for r in prep.bank.summary()} if prep is not None else {}
         for c in classes:
-            per[c] = {**per.get(c, {}), **R.DENT_OVERRIDE}
+            per[c] = {**per.get(c, {}), **R.dent_override_for(dirs.get(c))}
         self._edit(lambda: self.session.set_stage_field("geometry", "per_class", per))
-        self.status.emit(f"geometry.per_class ← {', '.join(classes)} (±15°, flip 끔)")
+        self.status.emit(
+            "geometry.per_class ← "
+            + ", ".join(f"{c}(±15°, flip {per[c]['flip']})" for c in classes)
+        )
 
     def _fit_warnings(self, res: PreviewResult, roi: np.ndarray | None) -> list[str]:
         """이 대상의 허용 영역 최대 폭(미리보기 ROI ÷ 축소 배율 = 원본 px) vs 클래스별 패치 폭 — 빠듯/불가면 배치 카드 ⚠."""

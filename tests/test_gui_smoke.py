@@ -396,7 +396,9 @@ def test_geometry_card_shows_lighting_warning(
         card.fix.click()
         per = ses.recipe.pipeline.geometry.per_class
         assert (
-            set(per) == {"pit"} and per["pit"].rotate == (-15.0, 15.0) and per["pit"].flip == "none"
+            set(per) == {"pit"}
+            and per["pit"].rotate == (-15.0, 15.0)
+            and per["pit"].flip == "horizontal"  # 아래 조명 → 좌우 뒤집기는 안전
         )
         assert not any(
             w.startswith("geometry:") for w in ses.warnings
@@ -405,7 +407,9 @@ def test_geometry_card_shows_lighting_warning(
         ed = card.per_class
         assert ed is not None and ed.isVisible() and "pit" in ed.rows and not card.info.isVisible()
         assert not card.fix.isVisible() and ed.rows["pit"].use.isChecked()
-        assert ed.rows["pit"].lo.value() == -15.0 and ed.rows["pit"].flip.currentData() == "none"
+        assert (
+            ed.rows["pit"].lo.value() == -15.0 and ed.rows["pit"].flip.currentData() == "horizontal"
+        )
         tab.request_previews()
         assert _pump(qapp, lambda: "geometry" not in tab.pipe.stage_warnings())
         # 표에서 pit 을 끄면(디바운스 → flush) per_class 가 비고 경고·버튼이 돌아온다
@@ -419,7 +423,7 @@ def test_geometry_card_shows_lighting_warning(
         ed.rows["pit"].hi.setValue(10.0)
         ed.flush()
         per = ses.recipe.pipeline.geometry.per_class
-        assert per["pit"].rotate == (-10.0, 10.0) and per["pit"].flip == "none"
+        assert per["pit"].rotate == (-10.0, 10.0) and per["pit"].flip == "horizontal"
         assert not card.fix.isVisible()
         # 전체 회전을 조여도(다른 길) 마찬가지
         ses.set_stage_field("geometry", "per_class", {})

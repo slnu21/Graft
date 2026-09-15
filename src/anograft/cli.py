@@ -94,31 +94,32 @@ def cmd_methods(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
-def auto_dent_classes(bank_path: str | Path) -> list[str]:
-    """``recipe init --auto-dent`` — 은행이 있으면 조명 일관성 R ≥ LIGHT_REAL_MIN 인 클래스(n ≥ 3). 은행이 없거나 깨졌으면 빈 목록."""
+def auto_dent_classes(bank_path: str | Path) -> dict[str, dict]:
+    """``recipe init --auto-dent`` — 은행이 있으면 조명 의존(유의) 클래스 → 오버라이드(±15° + 방향에 안전한 flip).
+    은행이 없거나 깨졌으면 빈 dict."""
     p = Path(bank_path)
     if not (p / "bank.yaml").is_file():
-        return []
+        return {}
     try:
         bank = Bank.load(p)
     except BankError:
-        return []
-    return [r.cls for r in bank.summary() if r.directional]
+        return {}
+    return {r.cls: R.dent_override_for(r.light_dir) for r in bank.summary() if r.directional}
 
 
 def cmd_recipe_init(args: argparse.Namespace) -> int:
-    dent: list[str] = list(args.dent_class or [])
+    dent: dict[str, dict] = {c: dict(R.DENT_OVERRIDE) for c in (args.dent_class or [])}
     if args.auto_dent:
         found = auto_dent_classes(args.bank)
         if found:
-            _err(
-                f"참고: 은행 {args.bank} 의 조명 의존 클래스 {found} → geometry.per_class 에 ±15°·flip 끔"
-            )
+            desc = ", ".join(f"{c}(flip {o['flip']})" for c, o in found.items())
+            _err(f"참고: 은행 {args.bank} 의 조명 의존 클래스 → geometry.per_class ±15°: {desc}")
         else:
             _err(
-                f"참고: 은행 {args.bank} 에서 조명 의존 클래스를 찾지 못했습니다(은행 없음 또는 lightR < {LIGHT_REAL_MIN})"
+                f"참고: 은행 {args.bank} 에서 조명 의존 클래스를 찾지 못했습니다(은행 없음 또는 lightR < {LIGHT_REAL_MIN}·유의 아님)"
             )
-        dent += [c for c in found if c not in dent]
+        for c, o in found.items():
+            dent.setdefault(c, o)
     try:
         data = R.init_recipe_dict(
             args.preset,

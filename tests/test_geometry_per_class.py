@@ -135,9 +135,12 @@ def test_recipe_init_dent_class_and_auto_dent(tmp_path, capsys) -> None:
         )
         w.add(rec, ImportOptions(margin=8))
     w.finish({"importer": "test"})
-    assert (
-        auto_dent_classes(tmp_path / "b") == ["pit"] and auto_dent_classes(tmp_path / "nope") == []
-    )
+    found = auto_dent_classes(tmp_path / "b")
+    assert list(found) == ["pit"] and found["pit"] == {
+        "rotate": [-15.0, 15.0],
+        "flip": "horizontal",
+    }
+    assert auto_dent_classes(tmp_path / "nope") == {}  # 아래 조명 → 좌우 뒤집기는 안전
     target = tmp_path / "r.yaml"
     assert (
         main(
@@ -156,10 +159,20 @@ def test_recipe_init_dent_class_and_auto_dent(tmp_path, capsys) -> None:
         == EXIT_OK
     )
     cap = capsys.readouterr()
-    assert "['pit']" in cap.err
+    assert "pit(flip horizontal)" in cap.err
     text = target.read_text(encoding="utf-8")
     data = yaml.safe_load(text)
-    assert set(data["pipeline"]["geometry"]["per_class"]) == {"pit", "stain"}
+    per = data["pipeline"]["geometry"]["per_class"]
+    assert set(per) == {"pit", "stain"}
+    assert (
+        per["pit"]["flip"] == "horizontal" and per["stain"]["flip"] == "none"
+    )  # 이름만 준 클래스는 none
+    from anograft.core.recipe import dent_override_for
+
+    assert (
+        dent_override_for(None)["flip"] == "none" and dent_override_for(0.0)["flip"] == "vertical"
+    )
+    assert dent_override_for(-90.0)["flip"] == "horizontal"
     assert "--dent-class stain pit" in text.splitlines()[0]
     # 은행 없으면 안내만
     assert main(["recipe", "init", "--bank", str(tmp_path / "nope"), "--auto-dent"]) == EXIT_OK

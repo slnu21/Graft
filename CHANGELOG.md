@@ -5,6 +5,7 @@
 ## [Unreleased]
 
 ### Added
+- 조명 의존 클래스의 자동 오버라이드(`--auto-dent` · 퀵스타트 · 기하 카드 ▶)가 **방향에 안전한 flip 을 고른다**(`recipe.dent_override_for(light_dir)`: 위/아래 조명 → `horizontal`, 옆 → `vertical`, 모르면 `none`) — 찍힘도 좌우 뒤집기로 데이터 두 배. `--dent-class` 로 이름만 주면 `none`.
 - **`geometry.flip` 가 4가지** — `none · horizontal · vertical · both`(YAML `true/false` 는 both/none 으로 그대로 읽힘, rng 소비 both 2·h/v 1·none 0 → 기존 레시피·골든 불변). 조명 경고는 **방향으로 판단**(`flip_breaks_lighting`): 위/아래에서 오는 조명이면 `horizontal` 은 안전(찍힘도 좌우 뒤집기로 두 배). `per_class` 표·카드 폼(콤보)·`DENT_OVERRIDE`(`none`)·프리셋 YAML 어휘 갱신.
 - `tools/train_smoke.py --synthetic a --synthetic b …` — 출력 여러 개(다른 프리셋·시드)를 한 학습셋으로(접두어 `syn<k>_`, 클래스 순서가 다르면 오류).
 - 스튜디오 기하 카드에 **`per_class` 편집 표** — 은행 클래스마다 적용 체크 · 회전 lo/hi · flip(기본/켬/끔). 디바운스 뒤 재검증(카드 폼과 같은 규칙), scale 오버라이드는 YAML 값 보존. ▶ 버튼·`--auto-dent` 결과가 표에 그대로 보인다.
