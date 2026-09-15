@@ -6,6 +6,7 @@ GT 오버레이 = 합성 위에 GT 반투명 붉은 채움 + 윤곽 + 인스턴�
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 
 import cv2
@@ -130,10 +131,12 @@ def source_tile(
     *,
     tile: int = 128,
     confidence: float | None = None,
+    lighting_deg: float | None = None,
 ) -> np.ndarray:
     """``bank preview`` 타일 — 크롭 + 마스크 윤곽(초록) + 아래 두 줄(id · 마스크 출처). 추정 마스크(``yolo-box:*``)는
     출처를 amber 로 찍어 한눈에 셀 수 있게 한다(폴백 ellipse = 박스 내접 타원 = 과라벨). ``confidence`` 가 있으면 출처 뒤에
-    점수를 찍고, ``LOW_CONFIDENCE`` 미만이면 **빨간 테두리**(KNOWN-ISSUES #3 — 면적은 정상인데 엉뚱한 곳을 잡은 마스크)."""
+    점수를 찍고, ``LOW_CONFIDENCE`` 미만이면 **빨간 테두리**(KNOWN-ISSUES #3 — 면적은 정상인데 엉뚱한 곳을 잡은 마스크).
+    ``lighting_deg`` 가 있으면 오른쪽 위에 **밝은 쪽을 가리키는 화살표**(KI #5 — 클래스 안에서 화살표가 한 방향이면 조명 의존)."""
     canvas, (x0, y0, s) = _fit_tile(image, tile)
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     for c in contours:
@@ -156,7 +159,29 @@ def source_tile(
     )
     if low:
         cv2.rectangle(canvas, (0, 0), (tile - 1, tile - 1), LOW_COLOR, 2)
+    if lighting_deg is not None:
+        draw_lighting_arrow(canvas, lighting_deg, tile)
     return canvas
+
+
+LIGHT_ARROW = (40, 200, 255)  # 화살표(노랑) — 밝은 쪽
+
+
+def draw_lighting_arrow(canvas: np.ndarray, deg: float, tile: int) -> None:
+    """타일 오른쪽 위 구석의 작은 화살표: 중심에서 ``deg``(이미지 좌표, 0 = →, 90 = ↓) 방향으로."""
+    r = max(6, tile // 12)
+    cx, cy = tile - r - 4, r + 4
+    dx, dy = math.cos(math.radians(deg)), math.sin(math.radians(deg))
+    cv2.circle(canvas, (cx, cy), r + 2, (0, 0, 0), -1)
+    cv2.arrowedLine(
+        canvas,
+        (round(cx - dx * r * 0.6), round(cy - dy * r * 0.6)),
+        (round(cx + dx * r), round(cy + dy * r)),
+        LIGHT_ARROW,
+        1,
+        cv2.LINE_AA,
+        tipLength=0.45,
+    )
 
 
 def render_compare(
