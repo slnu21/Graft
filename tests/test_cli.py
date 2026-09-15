@@ -230,6 +230,17 @@ def test_run_writes_triplets_manifest_and_is_reproducible(
     assert _tree_bytes(root3)["images/000000.png"] != a["images/000000.png"]
 
 
+def test_run_report_flag_writes_html(
+    workspace: dict[str, Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """0.7.3 ``run --report`` — 끝나면 출력 폴더에 review-report.html(= dataset report)."""
+    assert main(["run", str(workspace["recipe"]), "--workers", "0", "--report"]) == EXIT_OK
+    out = capsys.readouterr().out
+    assert "report: review-report.html" in out
+    html = (workspace["root"] / "out" / "review-report.html").read_text(encoding="utf-8")
+    assert "Graft 검수 리포트" in html and "조명 방향" in html
+
+
 def test_run_dry_run_writes_nothing(
     workspace: dict[str, Path], capsys: pytest.CaptureFixture[str]
 ) -> None:

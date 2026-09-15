@@ -227,7 +227,25 @@ def cmd_run(args: argparse.Namespace) -> int:
         print(line)
     for w in summary.writer.warnings:
         _err(f"경고: {w}")
+    if getattr(args, "report", False) and not summary.all_skipped:
+        _write_run_report(summary.writer.root)
     return EXIT_ALL_SKIPPED if summary.all_skipped else EXIT_OK
+
+
+def _write_run_report(root: Path) -> None:
+    """``run --report`` — 출력 폴더에 검수 리포트 HTML 을 바로(= ``dataset report <root>``). 실패해도 run 결과는 유효하니 경고만."""
+    from anograft.gui.review.session import ReviewError, ReviewSession
+
+    s = ReviewSession()
+    try:
+        s.load(root, load_bank=True)
+        out = s.write_report()
+    except ReviewError as e:
+        _err(f"경고: 리포트 실패 — {e}")
+        return
+    rs, rr = s.lighting_concentration()
+    light = f" · 조명 R 합성 {rs:.2f}/실제 {rr:.2f}" if rs is not None and rr is not None else ""
+    print(f"  report: {out.name} (합성 vs 실제 분포 6종{light})")
 
 
 def cmd_preview(args: argparse.Namespace) -> int:
@@ -766,6 +784,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="프로세스 수. 0 = 인프로세스. 결과는 N과 무관하게 동일",
     )
     p.add_argument("--dry-run", action="store_true", help="배분·경고만 계산, 파일 안 씀")
+    p.add_argument(
+        "--report",
+        action="store_true",
+        help="끝나면 출력 폴더에 검수 리포트 HTML(= dataset report <out>) — 합성 vs 실제 분포·조명 일관성",
+    )
     p.set_defaults(func=cmd_run)
 
     p = sub.add_parser("preview", help="인덱스 하나를 합성해 원본|합성|GT 3패널 PNG로")
