@@ -5,6 +5,7 @@
 ## [Unreleased]
 
 ### Added
+- **`geometry.per_class`** — 클래스별 기하 오버라이드(`{cls: {scale?, rotate?, flip?}}`, 준 필드만 덮어씀). 한 은행에 스크래치(±180)와 찍힘(±15·flip 끔)이 섞여 있을 때 레시피 하나로. 오버라이드 없는 클래스는 바이트 동일 · 사이드카 `geometry.per_class: true` · 은행에 없는 클래스는 `validate_against` 경고 · `lighting_warning`/배치 진단이 클래스별 범위로 판단(경고문이 문법을 안내). 카드 편집기엔 안 나옴(YAML).
 - 검수 탭 필터 **조명 뒤집힘 의심 flipped lighting** — 실제 클래스 방향이 뚜렷할 때(R ≥ 0.5, n ≥ 3) 그 평균 방향에서 90° 넘게 벗어난 인스턴스가 있는 이미지. 리포트에 목록 한 줄. `core/appearance.circular_mean/angle_diff`.
 - 배치 탭 로그에 prepare 경고(축척·저신뢰·조명)와 **배치 가능성 진단** 한 줄(ROI 최대 폭 vs 패치 폭 · 빠듯/불가면 경고) — 종전엔 run 중 경고만 보였다.
 - `bank preview`·은행 탭 타일 오른쪽 위에 **조명 방향 화살표**(밝은 쪽) — 클래스 안에서 화살표가 한 방향이면 조명 의존 결함(샘플 pit 7개 전부 ↓).

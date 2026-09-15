@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import importlib.resources
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any, ClassVar, Literal, Protocol, runtime_checkable
 
@@ -301,26 +302,76 @@ class ElasticConfig(_Strict):
     sigma: float = Field(default=4.0, gt=0.0)
 
 
+def _check_scale(v: tuple[float, float]) -> tuple[float, float]:
+    if v[0] <= 0:
+        raise ValueError("scale 범위는 양수여야 합니다")
+    return v
+
+
+def _check_rotate(v: tuple[float, float]) -> tuple[float, float]:
+    if v[0] < -360 or v[1] > 360:
+        raise ValueError("rotate 범위는 [-360, 360] 안이어야 합니다")
+    return v
+
+
+class GeometryOverride(_Strict):
+    """클래스별 기하 오버라이드(0.7.3) — 준 것만 덮어쓴다. 한 은행에 스크래치(±180 무방)와 찍힘(조명 의존 → ±15·flip 끔)이
+    섞여 있을 때 레시피 하나로. rng 소비는 flip 여부 외엔 같다(범위만 다름)."""
+
+    scale: Range | None = None
+    rotate: Range | None = None
+    flip: bool | None = None
+
+    @field_validator("scale")
+    @classmethod
+    def _positive_scale(cls, v: tuple[float, float] | None) -> tuple[float, float] | None:
+        return None if v is None else _check_scale(v)
+
+    @field_validator("rotate")
+    @classmethod
+    def _rotate_bounds(cls, v: tuple[float, float] | None) -> tuple[float, float] | None:
+        return None if v is None else _check_rotate(v)
+
+
+@dataclass(frozen=True)
+class EffectiveGeometry:
+    scale: tuple[float, float]
+    rotate: tuple[float, float]
+    flip: bool
+    overridden: bool
+
+
 class AffineGeometryConfig(_Strict):
     method: Literal["affine"] = "affine"
     scale: Range = (0.8, 1.25)  # 물리 축척 × 이 배율
     rotate: Range = (-180.0, 180.0)  # deg
     flip: bool = True
     elastic: ElasticConfig = Field(default_factory=ElasticConfig)
+    per_class: dict[str, GeometryOverride] = Field(
+        default_factory=dict
+    )  # 클래스 → 오버라이드(카드 편집기엔 안 나옴 — YAML 로). 은행에 없는 클래스는 validate_against 경고
 
     @field_validator("scale")
     @classmethod
     def _positive_scale(cls, v: tuple[float, float]) -> tuple[float, float]:
-        if v[0] <= 0:
-            raise ValueError("scale 범위는 양수여야 합니다")
-        return v
+        return _check_scale(v)
 
     @field_validator("rotate")
     @classmethod
     def _rotate_bounds(cls, v: tuple[float, float]) -> tuple[float, float]:
-        if v[0] < -360 or v[1] > 360:
-            raise ValueError("rotate 범위는 [-360, 360] 안이어야 합니다")
-        return v
+        return _check_rotate(v)
+
+    def for_class(self, cls: str | None) -> EffectiveGeometry:
+        """클래스에 적용되는 (scale, rotate, flip) — ``per_class`` 에 있으면 준 필드만 덮어쓴다."""
+        o = self.per_class.get(cls) if cls is not None else None
+        if o is None:
+            return EffectiveGeometry(tuple(self.scale), tuple(self.rotate), self.flip, False)
+        return EffectiveGeometry(
+            tuple(o.scale) if o.scale is not None else tuple(self.scale),
+            tuple(o.rotate) if o.rotate is not None else tuple(self.rotate),
+            o.flip if o.flip is not None else self.flip,
+            True,
+        )
 
 
 GeometryConfig = Annotated[AffineGeometryConfig, Field(discriminator="method")]
@@ -761,6 +812,11 @@ class Recipe(_Strict):
                     warnings.append(
                         f"클래스 '{c}' 는 태그 필터({tags.describe()}) 후 소스 0개 — 그 클래스 결함은 건너뜁니다"
                     )
+        unknown = sorted(set(self.pipeline.geometry.per_class) - bank_classes)
+        if unknown:
+            warnings.append(
+                f"geometry.per_class 에 은행에 없는 클래스가 있습니다: {unknown} (은행: {sorted(bank_classes)}) — 무시됩니다"
+            )
         threshold = self.pipeline.source.min_sources_warn
         for c in classes:
             n = counts.get(c, 0)
