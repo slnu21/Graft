@@ -47,6 +47,7 @@ FILTER_LABELS: dict[str, str] = {
     "reject": "반려 rejected",
     "fallback": "폴백 fallback",
     "skipped": "skipped",
+    "flipped": "조명 뒤집힘 의심 flipped lighting",
 }
 VERDICT_MARK: dict[str, str] = {"accept": "✓ ", "reject": "✗ ", "": ""}
 

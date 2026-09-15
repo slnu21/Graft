@@ -26,9 +26,13 @@ from anograft.bank import Bank
 from anograft.bank.bank import BankError
 from anograft.core.appearance import (  # noqa: F401 — 검수 탭·테스트가 여기서도 import 한다
     APPEARANCE_FN,
+    LIGHT_MIN_N,
+    LIGHT_REAL_MIN,
     LIGHT_RING_PX,
     RING_PX,
+    angle_diff,
     circular_concentration,
+    circular_mean,
     mask_contrast,
     mask_lighting,
     mask_sharpness,
@@ -46,7 +50,16 @@ from anograft.io.prune import (
 )
 from anograft.io.report import ReportData, skipped_reason_counts, write_report
 
-FILTERS: tuple[str, ...] = ("all", "unreviewed", "accept", "reject", "fallback", "skipped")
+FILTERS: tuple[str, ...] = (
+    "all",
+    "unreviewed",
+    "accept",
+    "reject",
+    "fallback",
+    "skipped",
+    "flipped",  # 조명 뒤집힘 의심(실제 클래스 방향과 > FLIP_DEG)
+)
+FLIP_DEG = 90.0  # 실제 클래스 평균 방향에서 이보다 벗어난 합성 인스턴스 = 조명 뒤집힘 의심
 DIST_KEYS: tuple[str, ...] = ("area", "length", "contrast", "texture", "sharpness", "lighting")
 IMAGE_KEYS: tuple[str, ...] = (
     "contrast",
@@ -236,6 +249,7 @@ class ReviewSession:
     def filtered(self, which: str = "all", cls: str | None = None) -> list[ReviewItem]:
         if which not in FILTERS:
             raise ReviewError(f"필터 {which!r} (선택: {', '.join(FILTERS)})")
+        flipped = self.flipped_lighting() if which == "flipped" else set()
         out = []
         for it in self.items:
             if which == "skipped":
@@ -248,6 +262,8 @@ class ReviewSession:
                 ok = it.verdict == which
             elif which == "fallback":
                 ok = it.fallback
+            elif which == "flipped":
+                ok = it.index in flipped
             else:
                 ok = True
             if ok and cls is not None and cls not in it.classes:
@@ -422,6 +438,35 @@ class ReviewSession:
             circular_concentration(self.real_values("lighting")),
         )
 
+    def real_lighting_direction(self) -> dict[str, float]:
+        """조명 방향이 뚜렷한 클래스(실제 R ≥ LIGHT_REAL_MIN, n ≥ LIGHT_MIN_N)의 실제 평균 방향(°)."""
+        out: dict[str, float] = {}
+        for c, vals in self.real_by_class("lighting").items():
+            r = circular_concentration(vals)
+            if len(vals) >= LIGHT_MIN_N and r is not None and r >= LIGHT_REAL_MIN:
+                m = circular_mean(vals)
+                if m is not None:
+                    out[c] = m
+        return out
+
+    def flipped_lighting(self, *, max_deg: float = FLIP_DEG) -> set[str]:
+        """조명 뒤집힘 의심 — 인스턴스의 조명 방향이 그 클래스의 실제 평균 방향에서 ``max_deg`` 넘게 벗어난 항목(index).
+        은행이 없거나 방향이 뚜렷한 클래스가 없으면 비어 있다. 반려 판정과 무관(사용자가 보고 판정)."""
+        real = self.real_lighting_direction()
+        if not real:
+            return set()
+        out: set[str] = set()
+        for it in self.items:
+            if it.status != "ok":
+                continue
+            self.item(it.index)
+            vals = self._item_appearance(it, "lighting")
+            for v, c in zip(vals, it.appearance_cls.get("lighting", ()), strict=True):
+                if c in real and angle_diff(v, real[c]) > max_deg:
+                    out.add(it.index)
+                    break
+        return out
+
     def lighting_concentration_by_class(self) -> dict[str, tuple[float | None, float | None]]:
         """클래스별 R — 방향성 없는 클래스(얼룩·스크래치)가 전체 R 을 희석하므로 판단은 클래스별로."""
         syn, real = self.synthetic_by_class("lighting"), self.real_by_class("lighting")
@@ -468,6 +513,7 @@ class ReviewSession:
             hist_lighting=self.distribution("lighting"),
             lighting_r=self.lighting_concentration(),
             lighting_r_class=self.lighting_concentration_by_class(),
+            flipped=sorted(self.flipped_lighting()),
             bank_name=self.bank.name if self.bank is not None else "",
             warnings=list(self.warnings),
         )

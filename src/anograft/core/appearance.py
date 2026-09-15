@@ -99,6 +99,20 @@ APPEARANCE_FN = {
 }
 
 
+def circular_mean(angles_deg: Sequence[float]) -> float | None:
+    """각도 집합의 평균 방향(°). 비면 None."""
+    if not angles_deg:
+        return None
+    th = np.radians(np.asarray(list(angles_deg), dtype=np.float64))
+    return round(math.degrees(math.atan2(np.sin(th).mean(), np.cos(th).mean())), 1)
+
+
+def angle_diff(a: float, b: float) -> float:
+    """두 각도의 차이 절댓값(0..180)."""
+    d = (a - b + 180.0) % 360.0 - 180.0
+    return abs(d)
+
+
 def gray_of(image: np.ndarray) -> np.ndarray:
     """BGR/그레이 어느 쪽이든 2D 그레이로."""
     return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if image.ndim == 3 else image
