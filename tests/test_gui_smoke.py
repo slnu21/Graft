@@ -386,11 +386,27 @@ def test_geometry_card_shows_lighting_warning(
         assert any(m.startswith("geometry:") for m in ses.warnings)
         assert _pump(qapp, lambda: "geometry" in tab.pipe.stage_warnings())
         assert "조명 의존" in tab.pipe.stage_warnings()["geometry"]
-        # 회전을 ±15 로 조이고 flip 을 끄면(reprepare) 경고가 사라진다
-        ses.set_stage_field("geometry", "rotate", (-15.0, 15.0))
-        ses.set_stage_field("geometry", "flip", False)
+        # 0.7.3+: 기하 카드 '고치기' 버튼 → 조명 의존 클래스만 per_class(±15·flip 끔) → 경고 사라짐 · 정보 줄
+        card = tab.pipe.cards["geometry"]
+        assert card.fix.isVisible() and "±15°" in card.fix.text() and not card.info.isVisible()
+        assert tab.directional_classes() == ["pit"]
+        card.fix.click()
+        per = ses.recipe.pipeline.geometry.per_class
+        assert (
+            set(per) == {"pit"} and per["pit"].rotate == (-15.0, 15.0) and per["pit"].flip is False
+        )
+        assert not any(
+            w.startswith("geometry:") for w in ses.warnings
+        )  # reprepare 가 경고를 다시 계산
+        assert not card.fix.isVisible() and card.info.isVisible() and "pit" in card.info.text()
         tab.request_previews()
         assert _pump(qapp, lambda: "geometry" not in tab.pipe.stage_warnings())
+        # 전체 회전을 조여도(다른 길) 마찬가지
+        ses.set_stage_field("geometry", "per_class", {})
+        ses.set_stage_field("geometry", "rotate", (-15.0, 15.0))
+        ses.set_stage_field("geometry", "flip", False)
+        tab.sync_widgets()
+        assert not card.fix.isVisible() and not card.info.isVisible()
     finally:
         win.worker.stop()
         win.close()

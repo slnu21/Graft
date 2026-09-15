@@ -99,6 +99,7 @@ QPushButton:hover {{ border-color: {COLORS["tx3"]}; color: {COLORS["tx"]}; }}
 QPushButton:disabled {{ color: {COLORS["tx3"]}; border-color: {COLORS["line"]}; }}
 QPushButton#Primary {{ background: {COLORS["teal"]}; border-color: {COLORS["teal"]}; color: #06231E; font-weight: 600; }}
 QPushButton#Primary:hover {{ background: #12B39A; }}
+QPushButton#Fix {{ border-color: {COLORS["amber"]}; color: {COLORS["amber"]}; padding: 2px 8px; font-size: 11px; }}
 QCheckBox {{ color: {COLORS["tx2"]}; spacing: 6px; }}
 QCheckBox::indicator {{ width: 13px; height: 13px; border: 1px solid {COLORS["line2"]}; border-radius: 3px; background: {COLORS["bg"]}; }}
 QCheckBox::indicator:checked {{ background: {COLORS["teal"]}; border-color: {COLORS["teal"]}; }}
