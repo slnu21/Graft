@@ -216,3 +216,76 @@ def test_stage_cards_show_fail_soft_warnings_and_variant_tooltip(qapp: QApplicat
     assert item.toolTip() == ws[0]
     variants.set_result(0, np.zeros((16, 16, 3), dtype=np.uint8), "ok")
     assert item.toolTip() == ""
+
+
+def test_stage_param_form_edits_recipe_and_shows_errors_inline(
+    qapp: QApplication, tmp_path: Path
+) -> None:
+    """stage-params: 카드 폼 → 세션 재검증 → 미리보기 요청. 잘못된 값은 대화상자 없이 카드 빨간 줄 + 위젯 되돌림.
+    ROI 하위 콤보로 mask_dir 를 고르면 path 자리표시(".")가 채워지고 폼에 path 행이 생긴다."""
+    from anograft.gui.studio.param_form import DEBOUNCE_MS
+
+    ses = StudioSession(default_recipe())
+    win = MainWindow(ses)
+    try:
+        tab = win.studio
+        pipe = tab.pipe
+        geo = pipe.cards["geometry"]
+        assert list(geo.form.rows) == ["scale", "rotate", "flip", "elastic.alpha", "elastic.sigma"]
+        # 1) 회전 범위 편집 → 디바운스 후 세션 반영
+        row = geo.form.rows["rotate"]
+        row.editors[0].setValue(-15.0)
+        row.editors[1].setValue(15.0)
+        assert ses.recipe.pipeline.geometry.rotate == (-180.0, 180.0)  # 아직(디바운스)
+        assert _pump(qapp, lambda: ses.recipe.pipeline.geometry.rotate == (-15.0, 15.0), 5.0)
+        assert geo.error.isHidden()
+        # 2) 잘못된 값 → 카드 오류 줄 + 위젯 되돌림(대화상자 없음)
+        row.editors[0].setValue(-400.0)
+        assert _pump(qapp, lambda: not geo.error.isHidden(), 5.0)
+        assert "rotate" in geo.error.text() and "360" in geo.error.text()
+        assert row.editors[0].value() == -15.0 and row.editors[0].property("error") is True
+        assert ses.recipe.pipeline.geometry.rotate == (-15.0, 15.0)
+        # 3) 다음 정상 편집이 오류를 지운다 (체크박스는 즉시)
+        geo.form.rows["flip"].editors[0].setChecked(False)
+        assert _pump(qapp, lambda: ses.recipe.pipeline.geometry.flip is False, 5.0)
+        assert geo.error.isHidden() and row.editors[0].property("error") is False
+        # 4) 중첩 필드(점 경로)
+        geo.form.rows["elastic.alpha"].editors[0].setValue(2.5)
+        assert _pump(qapp, lambda: ses.recipe.pipeline.geometry.elastic.alpha == 2.5, 5.0)
+        # 5) optional 켜기/끄기 — degrade.gamma
+        gam = pipe.cards["degrade"].form.rows["gamma"]
+        assert gam.toggle is not None and not gam.editors[0].isEnabled()
+        gam.toggle.setChecked(True)
+        assert _pump(qapp, lambda: ses.recipe.pipeline.degrade.gamma == (0.8, 1.25), 5.0)
+        gam.toggle.setChecked(False)
+        assert _pump(qapp, lambda: ses.recipe.pipeline.degrade.gamma is None, 5.0)
+        # 6) ROI 하위 스테이지 — method 콤보 + 폼
+        pl = pipe.cards["placement"]
+        assert pl.roi_method is not None and pl.roi_form is not None
+        assert list(pl.roi_form.rows) == ["invert", "erode_px"]
+        pl.roi_form.rows["erode_px"].editors[0].setValue(20)
+        assert _pump(qapp, lambda: ses.recipe.pipeline.placement.roi.erode_px == 20, 5.0)
+        i = pl.roi_method.findData("mask_dir")
+        pl.roi_method.setCurrentIndex(i)
+        qapp.processEvents()
+        assert ses.recipe.pipeline.placement.roi.method == "mask_dir"
+        assert (
+            list(pl.roi_form.rows) == ["path"] and pl.roi_form.rows["path"].editors[0].text() == "."
+        )
+        assert pl.method.currentData() == "sampled"  # 배치 method 는 그대로
+        # 7) 디바운스 대기 중인 편집은 다른 필드의 즉시 커밋(재동기화)에 지워지지 않는다
+        sc = geo.form.rows["scale"]
+        sc.editors[0].setValue(0.5)
+        sc.editors[1].setValue(2.0)
+        geo.form.rows["flip"].editors[0].setChecked(True)  # 즉시 커밋 → 폼 sync
+        assert sc.editors[0].value() == 0.5  # 되돌아가지 않았다
+        assert _pump(qapp, lambda: ses.recipe.pipeline.geometry.scale == (0.5, 2.0), 5.0)
+        # 8) 저장에 반영
+        out = ses.save(tmp_path / "edited.yaml")
+        text = out.read_text(encoding="utf-8")
+        assert "rotate:" in text and "-15" in text and "alpha: 2.5" in text and "mask_dir" in text
+        # 디바운스 타이머가 남아 있지 않게
+        _pump(qapp, lambda: False, DEBOUNCE_MS / 1000 + 0.1)
+    finally:
+        win.close()
+        qapp.processEvents()

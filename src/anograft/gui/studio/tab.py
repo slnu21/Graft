@@ -45,6 +45,17 @@ from anograft.gui.studio.variants import VariantStrip
 from anograft.gui.studio.worker import PreviewWorker
 
 
+def field_error_detail(message: str) -> str:
+    """``SessionError`` 본문에서 카드에 넣을 한 줄 — 헤더("레시피 검증 실패:")·loc 경로·"Value error," 접두를 뗀다."""
+    lines = [ln.strip() for ln in message.splitlines() if ln.strip()]
+    if not lines:
+        return message
+    detail = lines[-1] if len(lines) > 1 else lines[0]
+    if detail.startswith("pipeline.") and ": " in detail:
+        detail = detail.split(": ", 1)[1]
+    return detail.replace("Value error, ", "", 1)
+
+
 class StudioTab(QWidget):
     status = Signal(str)
     context = Signal(str)
@@ -137,6 +148,7 @@ class StudioTab(QWidget):
         self.pipe.method_changed.connect(
             lambda st, m: self._edit(lambda: self.session.set_method(st, m))
         )
+        self.pipe.field_changed.connect(self._on_field)
         self.variants.selected.connect(self._on_variant)
         self.cb_gt.toggled.connect(lambda v: self.canvas.set_overlays(gt=v))
         self.cb_roi.toggled.connect(lambda v: self.canvas.set_overlays(roi=v))
@@ -205,6 +217,21 @@ class StudioTab(QWidget):
             QMessageBox.warning(self, "레시피 오류", str(e))
             self.sync_widgets()
             return
+        self.pipe.clear_errors()
+        self.sync_widgets()
+        self.request_previews()
+
+    def _on_field(self, stage: str, field: str, value: object) -> None:
+        """카드 폼 값 변경 — 세션 재검증. 실패하면 대화상자 대신 **그 카드에 빨간 줄** + 위젯은 세션 값으로 되돌린다."""
+        try:
+            self.session.set_stage_field(stage, field, value)
+        except SessionError as e:
+            msg = f"{field}: {field_error_detail(str(e))}"
+            self.pipe.set_error(stage, field, msg)
+            self.status.emit(msg)
+            self.pipe.sync(self.session.recipe)  # 위젯 되돌리기 (오류 줄은 유지)
+            return
+        self.pipe.clear_errors()
         self.sync_widgets()
         self.request_previews()
 

@@ -12,6 +12,7 @@ v0.6 — **실데이터 보정**(`KNOWN-ISSUES.md`, 경면 금속 토크스 소�
 - `recipe init --write recipes/new.yaml` 이 없는 상위 폴더를 만든다(KNOWN-ISSUES #10).
 
 ### Added
+- **스튜디오 카드 파라미터 편집기**(`stage-params`): 7단계 카드마다 레시피 스키마(pydantic)에서 위젯을 자동 생성 — 정수/실수 스핀, `[lo, hi]` 범위, on/off, 선택지, 경로(폴더 버튼), 목록, `X | None` 은 체크박스로 켬/끔. 값은 `StudioSession.set_stage_field` 재검증을 거쳐 미리보기 재계산·레시피 저장에 반영, 잘못된 값은 대화상자 없이 **카드 빨간 줄** + 되돌림. 배치 카드에 **ROI 하위 스테이지**(method 콤보 + 폼 — mask_dir 를 고르면 `path` 자리표시). 새 method 를 스키마에 추가하면 GUI 수정 없이 편집기가 생긴다(`gui/studio/params.py` · `param_form.py`, `registry.config_class`).
 - 스튜디오 파이프라인 카드에 **fail-soft 경고 표시**(`⚠ <stage>: …`, ROI 경고는 배치 카드에) · 변형 카드의 잘린 사유는 툴팁에 원문 · 상태바에 "경고 n건 더".
 
 ## [0.5.0] - 2026-09-15

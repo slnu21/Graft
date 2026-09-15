@@ -89,7 +89,9 @@ QLabel#Bad {{ color: {COLORS["bad"]}; }}
 QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox {{
   background: {COLORS["bg"]}; border: 1px solid {COLORS["line2"]}; border-radius: 5px; padding: 3px 7px; color: {COLORS["tx"]};
 }}
-QComboBox:hover, QLineEdit:hover, QSpinBox:hover {{ border-color: {COLORS["tx3"]}; }}
+QComboBox:hover, QLineEdit:hover, QSpinBox:hover, QDoubleSpinBox:hover {{ border-color: {COLORS["tx3"]}; }}
+QComboBox:disabled, QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled {{ color: {COLORS["tx3"]}; border-color: {COLORS["line"]}; }}
+QComboBox[error="true"], QLineEdit[error="true"], QSpinBox[error="true"], QDoubleSpinBox[error="true"] {{ border-color: {COLORS["bad"]}; }}
 QComboBox::drop-down {{ border: none; width: 18px; }}
 QComboBox QAbstractItemView {{ background: {COLORS["panel2"]}; border: 1px solid {COLORS["line2"]}; selection-background-color: {COLORS["raise"]}; color: {COLORS["tx"]}; }}
 QPushButton {{ background: {COLORS["panel2"]}; border: 1px solid {COLORS["line2"]}; border-radius: 5px; padding: 5px 12px; color: {COLORS["tx2"]}; }}
