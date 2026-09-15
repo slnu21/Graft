@@ -443,6 +443,45 @@ def cmd_dataset_prune(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_dataset_textures(args: argparse.Namespace) -> int:
+    """텍스처셋(DTD)에서 perlin-texture 용 목록 파일을 만든다 — 은행에 넣지 않는다."""
+    from anograft.datasets.dtd import DtdAdapter, write_texture_list
+
+    try:
+        adapter = get_adapter(args.name)
+    except DatasetError as e:
+        _err(str(e))
+        return EXIT_RECIPE_ERROR
+    if not isinstance(adapter, DtdAdapter):
+        _err(f"{args.name} 은(는) 텍스처셋이 아닙니다 — dataset textures 는 dtd 만 지원")
+        return EXIT_RECIPE_ERROR
+    cats = _split_csv(args.categories) if args.categories else None
+    warnings: list[str] = []
+    try:
+        paths = adapter.textures(
+            Path(args.root), categories=cats, limit=args.limit, seed=args.seed, warn=warnings.append
+        )
+    except DatasetError as e:
+        _err(str(e))
+        return EXIT_RECIPE_ERROR
+    for w in warnings:
+        _err(f"경고: {w}")
+    if not paths:
+        _err("텍스처가 0장입니다 — 카테고리를 확인하세요 (dataset info dtd)")
+        return EXIT_RECIPE_ERROR
+    out = write_texture_list(Path(args.out), paths)
+    cats_used = sorted({p.parent.name for p in paths})
+    print(
+        f"텍스처 목록 → {out.as_posix()}: {len(paths)}장 · 카테고리 {len(cats_used)} ({', '.join(cats_used[:6])}"
+        f"{'…' if len(cats_used) > 6 else ''})"
+    )
+    print(
+        "  레시피: pipeline.source: {method: perlin-texture, texture: dir, texture_dir: "
+        f"{out.as_posix()}}}  (목록 안 경로는 목록 파일 기준)"
+    )
+    return EXIT_OK
+
+
 def cmd_dataset_info(args: argparse.Namespace) -> int:
     names = adapter_names()
     if not args.name:
@@ -654,6 +693,18 @@ def build_parser() -> argparse.ArgumentParser:
     di = dsub.add_parser("info", help="이름·라이선스·URL·기대 폴더 구조·카테고리")
     di.add_argument("name", nargs="?", default=None)
     di.set_defaults(func=cmd_dataset_info)
+    dt = dsub.add_parser(
+        "textures", help="텍스처셋(dtd) → perlin-texture 용 목록 파일 (은행에 넣지 않는다)"
+    )
+    dt.add_argument("name", help="dtd")
+    dt.add_argument("root", help="dtd/ 폴더 (images/<category>/…)")
+    dt.add_argument("--out", required=True, help="목록 파일 (.txt) — 레시피 texture_dir 에 지정")
+    dt.add_argument(
+        "--categories", default=None, help="a,b,c (기본: 결함처럼 보이는 카테고리 · '*' = 전부)"
+    )
+    dt.add_argument("--limit", type=int, default=None, help="최대 장수 (seed 로 결정적 추출)")
+    dt.add_argument("--seed", type=int, default=0)
+    dt.set_defaults(func=cmd_dataset_textures)
     dp = dsub.add_parser(
         "prune",
         help="검수 review.csv 에서 반려된 합성 이미지를 뺀 정리본 사본 (v0.7 검수 탭과 같은 동작)",

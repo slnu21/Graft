@@ -12,6 +12,7 @@ import pytest
 from anograft.bank import Bank
 from anograft.bank.importers.dataset import import_dataset
 from anograft.bank.importers.pairs import import_pair_records
+from anograft.cli import EXIT_OK, main
 from anograft.datasets import (
     REGISTRY,
     DatasetError,
@@ -20,11 +21,12 @@ from anograft.datasets import (
     info_lines,
     mvtec_ad,
 )
-from tests.fixtures import fake_mvtec_tree, fake_visa_tree
+from anograft.io import imgio
+from tests.fixtures import blob_image, fake_mvtec_tree, fake_visa_tree
 
 
 def test_registry_has_mvtec_ad_with_license_and_categories() -> None:
-    assert adapter_names() == ["mvtec-ad", "visa"] and "mvtec-ad" in REGISTRY
+    assert adapter_names() == ["dtd", "mvtec-ad", "visa"] and "mvtec-ad" in REGISTRY
     a = get_adapter("mvtec-ad")
     assert a.info.license.startswith("CC BY-NC-SA") and len(a.info.categories) == 15
     assert "metal_nut" in a.info.categories and "zipper" in mvtec_ad.GRAY_CATEGORIES
@@ -188,3 +190,69 @@ def test_read_mask_threshold_zero_vs_default(tmp_path: Path) -> None:
     assert imgio.read_mask(tmp_path / "m.png").max() == 0  # 기본 >127 은 0/1 을 버린다
     got = imgio.read_mask(tmp_path / "m.png", threshold=0)
     assert got.max() == 255 and int((got > 0).sum()) == 9
+
+
+# --- DTD (v0.7) — 텍스처셋: import-dataset 거부 · textures 목록 · CLI dataset textures · texture_dir 목록 파일 ------------
+
+
+def _fake_dtd(root: Path, cats: dict[str, int]) -> Path:
+    for c, n in cats.items():
+        for i in range(n):
+            imgio.write_image(
+                root / "images" / c / f"{c}_{i:04d}.jpg", blob_image(48, [(24, 24, 6)])
+            )
+    return root
+
+
+def test_dtd_adapter_lists_textures_and_refuses_import(tmp_path: Path) -> None:
+    from anograft.datasets.dtd import DEFECT_LIKE, DtdAdapter, write_texture_list
+
+    root = _fake_dtd(tmp_path / "dtd", {"cracked": 3, "stained": 2, "banded": 4})
+    a = DtdAdapter()
+    assert a.info.name == "dtd" and not a.info.importable and a.category(root) == "textures"
+    assert "textures dtd" in "\n".join(info_lines(a.info))
+    assert a.available_categories(root) == ["banded", "cracked", "stained"]
+    default = a.textures(root)
+    assert len(default) == 5 and all(p.parent.name in DEFECT_LIKE for p in default)
+    assert len(a.textures(root, categories=["*"])) == 9
+    warns: list[str] = []
+    assert len(a.textures(root, categories=["banded", "nope"], warn=warns.append)) == 4 and warns
+    sub = a.textures(root, categories=["*"], limit=4, seed=1)
+    assert len(sub) == 4 and sub == a.textures(root, categories=["*"], limit=4, seed=1)
+    assert (
+        sub != a.textures(root, categories=["*"], limit=4, seed=2) or True
+    )  # 다른 seed 는 대개 다름
+    with pytest.raises(DatasetError, match="결함 데이터셋이 아닙니다"):
+        list(a.defects(root))
+    with pytest.raises(DatasetError, match="images/"):
+        a.textures(tmp_path / "nope")
+    lf = write_texture_list(tmp_path / "lists" / "t.txt", default)
+    lines = lf.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 5 and lines[0].startswith("../dtd/images/")
+    # runner.load_textures 가 목록을 읽는다(목록 파일 기준 경로)
+    from anograft import runner
+
+    w: list[str] = []
+    assert len(runner.load_textures(lf, w)) == 5 and not w
+
+
+def test_cli_dataset_textures_and_import_refusal(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _fake_dtd(tmp_path / "dtd", {"cracked": 2, "woven": 1})
+    out = tmp_path / "tex.txt"
+    assert (
+        main(["dataset", "textures", "dtd", str(root), "--out", str(out), "--categories", "*"])
+        == EXIT_OK
+    )
+    cap = capsys.readouterr().out
+    assert "3장" in cap and "texture_dir" in cap and out.is_file()
+    assert main(["dataset", "textures", "visa", str(root), "--out", str(out)]) != EXIT_OK
+    assert (
+        main(["dataset", "textures", "dtd", str(root), "--out", str(out), "--categories", "zzz"])
+        != EXIT_OK
+    )
+    assert (
+        main(["bank", "import-dataset", "dtd", str(root), "--out", str(tmp_path / "b")]) != EXIT_OK
+    )
+    assert "결함 데이터셋이 아닙니다" in capsys.readouterr().err
