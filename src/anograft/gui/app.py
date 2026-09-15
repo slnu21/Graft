@@ -143,6 +143,7 @@ class MainWindow(QMainWindow):
         self.bank.bank_changed.connect(self._on_bank_saved)
         self.bank.edit_requested.connect(self._on_bank_edit_requested)
         self.label.source_updated.connect(self._on_source_updated)
+        self.label.next_edit_requested.connect(self._on_next_edit_requested)
         self.label.bank_saved.connect(self._on_label_bank_saved)
         self.studio.send_to_batch_requested.connect(self._on_send_to_batch)
         self.studio.recipe_opened.connect(self._on_recipe_opened)
@@ -237,6 +238,13 @@ class MainWindow(QMainWindow):
         )
         if self.label.begin_bank_edit(root, source_id, s.image, gray, s.mask):
             self.tabs.setCurrentWidget(self.label)
+
+    def _on_next_edit_requested(self, root: str, after: str) -> None:
+        """라벨 탭 '다음 저신뢰 소스' → 은행 탭이 다음 id 를 골라 편집 요청(같은 은행이 아니면 먼저 연다)."""
+        if self.bank.session.root is None or self.bank.session.root.as_posix() != root:
+            self.bank.open_bank(root)
+        if not self.bank.request_edit_next_low(after):
+            self.tabs.setCurrentWidget(self.bank)
 
     def _on_source_updated(self, root: str, source_id: str, mask, tool: str) -> None:
         """라벨 탭 은행 소스 편집 저장 → 은행 탭이 같은 id 에 덮어쓴다(→ bank_changed → 스튜디오 재준비)."""

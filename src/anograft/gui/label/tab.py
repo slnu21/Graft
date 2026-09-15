@@ -81,6 +81,9 @@ class LabelTab(QWidget):
     source_updated = Signal(
         str, str, object, str
     )  # (은행 루트 posix, source id, 마스크 ndarray, 도구) — 은행 소스 편집 저장
+    next_edit_requested = Signal(
+        str, str
+    )  # (은행 루트, 현재 source id) — 다음 저신뢰 소스로(은행 탭이 고른다)
 
     def __init__(self, session: LabelSession | None = None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -291,6 +294,12 @@ class LabelTab(QWidget):
         draft_row.addWidget(self.draft_cls, 1)
         draft_row.addWidget(self.btn_draft)
         v.addLayout(draft_row)
+        self.btn_next_low = QPushButton("다음 저신뢰 소스 Next low-confidence")
+        self.btn_next_low.setToolTip(
+            "은행 탭의 저신뢰 필터 순서대로 다음 소스를 열어 다듬는다 (은행 소스 편집 모드에서만)"
+        )
+        self.btn_next_low.hide()
+        v.addWidget(self.btn_next_low)
         self.cb_draft_auto = QCheckBox("열 때 자동 채우기")
         self.cb_draft_auto.setChecked(True)
         self.cb_draft_auto.setToolTip(
@@ -398,6 +407,7 @@ class LabelTab(QWidget):
         self.btn_roi_dir.clicked.connect(self._pick_roi_dir)
         self.roi_dir.editingFinished.connect(self._refresh_roi_hint)
         self.btn_draft.clicked.connect(self.fill_draft)
+        self.btn_next_low.clicked.connect(self.request_next_low)
         QShortcut(QKeySequence(Qt.Key.Key_PageDown), self, activated=lambda: self.step(1))
         QShortcut(QKeySequence(Qt.Key.Key_PageUp), self, activated=lambda: self.step(-1))
 
@@ -488,14 +498,23 @@ class LabelTab(QWidget):
         self._set_draft_enabled(False)
         self.draft_info.setText("은행 소스 편집 중 — 저장하면 같은 id 의 마스크를 덮어쓴다")
         self.btn_save.setText("은행 소스 갱신 Update source  (Ctrl+S)")
+        self.btn_next_low.show()
         self.refresh()
         self.status.emit(f"은행 소스 편집: {source_id} — 다듬은 뒤 Ctrl+S")
         return True
+
+    def request_next_low(self) -> None:
+        """현재 편집 중인 소스 다음의 저신뢰 소스를 은행 탭에 요청(저장하지 않은 편집은 버릴지 확인)."""
+        if self.edit_target is None:
+            return
+        root, sid = self.edit_target
+        self.next_edit_requested.emit(root, sid)
 
     def _end_bank_edit(self) -> None:
         if self.edit_target is None:
             return
         self.edit_target = None
+        self.btn_next_low.hide()
         self._on_mode()  # 저장 버튼 문구 복원
 
     def save_bank_edit(self) -> bool:
