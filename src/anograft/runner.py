@@ -32,7 +32,6 @@ from anograft.bank import Bank
 from anograft.bank.bank import BankError
 from anograft.core import recipe as R
 from anograft.core import registry
-from anograft.core.appearance import LIGHT_REAL_MIN
 from anograft.core.pipeline import Pipeline, RoiCache
 from anograft.core.recipe import Recipe
 from anograft.core.seeds import image_rng, pipeline_hash
@@ -172,7 +171,7 @@ def lighting_warning(recipe: Recipe, bank: Bank) -> str | None:
     bad: list[str] = []
     causes: set[str] = set()
     for r in bank.summary():
-        if r.cls not in selected or r.light_r is None or r.light_r < LIGHT_REAL_MIN:
+        if r.cls not in selected or not r.directional:
             continue
         eff = geo.for_class(r.cls)  # 클래스별 오버라이드가 있으면 그 범위로 판단
         lo, hi = eff.rotate

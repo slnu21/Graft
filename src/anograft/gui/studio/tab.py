@@ -29,7 +29,6 @@ from PySide6.QtWidgets import (
 
 from anograft import runner
 from anograft.core import recipe as R
-from anograft.core.appearance import LIGHT_REAL_MIN
 from anograft.core.channels import promote_to_bgr
 from anograft.gui.studio.canvas import CompareCanvas
 from anograft.gui.studio.jobs import (
@@ -225,11 +224,7 @@ class StudioTab(QWidget):
         if prep is None or prep.recipe.bankless:
             return []
         selected = set(prep.recipe.effective_classes(prep.bank))
-        return [
-            r.cls
-            for r in prep.bank.summary()
-            if r.cls in selected and r.light_r is not None and r.light_r >= LIGHT_REAL_MIN
-        ]
+        return [r.cls for r in prep.bank.summary() if r.cls in selected and r.directional]
 
     def _sync_fix(self) -> None:
         """기하 카드의 '고치기' 버튼 — prepare 경고에 `geometry:`(조명) 가 있을 때만."""

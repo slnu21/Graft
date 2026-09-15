@@ -20,7 +20,6 @@ import numpy as np
 from anograft.bank import Bank
 from anograft.bank.bank import ESTIMATED_PREFIX, BankError, is_low_confidence
 from anograft.bank.importers.common import BankWriter
-from anograft.core.appearance import LIGHT_REAL_MIN
 from anograft.core.types import DefectSource
 
 SORT_KEYS: tuple[str, ...] = ("id", "confidence", "area", "class")
@@ -188,11 +187,7 @@ class BankSession:
         """조명 일관성 R ≥ LIGHT_REAL_MIN 인 클래스(실제 소스 n ≥ 3) — ±180/flip 프리셋이 하이라이트를 뒤집는 것들."""
         if self.bank is None:
             return []
-        return [
-            (r.cls, r.light_r)
-            for r in self.bank.summary()
-            if r.light_r is not None and r.light_r >= LIGHT_REAL_MIN
-        ]
+        return [(r.cls, r.light_r) for r in self.bank.summary() if r.directional]
 
     # ------------------------------------------------------------------ 편집 (파일 계층 → reload)
 

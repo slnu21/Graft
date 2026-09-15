@@ -420,7 +420,7 @@ class ReviewTab(QWidget):
             fmt = lambda v: "–" if v is None else f"{v:.2f}"  # noqa: E731
             title += f" · 일관성 R 합성 {fmt(rs)} / 실제 {fmt(rr)}"
             per_class = self.session.lighting_concentration_by_class()
-            broken = lighting_broken_classes(per_class)
+            broken = lighting_broken_classes(per_class, self.session.directional_classes())
             if broken:
                 title += f" · ⚠ {', '.join(broken)} 회전이 조명을 뒤집음 → dent-graft"
         if self.session.bank is None:

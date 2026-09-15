@@ -103,7 +103,7 @@ def auto_dent_classes(bank_path: str | Path) -> list[str]:
         bank = Bank.load(p)
     except BankError:
         return []
-    return [r.cls for r in bank.summary() if r.light_r is not None and r.light_r >= LIGHT_REAL_MIN]
+    return [r.cls for r in bank.summary() if r.directional]
 
 
 def cmd_recipe_init(args: argparse.Namespace) -> int:
@@ -711,6 +711,7 @@ def bank_ls_json(bank: Bank, path: str) -> dict:
                 "no_pitch": r.no_pitch,
                 "light_r": r.light_r,
                 "light_n": r.light_n,
+                "directional": r.directional,
                 "origins": dict(r.origins),
                 "tags": dict(r.tags),
             }
@@ -755,10 +756,10 @@ def cmd_bank_ls(args: argparse.Namespace) -> int:
             f"{r.exact:>5}  {r.estimated:>5}  {r.low_conf:>7}  {r.no_pitch:>5}  {light:>6}  {origins}"
             + (f" · {tags}" if tags else "")
         )
-    directional = [r for r in rows if r.light_r is not None and r.light_r >= LIGHT_REAL_MIN]
+    directional = [r for r in rows if r.directional]
     if directional:
         _err(
-            f"참고: 조명 의존 클래스(lightR ≥ {LIGHT_REAL_MIN}: "
+            f"참고: 조명 의존 클래스(lightR ≥ {LIGHT_REAL_MIN} · n·R² ≥ 2.9 유의: "
             f"{', '.join(f'{r.cls} {r.light_r:.2f}' for r in directional)}) — 회전 ±180/flip 프리셋은 하이라이트를 "
             f"뒤집습니다. 프리셋 dent-graft 권장(run 이 경고합니다)"
         )

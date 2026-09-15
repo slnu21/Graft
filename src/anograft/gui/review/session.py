@@ -33,6 +33,7 @@ from anograft.core.appearance import (  # noqa: F401 — 검수 탭·테스트�
     angle_diff,
     circular_concentration,
     circular_mean,
+    is_directional,
     mask_contrast,
     mask_lighting,
     mask_sharpness,
@@ -464,7 +465,7 @@ class ReviewSession:
         out: dict[str, float] = {}
         for c, vals in self.real_by_class("lighting").items():
             r = circular_concentration(vals)
-            if len(vals) >= LIGHT_MIN_N and r is not None and r >= LIGHT_REAL_MIN:
+            if is_directional(r, len(vals)):
                 m = circular_mean(vals)
                 if m is not None:
                     out[c] = m
@@ -495,6 +496,14 @@ class ReviewSession:
             c: (circular_concentration(syn.get(c, [])), circular_concentration(real.get(c, [])))
             for c in sorted(set(syn) | set(real))
         }
+
+    def directional_classes(self) -> list[str]:
+        """실제 소스의 조명 방향이 유의하게 뚜렷한 클래스(`is_directional`) — 리포트·제목의 '뒤집힘' 판정 대상."""
+        return [
+            c
+            for c, vals in self.real_by_class("lighting").items()
+            if is_directional(circular_concentration(vals), len(vals))
+        ]
 
     # ------------------------------------------------------------------ 리포트
 
@@ -534,6 +543,7 @@ class ReviewSession:
             hist_lighting=self.distribution("lighting"),
             lighting_r=self.lighting_concentration(),
             lighting_r_class=self.lighting_concentration_by_class(),
+            directional=self.directional_classes(),
             flipped=sorted(self.flipped_lighting()),
             bank_name=self.bank.name if self.bank is not None else "",
             warnings=list(self.warnings),

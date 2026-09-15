@@ -4,6 +4,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- **조명 의존 판정에 유의성** — R ≥ 0.5 에 더해 n·R² ≥ 2.9(Rayleigh, p ≈ 0.05)를 요구(`core.appearance.is_directional`, `ClassSummary.directional`, `bank ls --json directional`). 무작위 각도의 R 은 ≈ 1/√n 이라 클래스당 5장짜리 은행에서 scratch·stain 까지 '조명 의존'으로 잡혀 per_class 가 불필요하게 들어가던 것(0.7.4 스모크에서 발견). n=3 은 R ≥ 0.98, n=5 는 0.76, n ≥ 12 는 0.5. 모든 소비처(경고·auto-dent·카드 버튼·은행 탭·퀵스타트·검수 뒤집힘·리포트)가 같은 판정을 쓴다.
+
 ## [0.7.4] - 2026-09-16
 
 v0.7.3 후속 — 클래스별 기하(`geometry.per_class`) · 검수 정밀화(조명 뒤집힘 의심 필터 · 실제 분포 클래스 필터) · 조명 지표를 은행·라벨·검수 어디서나. 레시피 스키마는 옵션 추가만.

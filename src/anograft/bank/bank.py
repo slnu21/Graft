@@ -28,7 +28,7 @@ import numpy as np
 import yaml
 
 from anograft.bank.mask_from_box import LOW_CONFIDENCE
-from anograft.core.appearance import lighting_of_sources
+from anograft.core.appearance import is_directional, lighting_of_sources
 from anograft.core.seeds import bank_fingerprint
 from anograft.core.types import DefectSource
 from anograft.io import imgio
@@ -63,6 +63,9 @@ class ClassSummary:
         None  # 조명 일관성 R(둘레 링의 밝은 쪽 각도, ≥ 0.5 면 조명 의존 결함 → dent-graft). n < 3 이면 None
     )
     light_n: int = 0  # 각도를 잰 소스 수
+    directional: bool = (
+        False  # is_directional(light_r, light_n) — R 임계 + Rayleigh 유의성(소표본 오판 방지)
+    )
 
 
 class Bank:
@@ -152,6 +155,7 @@ class Bank:
                     low_conf=sum(1 for s in srcs if is_low_confidence(s)),
                     light_r=light_r,
                     light_n=light_n,
+                    directional=is_directional(light_r, light_n),
                 )
             )
         return out
