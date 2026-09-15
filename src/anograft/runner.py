@@ -63,11 +63,16 @@ class Prepared:
 
 
 def load_textures(folder: Path | None, warnings: list[str]) -> list[np.ndarray]:
-    """``perlin-texture`` 의 ``texture_dir`` 이미지들 — 읽기만, 실패는 경고(fail-soft). 순서는 이름 정렬."""
+    """``perlin-texture`` 의 ``texture_dir`` 이미지들 — 읽기만, 실패는 경고(fail-soft). 순서는 이름 정렬.
+    폴더 대신 ``.txt`` 목록(한 줄 = 경로, 목록 파일 기준 상대 — ``dataset textures dtd`` 가 만든다)도 받는다(줄 순서)."""
     if folder is None:
         return []
     try:
-        paths = imgio.list_images(folder)
+        f = Path(folder)
+        if f.is_file() and f.suffix.lower() == ".txt":
+            paths = imgio.read_path_list(f)
+        else:
+            paths = imgio.list_images(f)
     except (OSError, ValueError) as e:
         warnings.append(f"texture_dir 을 읽을 수 없습니다: {e}")
         return []

@@ -28,6 +28,7 @@ class DatasetInfo:
     layout_help: str  # 기대 폴더 구조 (여러 줄)
     categories: tuple[str, ...]
     note: str = ""
+    importable: bool = True  # False = 은행 임포트 대상이 아님(텍스처셋 — dataset textures)
 
 
 @runtime_checkable
@@ -82,7 +83,11 @@ def info_lines(info: DatasetInfo) -> list[str]:
     if info.note:
         lines.append(f"  참고: {info.note}")
     lines.append(
-        "  앱은 내려받지도 재배포하지도 않습니다 — 로컬 사본을 읽기만 합니다: "
-        f"anograft bank import-dataset {info.name} <root>/<category> --out bank/<category>"
+        "  앱은 내려받지도 재배포하지도 않습니다 — 로컬 사본을 읽기만 합니다"
+        + (
+            f": anograft bank import-dataset {info.name} <root>/<category> --out bank/<category>"
+            if info.importable
+            else f" (은행 임포트 대상 아님 — anograft dataset textures {info.name} <root> --out textures.txt)"
+        )
     )
     return lines

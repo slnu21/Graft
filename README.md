@@ -70,6 +70,7 @@ anograft-gui recipes/sample-poisson.yaml                                  # GUI 
 | 이미지 + 마스크 PNG 쌍 | `anograft bank import-pairs --images … --masks … --class scratch --out bank/mine` (`--class-from-dir` · `--csv`) |
 | MVTec AD 로컬 사본 | `anograft dataset info mvtec-ad` → `anograft bank import-dataset mvtec-ad <root>/metal_nut --out bank/metal_nut` (내려받지 않음, CC BY-NC-SA) |
 | VisA 로컬 사본 | `anograft dataset info visa` → `anograft bank import-dataset visa <VisA>/candle --out bank/candle` (결함 유형 세분이 없어 클래스 `anomaly` 하나, CC BY-NC-SA) |
+| DTD 텍스처(은행 없이 DRAEM 식) | `anograft dataset info dtd` → `anograft dataset textures dtd <dtd> --out textures.txt [--categories cracked,stained] [--limit 300]` → 레시피 `source: {method: perlin-texture, texture: dir, texture_dir: textures.txt}`. 결함이 아니라 은행에는 넣지 않는다(연구 목적 라이선스, 로컬 사본만) (v0.7) |
 | **결함 사진만**(라벨 없음) | GUI **라벨 탭** — 폴더 열기 → 사진 선택 → 브러시/폴리곤/자동 선택(박스를 끌면 GrabCut) → 클래스 입력 → **은행에 저장**(Ctrl+S). 라벨링 도구가 따로 필요 없다 (v0.5). 그다음 스튜디오에서 미리보기 → **배치로 보내기** → 배치 탭 **생성 시작** — CLI 없이 끝까지 |
 | 합성 결과 검수 | GUI **검수 탭**(v0.7) — 출력 폴더를 열어 썸네일로 보고 A/R 로 채택·반려(`review.csv`), 합성 vs 실제(은행) 결함 크기 분포 히스토그램, **정리본 내보내기**(반려 제외). CLI `anograft dataset prune <out> --out <pruned>` |
 | 은행 정리 | GUI **은행 탭**(v0.7) — 소스 그리드(저신뢰 빨간 테두리) · 필터/정렬 · 삭제 · **라벨 탭에서 다듬기**(마스크를 고쳐 같은 id 에 덮어쓰기). `bank ls`/`bank preview` 의 GUI 판 |
@@ -184,6 +185,7 @@ In the Studio, the **pipeline cards** on the right let you pick each stage's met
 | Image + mask PNG pairs | `anograft bank import-pairs --images … --masks … --class scratch --out bank/mine` (`--class-from-dir`, `--csv`) |
 | Local MVTec AD copy | `anograft dataset info mvtec-ad` → `anograft bank import-dataset mvtec-ad <root>/metal_nut --out bank/metal_nut` (never downloaded; CC BY-NC-SA) |
 | Local VisA copy | `anograft dataset info visa` → `anograft bank import-dataset visa <VisA>/candle --out bank/candle` (no defect-type split, so one class `anomaly`; CC BY-NC-SA) |
+| DTD textures (DRAEM-style, no bank) | `anograft dataset info dtd` → `anograft dataset textures dtd <dtd> --out textures.txt [--categories cracked,stained] [--limit 300]` → recipe `source: {method: perlin-texture, texture: dir, texture_dir: textures.txt}`. Not defects, so never imported into a bank (research-only licence, local copy only) (v0.7) |
 | **Only defect photos** (no labels) | GUI **Label tab** — open folder → pick a photo → brush / polygon / auto-select (drag a box → GrabCut) → type the class → **Save to bank** (Ctrl+S). No separate labelling tool needed (v0.5). Then preview in Studio → **Send to batch** → **Run** in the Batch tab — no CLI required |
 | Review results | GUI **Review tab** (v0.7) — open an output folder, accept/reject thumbnails with A/R (`review.csv`), compare synthetic vs real (bank) defect-size histograms, **export a pruned copy** without the rejects. CLI `anograft dataset prune <out> --out <pruned>` |
 | Tidy the bank | GUI **Bank tab** (v0.7) — source grid (red border = low confidence), filter/sort, delete, **Refine in Label** (fix the mask and overwrite the same id). The GUI counterpart of `bank ls` / `bank preview` |

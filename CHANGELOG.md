@@ -4,9 +4,10 @@
 
 ## [Unreleased]
 
-v0.7 — 은행 탭 · COCO writer · 검수 탭.
+v0.7 — 은행 탭 · COCO writer · 검수 탭 · DTD 텍스처.
 
 ### Added
+- **DTD 어댑터 + `dataset textures`**(v0.7): `dataset info dtd`(연구 목적 라이선스·구조·결함처럼 보이는 카테고리 15) · `anograft dataset textures dtd <dtd> --out textures.txt [--categories a,b|*] [--limit n --seed s]` 가 `perlin-texture` 용 목록 파일을 만든다(은행에 넣지 않는다 — `import-dataset dtd` 는 거부). `texture_dir` 이 폴더뿐 아니라 **`.txt` 목록**(목록 파일 기준 경로)도 받는다.
 - **검수 탭**(v0.7, GUI): `anograft run` 출력 폴더를 열어 합성 결과를 썸네일(GT 윤곽)로 보고 **채택(A)/반려(R)/보류(U)** — `review.csv` 자동 저장, 다중 선택, 메모, "판정 후 다음으로". 필터(미검수·채택·반려·폴백·skipped·클래스). 상세(이미지+GT, 클래스·소스·면적·blend·폴백·경고). **분포 히스토그램** — 합성 인스턴스(반려 제외) vs 은행 실제 소스의 면적/긴 변을 같은 로그 구간에(합성 `#00A188` · 실제 `#C8841C`). **정리본 내보내기** = 반려를 뺀 사본(정상 유지, skipped 행 제거, manifest 재작성, `annotations.json` 필터, mvtec 사본 포함). 배치가 끝나면 검수 탭 경로가 그 출력을 가리킨다.
 - CLI **`anograft dataset prune <root> --out <dir> [--review review.csv] [--drop-unreviewed]`** — 검수 탭과 같은 정리본(`io/prune.py`).
 - **`coco` writer**(v0.7): `output.writer: {format: coco}` → 정본 위에 `annotations.json`(COCO instances — images 는 합성+정상, categories 는 은행 classes 순서로 id 1-based, annotations 는 인스턴스 GT 마스크의 외곽 폴리곤 `segmentation`·`bbox`·`area`(픽셀 수)·`iscrowd 0`). 순수 JSON(pycocotools 불필요), 같은 결과 → 같은 바이트(`info` 에 시각 없음). 사이드카 `writer.image_id/annotation_ids`, manifest `label = annotations.json#<image_id>`. 배치 탭 출력 형식에 `coco`.
