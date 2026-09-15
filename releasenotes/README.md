@@ -2,6 +2,7 @@
 
 최신순. 1 버전 = 1 파일. GitHub Release 본문은 각 파일을 그대로 쓴다.
 
+- [v0.7.5](v0.7.5.md) — 2026-09-16 · 조명 의존 판정에 Rayleigh 유의성(n·R² ≥ 2.9) — 소표본 은행에서 스크래치까지 잡히던 오판 수정
 - [v0.7.4](v0.7.4.md) — 2026-09-16 · 클래스별 기하·검수 정밀화: `geometry.per_class`(`recipe init --auto-dent` · 기하 카드 버튼) · 검수 필터 '조명 뒤집힘 의심'(`prune --drop-flipped`) · 실제 분포 = 레시피 클래스 · 조명 화살표(bank preview)·라벨 통계 · 배치 로그 진단
 - [v0.7.3](v0.7.3.md) — 2026-09-16 · 진단·시작: 조명 방향 분포·일관성 R · `bank ls` lightR·조명 경고 · `run --dry-run` 배치 가능성 · GUI '샘플 데이터' 한 클릭 · `sample --shape ring` · `recipe init --roi` · `max_align_deg`(dent-graft 30)
 - [v0.7.2](v0.7.2.md) — 2026-09-16 · 흐름 다듬기: 배치→검수 버튼 · 다음 미검수 · 저신뢰 차례로 다듬기 · 대비 분포 · 스튜디오 µm/px · `doctor` · `bank ls --json`

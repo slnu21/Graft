@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+## [0.7.5] - 2026-09-16
+
+v0.7.4 의 조명 의존 판정 수정(소표본 오판). 다른 변경 없음.
+
 ### Fixed
 - **조명 의존 판정에 유의성** — R ≥ 0.5 에 더해 n·R² ≥ 2.9(Rayleigh, p ≈ 0.05)를 요구(`core.appearance.is_directional`, `ClassSummary.directional`, `bank ls --json directional`). 무작위 각도의 R 은 ≈ 1/√n 이라 클래스당 5장짜리 은행에서 scratch·stain 까지 '조명 의존'으로 잡혀 per_class 가 불필요하게 들어가던 것(0.7.4 스모크에서 발견). n=3 은 R ≥ 0.98, n=5 는 0.76, n ≥ 12 는 0.5. 모든 소비처(경고·auto-dent·카드 버튼·은행 탭·퀵스타트·검수 뒤집힘·리포트)가 같은 판정을 쓴다.
 
@@ -169,7 +173,8 @@ v0.4 — CPU 알고리즘 확장. **여전히 샘플 데이터로만 검증**(�
 - GUI는 스튜디오 탭만. 재현은 같은 OS·OpenCV 부버전 범위(`seamlessClone` 솔버).
 - `release.yml`의 Windows zip 잡은 첫 push 전이라 CI에서 미검증(로컬 `tools/build_zip.ps1`와 같은 절차).
 
-[Unreleased]: https://github.com/slnu21/Graft/compare/v0.7.4...HEAD
+[Unreleased]: https://github.com/slnu21/Graft/compare/v0.7.5...HEAD
+[0.7.5]: https://github.com/slnu21/Graft/compare/v0.7.4...v0.7.5
 [0.7.4]: https://github.com/slnu21/Graft/compare/v0.7.3...v0.7.4
 [0.7.3]: https://github.com/slnu21/Graft/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/slnu21/Graft/compare/v0.7.1...v0.7.2
