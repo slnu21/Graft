@@ -28,6 +28,8 @@ from PySide6.QtWidgets import (
 )
 
 from anograft import runner
+from anograft.core import recipe as R
+from anograft.core.appearance import LIGHT_REAL_MIN
 from anograft.core.channels import promote_to_bgr
 from anograft.gui.studio.canvas import CompareCanvas
 from anograft.gui.studio.jobs import (
@@ -156,6 +158,7 @@ class StudioTab(QWidget):
             lambda st, m: self._edit(lambda: self.session.set_method(st, m))
         )
         self.pipe.field_changed.connect(self._on_field)
+        self.pipe.fix_requested.connect(self._on_fix)
         self.variants.selected.connect(self._on_variant)
         self.cb_gt.toggled.connect(lambda v: self.canvas.set_overlays(gt=v))
         self.cb_roi.toggled.connect(lambda v: self.canvas.set_overlays(roi=v))
@@ -173,6 +176,7 @@ class StudioTab(QWidget):
         ses = self.session
         self.strip.sync(ses.recipe, ses.n_variants, ses.long_side)
         self.pipe.sync(ses.recipe)
+        self._sync_fix()  # 카드 편집(reprepare)으로 경고가 생기거나 사라졌을 수 있다
         summary = ""
         if ses.prepared is not None:
             b = ses.prepared.bank
@@ -214,6 +218,39 @@ class StudioTab(QWidget):
             f"대상 {t.name if t else '–'} · 은행 {ses.prepared.bank.name if ses.prepared else '–'} · "
             f"레시피 {ses.recipe.name} ({ses.recipe.pipeline.preset}, seed {ses.recipe.seed})"
         )
+
+    def directional_classes(self) -> list[str]:
+        """은행에서 조명 의존으로 판정된 클래스(lightR ≥ 0.5, n ≥ 3) 중 이 레시피가 뽑는 것."""
+        prep = self.session.prepared
+        if prep is None or prep.recipe.bankless:
+            return []
+        selected = set(prep.recipe.effective_classes(prep.bank))
+        return [
+            r.cls
+            for r in prep.bank.summary()
+            if r.cls in selected and r.light_r is not None and r.light_r >= LIGHT_REAL_MIN
+        ]
+
+    def _sync_fix(self) -> None:
+        """기하 카드의 '고치기' 버튼 — prepare 경고에 `geometry:`(조명) 가 있을 때만."""
+        has = any(w.startswith("geometry:") for w in self.session.warnings)
+        self.pipe.cards["geometry"].set_fix("▶ 조명 클래스만 ±15°·flip 끔" if has else None)
+
+    def _on_fix(self, stage: str) -> None:
+        """기하 카드 '고치기' — 조명 의존 클래스에 `DENT_OVERRIDE` 를 per_class 로(다른 클래스는 그대로)."""
+        if stage != "geometry":
+            return
+        classes = self.directional_classes()
+        if not classes:
+            self.status.emit("조명 의존 클래스가 없습니다")
+            return
+        per = {
+            c: o.model_dump() for c, o in self.session.recipe.pipeline.geometry.per_class.items()
+        }
+        for c in classes:
+            per[c] = {**per.get(c, {}), **R.DENT_OVERRIDE}
+        self._edit(lambda: self.session.set_stage_field("geometry", "per_class", per))
+        self.status.emit(f"geometry.per_class ← {', '.join(classes)} (±15°, flip 끔)")
 
     def _fit_warnings(self, res: PreviewResult, roi: np.ndarray | None) -> list[str]:
         """이 대상의 허용 영역 최대 폭(미리보기 ROI ÷ 축소 배율 = 원본 px) vs 클래스별 패치 폭 — 빠듯/불가면 배치 카드 ⚠."""
@@ -402,6 +439,7 @@ class StudioTab(QWidget):
             )
         self.sync_widgets()
         n_warn = len(self.session.warnings)
+        self._sync_fix()
         self.status.emit(
             f"준비 완료 — 은행 {len(prep.bank)}개 · 대상 {len(prep.targets)}장"
             + (f" · 경고 {n_warn}건" if n_warn else "")

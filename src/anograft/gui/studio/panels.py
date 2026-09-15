@@ -397,6 +397,7 @@ class StageCard(QFrame):
 
     method_changed = Signal(str, str)  # stage, method
     field_changed = Signal(str, str, object)  # stage, field(점 경로), value
+    fix_requested = Signal(str)  # stage — 경고 옆 '고치기' 버튼(탭이 무엇을 고칠지 안다)
 
     def __init__(self, no: int, stage: str, title: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -436,6 +437,17 @@ class StageCard(QFrame):
         self.note.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.note.hide()
         notes.addWidget(self.note)
+        # 경고를 한 번에 고치는 버튼(탭이 라벨과 동작을 정한다 — 예: 조명 의존 클래스만 per_class 로) · 정보 한 줄(per_class 등)
+        self.fix = QPushButton("")
+        self.fix.setObjectName("Fix")
+        self.fix.hide()
+        self.fix.clicked.connect(lambda: self.fix_requested.emit(self.stage))
+        notes.addWidget(self.fix, 0, Qt.AlignmentFlag.AlignLeft)
+        self.info = QLabel("")
+        self.info.setObjectName("Muted")
+        self.info.setWordWrap(True)
+        self.info.hide()
+        notes.addWidget(self.info)
         # 파라미터 재검증 오류 — 값은 세션 값으로 되돌아가고 사유만 여기 남는다
         self.error = QLabel("")
         self.error.setObjectName("Bad")
@@ -515,6 +527,16 @@ class StageCard(QFrame):
             self.roi_form.set_specs(field_specs(roi))
             self.roi_method.setToolTip(params_text(roi))
 
+    def set_fix(self, label: str | None) -> None:
+        """경고 옆 '고치기' 버튼 — None 이면 숨김."""
+        self.fix.setText(label or "")
+        self.fix.setVisible(bool(label))
+
+    def set_info(self, text: str | None) -> None:
+        """카드 아래 정보 한 줄(경고 아님) — None/빈 문자열이면 숨김."""
+        self.info.setText(text or "")
+        self.info.setVisible(bool(text))
+
     def set_error(self, text: str | None, field: str | None = None, *, roi: bool = False) -> None:
         """재검증 오류 한 줄(None 이면 해제) + 해당 필드 행 강조."""
         self.error.setText(text or "")
@@ -559,6 +581,7 @@ class StageCard(QFrame):
 class PipelinePanel(QScrollArea):
     method_changed = Signal(str, str)
     field_changed = Signal(str, str, object)  # stage("roi" 포함), field, value
+    fix_requested = Signal(str)  # stage
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -576,6 +599,7 @@ class PipelinePanel(QScrollArea):
             card = StageCard(i, stage, title)
             card.method_changed.connect(self.method_changed.emit)
             card.field_changed.connect(self.field_changed.emit)
+            card.fix_requested.connect(self.fix_requested.emit)
             self.cards[stage] = card
             lay.addWidget(card)
         lay.addStretch(1)
@@ -589,6 +613,7 @@ class PipelinePanel(QScrollArea):
         pipe = recipe.pipeline
         for stage, card in self.cards.items():
             card.sync(getattr(pipe, stage))
+        self.cards["geometry"].set_info(per_class_text(pipe.geometry))
 
     def set_error(self, stage: str, field: str, text: str) -> None:
         self.clear_errors()
@@ -606,3 +631,19 @@ class PipelinePanel(QScrollArea):
     def stage_warnings(self) -> dict[str, str]:
         """카드에 표시 중인 경고 {stage: text} — 테스트·상태 표시용."""
         return {s: c.note.text() for s, c in self.cards.items() if not c.note.isHidden()}
+
+
+def per_class_text(geo: Any) -> str:
+    """기하 카드 정보 줄 — `geometry.per_class`(카드 폼엔 안 나오는 dict) 를 한 줄로. 없으면 빈 문자열."""
+    per = getattr(geo, "per_class", None) or {}
+    parts = []
+    for cls, o in per.items():
+        bits = []
+        if o.rotate is not None:
+            bits.append(f"회전 {o.rotate[0]:g}~{o.rotate[1]:g}°")
+        if o.flip is not None:
+            bits.append("flip " + ("켬" if o.flip else "끔"))
+        if o.scale is not None:
+            bits.append(f"scale {o.scale[0]:g}~{o.scale[1]:g}")
+        parts.append(f"{cls}: {' · '.join(bits) or '(변경 없음)'}")
+    return ("클래스별 per_class — " + " / ".join(parts)) if parts else ""
