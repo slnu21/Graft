@@ -35,6 +35,7 @@ from anograft.core.pipeline import TraceStep
 from anograft.gui.qt_image import to_qpixmap
 from anograft.gui.studio.param_form import ParamForm
 from anograft.gui.studio.params import field_specs
+from anograft.gui.studio.per_class import PerClassEditor
 from anograft.gui.theme import COLORS
 from anograft.preview import fit_long_side
 
@@ -463,6 +464,15 @@ class StageCard(QFrame):
         self.form.value_changed.connect(lambda n, v: self.field_changed.emit(self.stage, n, v))
         lay.addWidget(self.form)
 
+        # 기하 카드 = per_class 편집 표(폼이 못 그리는 dict) — 변경은 field_changed("geometry", "per_class", dict)
+        self.per_class: PerClassEditor | None = None
+        if stage == "geometry":
+            self.per_class = PerClassEditor()
+            self.per_class.changed.connect(
+                lambda d: self.field_changed.emit("geometry", "per_class", d)
+            )
+            lay.addWidget(self.per_class)
+
         # 배치 카드 = ROI 하위 스테이지 포함 (레시피 `placement.roi`, 실행은 이미지당 1회 별도 스테이지)
         self.roi_method: QComboBox | None = None
         self.roi_form: ParamForm | None = None
@@ -521,6 +531,8 @@ class StageCard(QFrame):
         self._select(self.method, registry.config_method(cfg))
         self.form.set_specs(field_specs(cfg))
         self.title.setToolTip(params_text(cfg))
+        if self.per_class is not None:
+            self.per_class.set_value(dict(getattr(cfg, "per_class", {}) or {}))
         if self.roi_method is not None and self.roi_form is not None:
             roi = cfg.roi
             self._select(self.roi_method, registry.config_method(roi))
@@ -613,7 +625,19 @@ class PipelinePanel(QScrollArea):
         pipe = recipe.pipeline
         for stage, card in self.cards.items():
             card.sync(getattr(pipe, stage))
-        self.cards["geometry"].set_info(per_class_text(pipe.geometry))
+        geo = self.cards["geometry"]
+        # 표가 있으면(클래스를 알 때) 정보 줄은 숨기고, 아직 은행을 모르면 한 줄 요약만
+        geo.set_info(
+            ""
+            if geo.per_class is not None and geo.per_class.isVisible()
+            else per_class_text(pipe.geometry)
+        )
+
+    def set_classes(self, classes: list[str]) -> None:
+        """준비된 은행의 클래스 → 기하 카드 per_class 표의 행."""
+        geo = self.cards["geometry"]
+        if geo.per_class is not None:
+            geo.per_class.set_classes(classes)
 
     def set_error(self, stage: str, field: str, text: str) -> None:
         self.clear_errors()

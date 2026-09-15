@@ -5,6 +5,7 @@
 ## [Unreleased]
 
 ### Added
+- 스튜디오 기하 카드에 **`per_class` 편집 표** — 은행 클래스마다 적용 체크 · 회전 lo/hi · flip(기본/켬/끔). 디바운스 뒤 재검증(카드 폼과 같은 규칙), scale 오버라이드는 YAML 값 보존. ▶ 버튼·`--auto-dent` 결과가 표에 그대로 보인다.
 - 검수 탭 **표시된 것 전부 반려** — 현재 필터(예: 조명 뒤집힘 의심·폴백)의 합성 결과를 한 번에.
 - `bank ls` `lightR` 열에 `*`(유의한 조명 의존) — 0.66 과 1.00* 을 한눈에.
 - 스튜디오 변형 카드에 **↯ 조명 뒤집힘 의심** — 은행에서 방향이 유의한 클래스(`Bank.real_lighting_direction`, `ClassSummary.light_dir`)의 실제 평균 방향과 90° 넘게 벗어난 인스턴스가 있으면 캡션 ↯ + 툴팁(인스턴스·조치). 검수 탭 필터를 미리보기에서 미리. `core.appearance.lighting_stats/flipped_instances`.
