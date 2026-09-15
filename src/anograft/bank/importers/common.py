@@ -225,6 +225,38 @@ class BankWriter:
             self.stats.added.append(a)
         return added
 
+    def delete(self, cls: str, source_id: str) -> int:
+        """소스 세 파일(png·mask.png·json)을 지운다. ``classes`` 는 유지(id 순서 = class id). 반환 1/0(없으면 0)."""
+        cdir = self.root / cls
+        files = [cdir / f"{source_id}{sfx}" for sfx in (IMAGE_SUFFIX, MASK_SUFFIX, META_SUFFIX)]
+        if not files[2].is_file():
+            return 0
+        for f in files:
+            if f.is_file():
+                f.unlink()
+        self.log(f"삭제 {cls}/{source_id}")
+        return 1
+
+    def replace_mask(
+        self, cls: str, source_id: str, mask: np.ndarray, *, mask_origin: str = "manual:brush"
+    ) -> dict[str, Any]:
+        """같은 id 의 마스크를 덮어쓴다(크롭은 그대로). 메타 ``mask_origin``·``area_px`` 갱신, 추정 점수(``confidence``/``flags``)는
+        지운다(사람이 손본 마스크). 반환 = 갱신된 메타."""
+        cdir = self.root / cls
+        meta_path = cdir / f"{source_id}{META_SUFFIX}"
+        if not meta_path.is_file():
+            raise FileNotFoundError(f"소스가 없습니다: {cls}/{source_id}")
+        m = binarize(mask)
+        imgio.write_image(cdir / f"{source_id}{MASK_SUFFIX}", m)
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        meta["mask_origin"] = mask_origin
+        meta["area_px"] = int(np.count_nonzero(m))
+        meta["confidence"] = None
+        meta["flags"] = []
+        meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
+        self.log(f"마스크 교체 {cls}/{source_id} ({mask_origin})")
+        return meta
+
     def finish(self, entry: dict[str, Any] | None = None) -> Path:
         """임포트 이력 한 줄을 붙이고 ``bank.yaml``을 쓴다."""
         if entry is not None:

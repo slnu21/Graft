@@ -1,4 +1,7 @@
-"""``MainWindow`` — 상단 바(브랜드·컨텍스트) · 5탭(은행·라벨·스튜디오·배치·검수 — 라벨·스튜디오·배치가 실물) · 상태바. 목업 ``.bar``·``.tabs``.
+"""``MainWindow`` — 상단 바(브랜드·컨텍스트) · 5탭(은행·라벨·스튜디오·배치·검수 — 검수만 자리표시, v0.7) · 상태바. 목업 ``.bar``·``.tabs``.
+
+은행 탭(v0.7): 소스 보기·필터·삭제, "라벨 탭에서 다듬기"(``edit_requested`` → ``LabelTab.begin_bank_edit`` → ``source_updated`` →
+``BankTab.apply_mask``). 은행이 바뀌면(``bank_changed``·라벨 탭 ``bank_saved``) 같은 은행을 쓰는 스튜디오가 다시 준비하고 은행 탭이 새로고침한다.
 
 스튜디오 "배치로 보내기" → 현재 레시피를 배치 탭에 넘기고 탭을 전환한다(``send_to_batch`` 시그널). 배치 탭은 ``BatchWorker`` 스레드로
 ``runner.run`` 을 돌린다 — CLI ``anograft run`` 과 결과 동일.
@@ -29,6 +32,7 @@ from PySide6.QtWidgets import (
 )
 
 from anograft import __version__
+from anograft.gui.bank.tab import BankTab
 from anograft.gui.batch.tab import BatchTab
 from anograft.gui.label.tab import LabelTab
 from anograft.gui.studio.session import StudioSession
@@ -44,7 +48,6 @@ TABS: tuple[tuple[str, str], ...] = (
     ("review", "검수  Review"),
 )
 PLACEHOLDER: dict[str, str] = {
-    "bank": "결함 은행 보기·가져오기 — v0.3 (지금은 CLI: anograft bank import-yolo / bank ls)",
     "review": "합성 결과 검수·실제 결함 분포 비교 — v0.7",
 }
 SETTINGS_ORG, SETTINGS_APP = "slnu21", "Graft"
@@ -107,11 +110,14 @@ class MainWindow(QMainWindow):
         self.studio = StudioTab(self.session, self.worker)
         self.label = LabelTab()
         self.batch = BatchTab()
+        self.bank = BankTab()
         for key, label in TABS:
             if key == "studio":
                 page: QWidget = self.studio
             elif key == "label":
                 page = self.label
+            elif key == "bank":
+                page = self.bank
             elif key == "batch":
                 page = self.batch
             else:
@@ -128,6 +134,11 @@ class MainWindow(QMainWindow):
         self.label.status.connect(self.status_bar.showMessage)
         self.label.bank_saved.connect(self._on_bank_saved)
         self.batch.status.connect(self.status_bar.showMessage)
+        self.bank.status.connect(self.status_bar.showMessage)
+        self.bank.bank_changed.connect(self._on_bank_saved)
+        self.bank.edit_requested.connect(self._on_bank_edit_requested)
+        self.label.source_updated.connect(self._on_source_updated)
+        self.label.bank_saved.connect(self._on_label_bank_saved)
         self.studio.send_to_batch_requested.connect(self._on_send_to_batch)
         self.studio.recipe_opened.connect(self._on_recipe_opened)
         self.label.set_bank(self.session.recipe.inputs.bank_key())
@@ -171,7 +182,10 @@ class MainWindow(QMainWindow):
         """스튜디오가 레시피를 열거나 저장했다 — 최근 레시피로 기억, 라벨 탭 은행 동기."""
         if self.settings is not None:
             remember_recipe(path, self.settings)
-        self.label.set_bank(self.session.recipe.inputs.bank_key())
+        bank = self.session.recipe.inputs.bank_key()
+        self.label.set_bank(bank)
+        if bank and not self.bank.session.loaded:
+            self.bank.open_bank(bank)
 
     def open_recipe(self, path: str | Path) -> None:
         self.studio.open_recipe(Path(path))
@@ -184,10 +198,36 @@ class MainWindow(QMainWindow):
         )
 
     def _on_bank_saved(self, root: str) -> None:
-        """라벨 탭이 은행에 소스를 더했다 — 스튜디오가 그 은행을 쓰면 다시 준비(새 소스 반영)."""
+        """라벨 탭이 은행에 소스를 더했다(또는 은행 탭이 지우거나 고쳤다) — 스튜디오가 그 은행을 쓰면 다시 준비."""
         ses = self.session
         if ses.recipe.inputs.bank_key() == root:
             self.studio.open_inputs(root, ses.recipe.inputs.targets.as_posix())
+
+    def _on_label_bank_saved(self, root: str) -> None:
+        """라벨 탭 저장 → 은행 탭이 같은 은행을 보고 있으면 새로고침."""
+        if self.bank.session.root is not None and self.bank.session.root.as_posix() == root:
+            self.bank.reload()
+
+    def _on_bank_edit_requested(self, root: str, source_id: str) -> None:
+        """은행 탭 → 라벨 탭 은행 소스 편집 모드."""
+        try:
+            s = self.bank.session.source(source_id)
+        except Exception as e:  # BankSessionError — 상태바에만
+            self.status_bar.showMessage(str(e))
+            return
+        gray = bool(
+            s.image.ndim == 3
+            and (s.image[..., 0] == s.image[..., 1]).all()
+            and (s.image[..., 1] == s.image[..., 2]).all()
+        )
+        if self.label.begin_bank_edit(root, source_id, s.image, gray, s.mask):
+            self.tabs.setCurrentWidget(self.label)
+
+    def _on_source_updated(self, root: str, source_id: str, mask, tool: str) -> None:
+        """라벨 탭 은행 소스 편집 저장 → 은행 탭이 같은 id 에 덮어쓴다(→ bank_changed → 스튜디오 재준비)."""
+        if self.bank.session.root is None or self.bank.session.root.as_posix() != root:
+            self.bank.open_bank(root)
+        self.bank.apply_mask(source_id, mask, tool=tool)
 
     def _on_send_to_batch(self) -> None:
         """스튜디오 → 배치: 현재 레시피(저장 여부 무관)를 넘기고 배치 탭으로."""
