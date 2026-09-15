@@ -38,7 +38,7 @@ Graft는 알고리즘을 새로 만드는 도구가 아니라 그 사이를 메�
 
 ## 5분 시작
 
-보유 데이터가 없어도 됩니다. 샘플 YOLO 세트(브러시드 메탈 + scratch/pit/stain)로 끝까지 한 바퀴. zip을 푼 폴더(또는 repo 루트)에서:
+보유 데이터가 없어도 됩니다. 샘플 YOLO 세트(브러시드 메탈 + scratch/pit/stain)로 끝까지 한 바퀴. **GUI 라면 상단 '샘플 데이터 Sample…' 버튼 하나**(판/원형 → 샘플·은행·레시피를 만들어 스튜디오에 엶), CLI 는 `anograft sample --out samples/metal --quickstart` 한 줄(아래는 단계별). zip을 푼 폴더(또는 repo 루트)에서:
 
 ```powershell
 # zip 이면 anograft → .\anograft.exe
@@ -166,7 +166,7 @@ Dependencies: numpy · opencv-python-headless · pydantic · pyyaml (all pure wh
 
 ### Five-minute start
 
-No data needed — the bundled sample set (brushed metal + scratch/pit/stain) runs the whole loop. From the unzipped folder (or the repo root):
+No data needed — the bundled sample set (brushed metal + scratch/pit/stain) runs the whole loop. **In the GUI it is one click**: the **Sample…** button at the top (plate / ring → sample set, bank and recipe, opened in Studio); on the CLI `anograft sample --out samples/metal --quickstart` does the same (step by step below). From the unzipped folder (or the repo root):
 
 ```powershell
 # zip: anograft → .\anograft.exe

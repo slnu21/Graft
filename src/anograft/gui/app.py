@@ -21,9 +21,13 @@ from pathlib import Path
 from PySide6.QtCore import QSettings, Qt
 from PySide6.QtWidgets import (
     QApplication,
+    QFileDialog,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QMainWindow,
+    QMessageBox,
+    QPushButton,
     QSizePolicy,
     QStatusBar,
     QTabWidget,
@@ -40,6 +44,7 @@ from anograft.gui.studio.session import StudioSession
 from anograft.gui.studio.tab import StudioTab
 from anograft.gui.studio.worker import PreviewWorker
 from anograft.gui.theme import apply_theme
+from anograft.samples.quickstart import Quickstart
 
 TABS: tuple[tuple[str, str], ...] = (
     ("bank", "은행  Bank"),
@@ -168,11 +173,56 @@ class MainWindow(QMainWindow):
         self.ctx.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.busy = QLabel("")
         self.busy.setObjectName("Muted")
+        self.btn_sample = QPushButton("샘플 데이터 Sample…")
+        self.btn_sample.setToolTip(
+            "데이터가 없을 때 — 샘플 이미지·YOLO 라벨 → 은행 → 레시피까지 만들어 스튜디오에 엽니다\n"
+            "Generate sample images + labels, import them into a bank and open a recipe"
+        )
+        self.btn_sample.clicked.connect(self._on_sample_clicked)
         h.addWidget(brand)
         h.addWidget(sub)
         h.addWidget(self.ctx, 1)
+        h.addWidget(self.btn_sample)
         h.addWidget(self.busy)
         return bar
+
+    # ------------------------------------------------------------------ 샘플 데이터
+
+    def _on_sample_clicked(self) -> None:
+        shapes = {
+            "판 plate — 브러시드 메탈 사각 판": "plate",
+            "원형 ring — 가공 링 면 + 리세스(annulus·dent-graft)": "ring",
+        }
+        label, ok = QInputDialog.getItem(
+            self, "샘플 데이터 Sample data", "부품 모양 Part shape", list(shapes), 0, False
+        )
+        if not ok:
+            return
+        folder = QFileDialog.getExistingDirectory(
+            self, "샘플을 만들 폴더 Folder for the sample set", str(Path.cwd() / "samples")
+        )
+        if not folder:
+            return
+        self.make_sample(Path(folder) / shapes[label], shapes[label])
+
+    def make_sample(self, root: str | Path, shape: str = "plate") -> Quickstart | None:
+        """샘플 → 은행 → 레시피(``samples.quickstart``, Qt 없음) → 스튜디오·은행 탭에 연다. 몇 초 걸린다(박스→마스크 grabcut)."""
+        from anograft.samples.quickstart import quickstart
+
+        self.status_bar.showMessage(f"샘플 데이터 만드는 중… {Path(root).as_posix()}")
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            q = quickstart(root, shape=shape)
+        except (ValueError, OSError) as e:
+            QMessageBox.warning(self, "샘플 생성 실패", str(e))
+            return None
+        finally:
+            QApplication.restoreOverrideCursor()
+        self.open_recipe(q.recipe)
+        self.bank.open_bank(q.bank.as_posix())
+        self.tabs.setCurrentWidget(self.studio)
+        self.status_bar.showMessage(q.line())
+        return q
 
     @staticmethod
     def _placeholder(text: str) -> QWidget:

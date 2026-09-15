@@ -335,9 +335,34 @@ def add_arguments(ap: argparse.ArgumentParser) -> None:
         default="plate",
         help="plate = 브러시드 판(기본) · ring = 원형 부품(가공 링 면 + 리세스; annulus ROI·dent-graft 연습)",
     )
+    ap.add_argument(
+        "--quickstart",
+        action="store_true",
+        help="샘플 뒤에 은행(<out>/bank)·정상 목록·레시피(<out>/recipe.yaml)까지 — GUI 상단 '샘플 데이터' 와 같은 결과",
+    )
 
 
 def run_from_args(args: argparse.Namespace) -> int:
+    if getattr(args, "quickstart", False):
+        from anograft.samples.quickstart import quickstart
+
+        try:
+            q = quickstart(
+                args.out,
+                shape=args.shape,
+                seed=args.seed,
+                n_normal=args.n_normal,
+                n_defect=args.n_defect,
+                size=tuple(args.size),
+            )
+        except (ValueError, OSError) as e:
+            print(f"샘플 생성 실패: {e}", file=sys.stderr)
+            return 1
+        print(q.line())
+        print(
+            f"  다음: anograft run {q.recipe.as_posix()}  또는  python -m anograft.gui {q.recipe.as_posix()}"
+        )
+        return 0
     try:
         summary = generate(
             args.out,

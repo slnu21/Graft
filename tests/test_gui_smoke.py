@@ -395,3 +395,24 @@ def test_geometry_card_shows_lighting_warning(
         win.worker.stop()
         win.close()
         qapp.processEvents()
+
+
+def test_main_window_sample_button_builds_and_opens(qapp: QApplication, tmp_path: Path) -> None:
+    """0.7.3 — 상단 '샘플 데이터' → quickstart(샘플·은행·레시피) → 스튜디오가 그 레시피로 준비되고 은행 탭도 열린다."""
+    ses = StudioSession()
+    win = MainWindow(ses)
+    try:
+        win.show()
+        assert win.btn_sample.isEnabled()
+        q = win.make_sample(tmp_path / "ring", "ring")
+        assert q is not None and q.preset == "dent-graft"
+        assert ses.recipe.pipeline.preset == "dent-graft"
+        assert ses.recipe.pipeline.placement.roi.method == "annulus"
+        assert win.tabs.currentWidget() is win.studio
+        assert _pump(qapp, lambda: ses.prepared is not None)
+        assert len(ses.prepared.bank) == q.n_sources and win.bank.session.loaded
+        assert "소스" in win.bank.session.summary_text()
+    finally:
+        win.worker.stop()
+        win.close()
+        qapp.processEvents()
