@@ -246,7 +246,7 @@ anograft dataset report out/torx-annulus                    # 합성 vs 실제 �
 anograft dataset prune out/torx-annulus --out out/torx-pruned [--drop-flipped]   # 조명 뒤집힘 의심도 빼려면
 
 # 5. 학습(선택, ultralytics 별도 설치) — 합성 유/무 mAP
-python tools/train_smoke.py --synthetic out/torx-pruned --base <기존 YOLO 셋> --out train/merged
+python tools/train_smoke.py --synthetic out/torx-pruned [--synthetic out/torx-dent-pruned] --base <기존 YOLO 셋> --out train/merged   # 출력 여러 개도
 ```
 
 **확인할 것 (항목 ↔ 근거)**
