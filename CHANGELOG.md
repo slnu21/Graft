@@ -10,6 +10,7 @@
 - **조명 의존 클래스를 은행에서 미리 잡는다** — `bank ls` 에 `lightR` 열(클래스별 실제 소스의 조명 일관성 R, n ≥ 3)·`--json` `light_r/light_n`, `run`/스튜디오 `prepare` 경고 `lighting_warning`(R ≥ 0.5 클래스를 rotate 폭 > 90° 또는 flip 으로 합성하면 "하이라이트 방향이 뒤집힙니다 → dent-graft"). 외형 지표 4종은 `core/appearance.py` 로(검수 탭·은행·runner 가 같은 정의).
 - 스튜디오: prepare 경고 중 스테이지 접두가 있는 것(`geometry:` 조명 경고)은 **해당 카드 ⚠** 로 — 변형을 바꿔도 남고, 회전을 조이거나 flip 을 끄면 사라진다. `reprepare`(카드 편집)도 축척·저신뢰·조명 경고를 다시 계산(전엔 카드 편집 뒤 상태바에서 사라졌음).
 - 은행 탭 요약 한 줄에 **조명 의존 클래스**(`lightR` ≥ 0.5) 와 dent-graft 안내.
+- 스튜디오 배치 카드에도 **배치 가능성**: 미리보기 ROI(축소본 ÷ 배율)로 잰 허용 폭 vs 클래스별 패치 폭이 빠듯/불가면 ⚠(annulus r_inner/r_outer·erode_px·scale 을 만지면 바로 바뀐다).
 - `anograft run --report` — 끝나면 출력 폴더에 검수 리포트 HTML(= `dataset report`)을 바로. 요약에 조명 일관성 R.
 - **`run --dry-run` 배치 가능성 진단**(`runner.fit_diagnostic`) — 처음 3장의 ROI 를 실제로 풀어(캐시, rng 0회) 허용 영역 최대 폭(내접원 지름, 테두리 여유 제외)을 재고 클래스별 패치 긴 변 중앙값 × `geometry.scale` 상한과 견준다: `roi width` 행 + `fit <class>` 행(가능 · 빠듯(폭의 80 % 초과) · 불가(shrink_on_fail 뒤에도 폭 초과)) + `placement:` 경고. KNOWN-ISSUES 부록의 "ROI 폭 대비 패치 크기 사전 진단".
 - **GUI 상단 '샘플 데이터 Sample…' 버튼** — 판/원형을 고르고 폴더를 고르면 샘플 → 은행 → 레시피(`samples/quickstart.py`, Qt 없음)를 만들어 스튜디오·은행 탭에 연다(원형은 dent-graft + annulus). CLI 는 `anograft sample --quickstart`(`<out>/bank`·`normals.txt`·`recipe.yaml`). 작은 샘플에서 빈 클래스는 `source.classes` 로 제외.

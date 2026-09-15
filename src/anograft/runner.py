@@ -485,34 +485,10 @@ class FitDiagnostic:
         )
 
 
-def fit_diagnostic(prep: Prepared, n_targets: int = 3) -> FitDiagnostic | None:
-    """처음 ``n_targets`` 장의 ROI 를 실제로 풀어(캐시 사용, rng 0회) 허용 영역 최대 폭을 재고 클래스별 패치 폭과 견준다.
-    비-bank 소스·대상 없음이면 None. 파일 읽기 실패한 대상은 건너뛴다."""
+def patch_sides(prep: Prepared) -> dict[str, float]:
+    """클래스별 패치 긴 변 중앙값 × ``geometry.scale`` 상한(px, 원본 해상도) — 뽑는 클래스만."""
     r = prep.recipe
-    if r.bankless or not prep.targets or len(prep.bank) == 0:
-        return None
-    from anograft.core.roi import distance_to_edge
-    from anograft.core.stages.placement import allowed_centers
-
-    margin = int(getattr(r.pipeline.placement, "margin_px", 0))
-    widths: list[tuple[str, float]] = []
-    for path in prep.targets[: max(1, n_targets)]:
-        try:
-            target = load_target(path, r.inputs.um_per_px)
-        except (OSError, imgio.ImageReadError):
-            continue
-        ctx = prep.pipeline._apply_roi(Context.initial(np.random.default_rng(0), target), target)
-        roi = ctx.roi
-        if roi is None:
-            h, w = target.image.shape[:2]
-            roi = np.ones((h, w), dtype=bool)
-        allowed = allowed_centers(roi, margin, None)
-        width = float(distance_to_edge(allowed).max()) * 2.0 if allowed.any() else 0.0
-        widths.append((path.name, round(width, 1)))
-    if not widths:
-        return None
-    geo = r.pipeline.geometry
-    scale_hi = float(geo.scale[1])
+    scale_hi = float(r.pipeline.geometry.scale[1])
     sides: dict[str, float] = {}
     for c in r.effective_classes(prep.bank):
         vals = []
@@ -522,9 +498,38 @@ def fit_diagnostic(prep: Prepared, n_targets: int = 3) -> FitDiagnostic | None:
                 vals.append(float(max(xs.max() - xs.min() + 1, ys.max() - ys.min() + 1)))
         if vals:
             sides[c] = round(float(np.median(vals)) * scale_hi, 1)
+    return sides
+
+
+def fit_from_widths(prep: Prepared, widths: list[tuple[str, float]]) -> FitDiagnostic | None:
+    """이미 잰 허용 영역 폭(원본 px)으로 진단 — 스튜디오가 미리보기 ROI(축소본 ÷ 배율)로 부른다. 비-bank 면 None."""
+    r = prep.recipe
+    if r.bankless or len(prep.bank) == 0 or not widths:
+        return None
     shrink = r.pipeline.placement.shrink_on_fail
     floor = float(shrink.factor**shrink.rounds) if shrink.rounds > 0 else 1.0
-    return FitDiagnostic(widths, sides, scale_hi, floor)
+    return FitDiagnostic(widths, patch_sides(prep), float(r.pipeline.geometry.scale[1]), floor)
+
+
+def fit_diagnostic(prep: Prepared, n_targets: int = 3) -> FitDiagnostic | None:
+    """처음 ``n_targets`` 장의 ROI 를 실제로 풀어(캐시 사용, rng 0회) 허용 영역 최대 폭을 재고 클래스별 패치 폭과 견준다.
+    비-bank 소스·대상 없음이면 None. 파일 읽기 실패한 대상은 건너뛴다."""
+    r = prep.recipe
+    if r.bankless or not prep.targets or len(prep.bank) == 0:
+        return None
+    from anograft.core.stages.placement import roi_max_width
+
+    margin = int(getattr(r.pipeline.placement, "margin_px", 0))
+    widths: list[tuple[str, float]] = []
+    for path in prep.targets[: max(1, n_targets)]:
+        try:
+            target = load_target(path, r.inputs.um_per_px)
+        except (OSError, imgio.ImageReadError):
+            continue
+        ctx = prep.pipeline._apply_roi(Context.initial(np.random.default_rng(0), target), target)
+        width = roi_max_width(ctx.roi, margin, target.image.shape[:2])
+        widths.append((path.name, round(width, 1)))
+    return fit_from_widths(prep, widths)
 
 
 def dry_run_table(prep: Prepared, *, fit: FitDiagnostic | None = None) -> list[tuple[str, str]]:
