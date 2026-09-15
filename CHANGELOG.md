@@ -4,7 +4,12 @@
 
 ## [Unreleased]
 
-v0.7 — 은행 탭 · COCO writer · 검수 탭 · DTD 텍스처.
+## [0.7.0] - 2026-09-16
+
+v0.7 — **GUI 5탭 전부 실물**: 은행 탭 · 검수 탭 · COCO writer · DTD 텍스처. 흐름 = 라벨 → 은행 → 스튜디오 → 배치 → 검수 → 정리본.
+
+### Fixed
+- v0.6.0 CI ubuntu 실패 1건 — 스튜디오 카드 경로 필드 `coerce` 가 POSIX 에서 백슬래시를 `/` 로 바꾸지 않던 문제.
 
 ### Added
 - **DTD 어댑터 + `dataset textures`**(v0.7): `dataset info dtd`(연구 목적 라이선스·구조·결함처럼 보이는 카테고리 15) · `anograft dataset textures dtd <dtd> --out textures.txt [--categories a,b|*] [--limit n --seed s]` 가 `perlin-texture` 용 목록 파일을 만든다(은행에 넣지 않는다 — `import-dataset dtd` 는 거부). `texture_dir` 이 폴더뿐 아니라 **`.txt` 목록**(목록 파일 기준 경로)도 받는다.
@@ -90,7 +95,8 @@ v0.4 — CPU 알고리즘 확장. **여전히 샘플 데이터로만 검증**(�
 - GUI는 스튜디오 탭만. 재현은 같은 OS·OpenCV 부버전 범위(`seamlessClone` 솔버).
 - `release.yml`의 Windows zip 잡은 첫 push 전이라 CI에서 미검증(로컬 `tools/build_zip.ps1`와 같은 절차).
 
-[Unreleased]: https://github.com/slnu21/Graft/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/slnu21/Graft/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/slnu21/Graft/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/slnu21/Graft/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/slnu21/Graft/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/slnu21/Graft/compare/v0.1.0...v0.4.0
