@@ -153,3 +153,36 @@ def test_bank_summary_is_cached_and_copied() -> None:
     assert a == b and a is not b and bank._summary is not None
     a.clear()
     assert len(bank.summary()) == 1
+
+
+def test_is_directional_requires_significance() -> None:
+    """R 임계만으론 소표본에서 오판(무작위 n=5 의 R ≈ 0.45) — n·R² ≥ 2.9 도 요구. 요약 `directional`·JSON 에 반영."""
+    from anograft.core.appearance import LIGHT_RAYLEIGH_Z, is_directional
+
+    assert LIGHT_RAYLEIGH_Z == 2.9
+    assert is_directional(1.0, 3) and not is_directional(0.9, 3)  # n=3 은 거의 완벽해야
+    assert not is_directional(0.6, 5) and is_directional(0.8, 5)  # n=5: 0.76 이상
+    assert is_directional(0.5, 12) and not is_directional(0.5, 11)  # n=12 부터 0.5 로 충분
+    assert (
+        not is_directional(None, 10)
+        and not is_directional(0.99, 2)
+        and not is_directional(0.49, 100)
+    )
+    # 요약: 뚜렷한 pit 3 → directional, 방향 제각각 4 → R 낮음 → False
+    bank = Bank.from_sources(
+        [_dent("down", k=i) for i in range(3)]
+        + [_dent(a, cls="mix", k=i) for i, a in enumerate(("down", "up", "right", "up"))],
+        classes=["pit", "mix"],
+    )
+    rows = {r.cls: r for r in bank.summary()}
+    assert rows["pit"].directional and not rows["mix"].directional and rows["mix"].light_n == 4
+    # 무작위 각도 소표본: R 이 0.5 를 넘어도 유의하지 않으면 False
+    rng = np.random.default_rng(3)
+    for n in (3, 4, 5, 6):
+        false_pos = 0
+        for _ in range(200):
+            angles = rng.uniform(-180, 180, n)
+            th = np.radians(angles)
+            r = float(np.hypot(np.cos(th).mean(), np.sin(th).mean()))
+            false_pos += is_directional(r, n)
+        assert false_pos <= 20, (n, false_pos)  # ≤ 10 % (p ≈ 0.05 근사)

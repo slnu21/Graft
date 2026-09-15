@@ -17,6 +17,7 @@ LIGHT_RING_PX = 2  # 조명 방향은 얇은 링 — 하이라이트 림이 1~2 
 LIGHT_REAL_MIN = 0.5  # 실제 소스의 R 이 이 이상이면 '조명 방향이 있는 클래스'
 LIGHT_SYNTH_MAX = 0.3  # 그 클래스의 합성 R 이 이 미만이면 회전이 방향을 뒤집고 있다
 LIGHT_MIN_N = 3  # R 은 n=1 이면 항상 1 — 이보다 적으면 판단하지 않는다
+LIGHT_RAYLEIGH_Z = 2.9  # 유의성: n·R² ≥ z (Rayleigh, p ≈ e^−z ≈ 0.05). 무작위 각도의 R 은 ≈ 1/√n 이라 n 이 작으면 0.5 를 우연히 넘는다
 
 
 def mask_contrast(gray: np.ndarray, mask: np.ndarray, *, ring_px: int = RING_PX) -> float | None:
@@ -97,6 +98,14 @@ APPEARANCE_FN = {
     "sharpness": mask_sharpness,
     "lighting": mask_lighting,
 }
+
+
+def is_directional(r: float | None, n: int) -> bool:
+    """'조명 방향이 있는 클래스' 판정 — R ≥ LIGHT_REAL_MIN **이고** n·R² ≥ LIGHT_RAYLEIGH_Z (n ≥ LIGHT_MIN_N).
+    n=5 무작위면 R ≈ 0.45(임계 근처)라 R 만으로는 소표본에서 오판한다: n=3 은 R ≥ 0.98, n=5 는 0.76, n=12 는 0.5 가 필요."""
+    if r is None or n < LIGHT_MIN_N:
+        return False
+    return r >= LIGHT_REAL_MIN and n * r * r >= LIGHT_RAYLEIGH_Z
 
 
 def circular_mean(angles_deg: Sequence[float]) -> float | None:
