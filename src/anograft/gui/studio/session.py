@@ -18,6 +18,8 @@ from pydantic import ValidationError
 
 from anograft import runner
 from anograft.core import recipe as R
+from anograft.core import registry
+from anograft.gui.studio.params import required_placeholders
 
 DEFAULT_PRESET = "poisson-graft"
 
@@ -114,13 +116,31 @@ class StudioSession:
         return self._apply(lambda d: d.__setitem__("pipeline", {"preset": name}))
 
     def set_method(self, stage: str, method: str) -> R.Recipe:
-        """스테이지 method 교체 — 그 스테이지 블록은 새 method의 기본값만 남긴다(``Recipe.with_method``와 같은 규칙)."""
-        return self._apply(lambda d: R.set_method_in_dict(d, stage, method))
+        """스테이지 method 교체 — 그 스테이지 블록은 새 method의 기본값만 남긴다(``Recipe.with_method``와 같은 규칙).
+        기본값 없는 필수 필드(``mask_dir.path``)는 자리표시 값으로 채워 카드 폼에서 고치게 한다(GUI 전용 관용)."""
+
+        def mutate(d: dict[str, Any]) -> None:
+            R.set_method_in_dict(d, stage, method)
+            try:
+                fill = required_placeholders(registry.config_class(stage, method))
+            except KeyError:
+                return
+            if fill:
+                block = (
+                    d["pipeline"]["placement"]["roi"] if stage == "roi" else d["pipeline"][stage]
+                )
+                for k, v in fill.items():
+                    block.setdefault(k, v)
+
+        return self._apply(mutate)
 
     def set_stage_field(self, stage: str, field: str, value: Any) -> R.Recipe:
+        """스테이지 필드 하나. ``field`` 는 점 경로 가능(``elastic.alpha``) — 카드 폼(`params.py`)이 그렇게 평탄화한다.
+        ``roi`` 는 ``placement.roi`` 하위."""
+        parts = tuple(field.split("."))
         if stage == "roi":
-            return self.set_field(("pipeline", "placement", "roi", field), value)
-        return self.set_field(("pipeline", stage, field), value)
+            return self.set_field(("pipeline", "placement", "roi", *parts), value)
+        return self.set_field(("pipeline", stage, *parts), value)
 
     def replace_recipe(self, recipe: R.Recipe, path: Path | None = None) -> None:
         """레시피 파일 열기. 은행/대상이 다르면 다시 prepare가 필요하다."""

@@ -1,5 +1,5 @@
 """스튜디오 패널 위젯 — ``StripBar``(프리셋·시드·변형 수·축소) · ``InputsPanel``(은행·대상 경로) · ``TargetRail``(대상 썸네일) ·
-``PipelinePanel``(7단계 카드: method 콤보 + 파라미터 요약 + 단계별 썸네일). 전부 "값이 바뀌었다"는 시그널만 내고 상태는 ``StudioSession``이 가진다.
+``PipelinePanel``(7단계 카드: method 콤보 + **파라미터 폼**(스키마 자동 생성, `params.py`/`param_form.py`) + 단계별 썸네일 + 경고/오류). 전부 "값이 바뀌었다"는 시그널만 내고 상태는 ``StudioSession``이 가진다.
 """
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import QSignalBlocker, QSize, Qt, Signal
 from PySide6.QtGui import QIcon, QPixmap, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QComboBox,
@@ -32,6 +32,8 @@ from anograft.core import recipe as R
 from anograft.core import registry
 from anograft.core.pipeline import TraceStep
 from anograft.gui.qt_image import to_qpixmap
+from anograft.gui.studio.param_form import ParamForm
+from anograft.gui.studio.params import field_specs
 from anograft.gui.theme import COLORS
 from anograft.preview import fit_long_side
 
@@ -365,7 +367,11 @@ def stage_thumbnail(stage: str, steps: Sequence[TraceStep], size: int = 132) -> 
 
 
 class StageCard(QFrame):
+    """파이프라인 카드 하나 — 헤더(번호·제목·method 콤보) · 썸네일 + 경고/오류 · **파라미터 폼**(스키마에서 자동 생성).
+    배치 카드는 하위 스테이지 ROI(자기 method 콤보 + 폼)를 함께 가진다."""
+
     method_changed = Signal(str, str)  # stage, method
+    field_changed = Signal(str, str, object)  # stage, field(점 경로), value
 
     def __init__(self, no: int, stage: str, title: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -379,13 +385,14 @@ class StageCard(QFrame):
         num = QLabel(str(no))
         num.setObjectName("StageNo")
         head.addWidget(num)
-        t = QLabel(title)
-        t.setObjectName("StageTitle")
-        head.addWidget(t, 1)
+        self.title = QLabel(title)
+        self.title.setObjectName("StageTitle")
+        head.addWidget(self.title, 1)
         self.method = QComboBox()
         self.method.setMinimumWidth(96)
         head.addWidget(self.method)
         lay.addLayout(head)
+
         body = QHBoxLayout()
         body.setSpacing(8)
         self.thumb = QLabel()
@@ -395,25 +402,61 @@ class StageCard(QFrame):
             f"background: {COLORS['bg']}; border: 1px solid {COLORS['line']}; border-radius: 4px;"
         )
         body.addWidget(self.thumb)
-        self.params = QLabel("")
-        self.params.setObjectName("StageParams")
-        self.params.setWordWrap(True)
-        self.params.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-        body.addWidget(self.params, 1)
-        lay.addLayout(body)
+        notes = QVBoxLayout()
+        notes.setSpacing(4)
         # fail-soft 경고(`<stage>: …`)를 그 스테이지 카드에 바로 보인다 — 로그에만 남으면 사용자는 원인을 못 본다
         self.note = QLabel("")
         self.note.setObjectName("Warn")
         self.note.setWordWrap(True)
         self.note.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.note.hide()
-        lay.addWidget(self.note)
-        self._fill_methods()
-        self.method.currentIndexChanged.connect(self._on_method)
+        notes.addWidget(self.note)
+        # 파라미터 재검증 오류 — 값은 세션 값으로 되돌아가고 사유만 여기 남는다
+        self.error = QLabel("")
+        self.error.setObjectName("Bad")
+        self.error.setWordWrap(True)
+        self.error.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.error.hide()
+        notes.addWidget(self.error)
+        notes.addStretch(1)
+        body.addLayout(notes, 1)
+        lay.addLayout(body)
 
-    def _fill_methods(self) -> None:
-        model = QStandardItemModel(self)
-        for info in registry.list_methods(self.stage):
+        self.form = ParamForm()
+        self.form.value_changed.connect(lambda n, v: self.field_changed.emit(self.stage, n, v))
+        lay.addWidget(self.form)
+
+        # 배치 카드 = ROI 하위 스테이지 포함 (레시피 `placement.roi`, 실행은 이미지당 1회 별도 스테이지)
+        self.roi_method: QComboBox | None = None
+        self.roi_form: ParamForm | None = None
+        if stage == "placement":
+            sub = QHBoxLayout()
+            sub.setSpacing(8)
+            sub_title = QLabel("배치 허용 영역 ROI")
+            sub_title.setObjectName("H4")
+            sub.addWidget(sub_title, 1)
+            self.roi_method = QComboBox()
+            self.roi_method.setMinimumWidth(96)
+            sub.addWidget(self.roi_method)
+            lay.addLayout(sub)
+            self.roi_form = ParamForm()
+            self.roi_form.value_changed.connect(lambda n, v: self.field_changed.emit("roi", n, v))
+            lay.addWidget(self.roi_form)
+
+        self._fill_methods(self.method, self.stage)
+        self.method.currentIndexChanged.connect(
+            lambda i: self._on_method(self.method, self.stage, i)
+        )
+        if self.roi_method is not None:
+            self._fill_methods(self.roi_method, "roi")
+            self.roi_method.currentIndexChanged.connect(
+                lambda i: self._on_method(self.roi_method, "roi", i)  # type: ignore[arg-type]
+            )
+
+    @staticmethod
+    def _fill_methods(combo: QComboBox, stage: str) -> None:
+        model = QStandardItemModel(combo)
+        for info in registry.list_methods(stage):
             item = QStandardItem(info.method)
             item.setData(info.method, Qt.ItemDataRole.UserRole)
             if not info.usable:
@@ -421,22 +464,39 @@ class StageCard(QFrame):
                 item.setToolTip(info.reason or "미구현")
                 item.setText(f"{info.method} — {info.reason or '미구현'}")
             model.appendRow(item)
-        self.method.setModel(model)
+        combo.setModel(model)
 
-    def _on_method(self, i: int) -> None:
-        m = self.method.itemData(i, Qt.ItemDataRole.UserRole)
+    def _on_method(self, combo: QComboBox, stage: str, i: int) -> None:
+        m = combo.itemData(i, Qt.ItemDataRole.UserRole)
         if m:
-            self.method_changed.emit(self.stage, str(m))
+            self.method_changed.emit(stage, str(m))
+
+    @staticmethod
+    def _select(combo: QComboBox, method: str) -> None:
+        with QSignalBlocker(combo):
+            for i in range(combo.count()):
+                if combo.itemData(i, Qt.ItemDataRole.UserRole) == method:
+                    combo.setCurrentIndex(i)
+                    break
 
     def sync(self, cfg: Any) -> None:
-        m = registry.config_method(cfg)
-        self.method.blockSignals(True)
-        for i in range(self.method.count()):
-            if self.method.itemData(i, Qt.ItemDataRole.UserRole) == m:
-                self.method.setCurrentIndex(i)
-                break
-        self.method.blockSignals(False)
-        self.params.setText(params_text(cfg))
+        """세션 → 카드. method 콤보·폼(스펙은 스키마에서)·제목 툴팁(한 줄 요약)."""
+        self._select(self.method, registry.config_method(cfg))
+        self.form.set_specs(field_specs(cfg))
+        self.title.setToolTip(params_text(cfg))
+        if self.roi_method is not None and self.roi_form is not None:
+            roi = cfg.roi
+            self._select(self.roi_method, registry.config_method(roi))
+            self.roi_form.set_specs(field_specs(roi))
+            self.roi_method.setToolTip(params_text(roi))
+
+    def set_error(self, text: str | None, field: str | None = None, *, roi: bool = False) -> None:
+        """재검증 오류 한 줄(None 이면 해제) + 해당 필드 행 강조."""
+        self.error.setText(text or "")
+        self.error.setVisible(bool(text))
+        self.form.set_error(None if roi else field)
+        if self.roi_form is not None:
+            self.roi_form.set_error(field if roi else None)
 
     def set_warnings(self, messages: Sequence[str]) -> None:
         """이 스테이지의 경고만(자기 접두 ``<stage>:`` 는 떼고). ROI 는 배치 카드의 하위 블록이라 ``roi:`` 경고는
@@ -473,6 +533,7 @@ class StageCard(QFrame):
 
 class PipelinePanel(QScrollArea):
     method_changed = Signal(str, str)
+    field_changed = Signal(str, str, object)  # stage("roi" 포함), field, value
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -489,15 +550,28 @@ class PipelinePanel(QScrollArea):
         for i, (stage, title) in enumerate(STAGE_TITLES, start=1):
             card = StageCard(i, stage, title)
             card.method_changed.connect(self.method_changed.emit)
+            card.field_changed.connect(self.field_changed.emit)
             self.cards[stage] = card
             lay.addWidget(card)
         lay.addStretch(1)
         self.setWidget(inner)
 
+    def card_for(self, stage: str) -> StageCard:
+        """``roi`` 는 배치 카드."""
+        return self.cards["placement" if stage == "roi" else stage]
+
     def sync(self, recipe: R.Recipe) -> None:
         pipe = recipe.pipeline
         for stage, card in self.cards.items():
             card.sync(getattr(pipe, stage))
+
+    def set_error(self, stage: str, field: str, text: str) -> None:
+        self.clear_errors()
+        self.card_for(stage).set_error(text, field, roi=(stage == "roi"))
+
+    def clear_errors(self) -> None:
+        for card in self.cards.values():
+            card.set_error(None)
 
     def set_trace(self, steps: Sequence[TraceStep] | None, warnings: Sequence[str] = ()) -> None:
         for stage, card in self.cards.items():

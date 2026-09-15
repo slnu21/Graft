@@ -56,6 +56,8 @@ anograft-gui recipes/sample-poisson.yaml                                  # GUI 
 
 ![GUI 스튜디오](assets/gui-studio.png)
 
+스튜디오 오른쪽 **파이프라인 카드**에서 스테이지별 method 를 고르고 **모든 파라미터를 바로 편집**합니다(레시피 스키마에서 자동 생성 — 범위·on/off·선택지·경로, `null` 은 체크 해제). 잘못된 값은 그 카드에 빨간 줄로 막히고, 결과는 레시피 저장에 그대로 반영됩니다 (v0.6).
+
 ![GUI 라벨 탭](assets/gui-label.png)
 
 ![GUI 배치 탭](assets/gui-batch.png)
@@ -163,6 +165,8 @@ anograft-gui recipes/sample-poisson.yaml                                  # GUI 
 ```
 
 `anograft methods` lists per-stage choices and availability; `anograft recipe init --preset <name> --write my.yaml` expands a preset. Relative paths in recipes resolve against the **current directory**.
+
+In the Studio, the **pipeline cards** on the right let you pick each stage's method and **edit every parameter in place** (generated from the recipe schema — ranges, on/off, choices, paths; `null` = unchecked). Invalid values are rejected with a red line on that card, and edits go straight into the saved recipe (v0.6).
 
 ### Your own data
 

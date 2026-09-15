@@ -164,6 +164,20 @@ def schema_methods(stage: str) -> list[str]:
     return out
 
 
+def config_class(stage: str, method: str) -> type[BaseModel]:
+    """``(stage, method)`` 의 설정 모델 클래스(레시피 스키마 union 의 variant). 없으면 ``KeyError``."""
+    if stage == "roi":
+        ann = R.SampledPlacementConfig.model_fields["roi"].annotation
+    elif stage == "gtmask":
+        return R.GtMaskConfig
+    else:
+        ann = R.PipelineConfig.model_fields[stage].annotation
+    for variant in _union_variants(ann):
+        if str(variant.model_fields["method"].default) == method:
+            return variant
+    raise KeyError(f"{stage}.{method}: 스키마에 없는 method")
+
+
 def list_methods(stage: str | None = None) -> list[MethodInfo]:
     """스테이지별 선택지 + 구현/가용 상태. ``anograft methods``가 그대로 출력한다."""
     ensure_loaded()
