@@ -1,4 +1,4 @@
-"""``MainWindow`` — 상단 바(브랜드·컨텍스트) · 5탭(은행·라벨·스튜디오·배치·검수 — 검수만 자리표시, v0.7) · 상태바. 목업 ``.bar``·``.tabs``.
+"""``MainWindow`` — 상단 바(브랜드·컨텍스트) · 5탭(은행·라벨·스튜디오·배치·검수 — v0.7 에서 전부 실물) · 상태바. 목업 ``.bar``·``.tabs``.
 
 은행 탭(v0.7): 소스 보기·필터·삭제, "라벨 탭에서 다듬기"(``edit_requested`` → ``LabelTab.begin_bank_edit`` → ``source_updated`` →
 ``BankTab.apply_mask``). 은행이 바뀌면(``bank_changed``·라벨 탭 ``bank_saved``) 같은 은행을 쓰는 스튜디오가 다시 준비하고 은행 탭이 새로고침한다.
@@ -35,6 +35,7 @@ from anograft import __version__
 from anograft.gui.bank.tab import BankTab
 from anograft.gui.batch.tab import BatchTab
 from anograft.gui.label.tab import LabelTab
+from anograft.gui.review.tab import ReviewTab
 from anograft.gui.studio.session import StudioSession
 from anograft.gui.studio.tab import StudioTab
 from anograft.gui.studio.worker import PreviewWorker
@@ -47,9 +48,7 @@ TABS: tuple[tuple[str, str], ...] = (
     ("batch", "배치  Batch"),
     ("review", "검수  Review"),
 )
-PLACEHOLDER: dict[str, str] = {
-    "review": "합성 결과 검수·실제 결함 분포 비교 — v0.7",
-}
+PLACEHOLDER: dict[str, str] = {}
 SETTINGS_ORG, SETTINGS_APP = "slnu21", "Graft"
 RECENT_RECIPE_KEY = "recent_recipe"
 EMPTY_STATE = (
@@ -111,6 +110,7 @@ class MainWindow(QMainWindow):
         self.label = LabelTab()
         self.batch = BatchTab()
         self.bank = BankTab()
+        self.review = ReviewTab()
         for key, label in TABS:
             if key == "studio":
                 page: QWidget = self.studio
@@ -118,6 +118,8 @@ class MainWindow(QMainWindow):
                 page = self.label
             elif key == "bank":
                 page = self.bank
+            elif key == "review":
+                page = self.review
             elif key == "batch":
                 page = self.batch
             else:
@@ -135,6 +137,8 @@ class MainWindow(QMainWindow):
         self.label.bank_saved.connect(self._on_bank_saved)
         self.batch.status.connect(self.status_bar.showMessage)
         self.bank.status.connect(self.status_bar.showMessage)
+        self.review.status.connect(self.status_bar.showMessage)
+        self.batch.run_finished.connect(self._on_batch_finished)
         self.bank.bank_changed.connect(self._on_bank_saved)
         self.bank.edit_requested.connect(self._on_bank_edit_requested)
         self.label.source_updated.connect(self._on_source_updated)
@@ -196,6 +200,11 @@ class MainWindow(QMainWindow):
             "레시피 없음 — 라벨 탭에서 시작하거나 스튜디오 '열기'로 레시피를 여세요 · "
             "No recipe: start in the Label tab or open a recipe"
         )
+
+    def _on_batch_finished(self, summary) -> None:
+        """배치가 끝나면 검수 탭이 그 출력 폴더를 가리킨다(자동으로 열지는 않는다 — 큰 출력은 썸네일 로드가 걸린다)."""
+        if summary is not None and getattr(summary, "writer", None) is not None:
+            self.review.root_edit.setText(Path(summary.writer.root).as_posix())
 
     def _on_bank_saved(self, root: str) -> None:
         """라벨 탭이 은행에 소스를 더했다(또는 은행 탭이 지우거나 고쳤다) — 스튜디오가 그 은행을 쓰면 다시 준비."""
