@@ -312,3 +312,40 @@ def test_inputs_panel_um_per_px_edits_recipe(qapp: QApplication) -> None:
     finally:
         win.close()
         qapp.processEvents()
+
+
+def test_variant_card_marks_low_confidence_sources(
+    qapp: QApplication, bank_and_normals: tuple[Path, Path]
+) -> None:
+    """v0.7.x — 변형 카드 캡션 ⚠ + 툴팁에 저신뢰 소스 id(은행의 confidence < 0.5)."""
+    import json
+
+    bank, normals = bank_and_normals
+    for meta_file in sorted(bank.rglob("*.json")):  # 전부 저신뢰로
+        m = json.loads(meta_file.read_text(encoding="utf-8"))
+        m["confidence"], m["flags"] = 0.1, ["low-contrast"]
+        meta_file.write_text(json.dumps(m, ensure_ascii=False), encoding="utf-8")
+    ses = StudioSession(default_recipe(bank=bank.as_posix(), targets=normals.as_posix()))
+    ses.set_stage_field("placement", "margin_px", 4)
+    ses.set_stage_field("roi", "erode_px", 2)
+    ses.set_field(("pipeline", "source", "min_sources_warn"), 1)
+    ses.set_n_variants(2)
+    ses.set_long_side(64)
+    win = MainWindow(ses)
+    try:
+        win.show()
+        tab = win.studio
+        tab.open_inputs(bank.as_posix(), normals.as_posix())
+        assert _pump(qapp, lambda: ses.prepared is not None)
+        assert _pump(qapp, lambda: len(tab._results) >= 2)
+        ok = [k for k, r in tab._results.items() if r.result.status == "ok"]
+        assert ok
+        item = tab.variants.list.item(ok[0])
+        assert (
+            item.text().endswith("⚠") and "저신뢰" in item.toolTip() and "소스:" in item.toolTip()
+        )
+        assert tab._low_confidence_sources(tab._results[ok[0]].result)
+    finally:
+        win.worker.stop()
+        win.close()
+        qapp.processEvents()

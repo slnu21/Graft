@@ -61,13 +61,13 @@ class VariantStrip(QWidget):
             self.list.setCurrentRow(min(current, n - 1))
         self.list.blockSignals(False)
 
-    def set_result(self, k: int, image: np.ndarray, caption: str) -> None:
+    def set_result(self, k: int, image: np.ndarray, caption: str, tooltip: str = "") -> None:
         item = self.list.item(k)
         if item is None:
             return
         item.setIcon(flat_icon(to_qpixmap(fit_long_side(image, THUMB_W))))
         item.setText(f"v{k + 1} · {caption}")
-        item.setToolTip("")
+        item.setToolTip(tooltip)
 
     def set_failed(self, k: int, reason: str) -> None:
         item = self.list.item(k)
