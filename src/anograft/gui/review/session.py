@@ -38,6 +38,7 @@ from anograft.core.appearance import (  # noqa: F401 — 검수 탭·테스트�
     mask_sharpness,
     mask_texture,
 )
+from anograft.core.types import DefectSource
 from anograft.io import imgio
 from anograft.io.manifest import MANIFEST_FILE, read_manifest
 from anograft.io.prune import (
@@ -390,13 +391,33 @@ class ReviewSession:
                 out.setdefault(c, []).append(v)
         return out
 
+    def real_classes(self) -> list[str] | None:
+        """'실제' 분포에 쓸 은행 클래스 — 레시피가 뽑은 클래스만(`source.classes` → `class_ratio` 키 → 전부 None).
+        은행에 스크래치·얼룩이 같이 있어도 pit 만 합성한 출력이면 실제 쪽도 pit 만 세어야 비교가 된다."""
+        pipe = self.recipe_meta.get("pipeline") or {}
+        src = pipe.get("source") or {}
+        if isinstance(src.get("classes"), list) and src["classes"]:
+            return [str(c) for c in src["classes"]]
+        ratio = (self.recipe_meta.get("output") or {}).get("class_ratio")
+        if isinstance(ratio, dict) and ratio:
+            return [str(c) for c in ratio]
+        return None
+
+    def real_sources(self) -> list[DefectSource]:
+        """실제 분포의 소스 목록 = 은행 소스 중 `real_classes()` 에 드는 것(None 이면 전부)."""
+        if self.bank is None:
+            return []
+        allowed = self.real_classes()
+        srcs = self.bank.sources()
+        return srcs if allowed is None else [s for s in srcs if s.cls in allowed]
+
     def real_by_class(self, key: str) -> dict[str, list[float]]:
         if key not in IMAGE_KEYS:
             raise ReviewError(f"클래스별 분포는 외형 지표만 (선택: {', '.join(IMAGE_KEYS)})")
         out: dict[str, list[float]] = {}
         if self.bank is None:
             return out
-        for s in self.bank.sources():
+        for s in self.real_sources():
             v = APPEARANCE_FN[key](cv2.cvtColor(s.image, cv2.COLOR_BGR2GRAY), s.mask)
             if v is not None:
                 out.setdefault(s.cls, []).append(v)
@@ -408,7 +429,7 @@ class ReviewSession:
         if self.bank is None:
             return []
         vals: list[float] = []
-        for s in self.bank.sources():
+        for s in self.real_sources():
             if key == "area":
                 vals.append(float(np.count_nonzero(s.mask)))
             elif key in IMAGE_KEYS:

@@ -497,9 +497,28 @@ def cmd_dataset_prune(args: argparse.Namespace) -> int:
     """검수(``review.csv``)에서 반려된 합성 이미지를 뺀 정리본 사본."""
     from anograft.io.prune import PruneError, prune_dataset, read_review
 
+    drop: set[str] = set()
+    if (
+        args.drop_flipped
+    ):  # 은행이 있어야 실제 방향을 안다(검수 탭 필터 '조명 뒤집힘 의심'과 같은 집합)
+        from anograft.gui.review.session import ReviewError, ReviewSession
+
+        sess = ReviewSession()
+        try:
+            sess.load(args.root, load_bank=True)
+        except ReviewError as e:
+            _err(f"정리 실패: {e}")
+            return EXIT_RECIPE_ERROR
+        if sess.bank is None:
+            _err("경고: 은행을 열 수 없어 --drop-flipped 를 건너뜁니다(레시피 inputs.bank)")
+        else:
+            drop = sess.flipped_lighting()
+            _err(f"조명 뒤집힘 의심 {len(drop)}건 제외" if drop else "조명 뒤집힘 의심 없음")
     try:
         review = read_review(args.review) if args.review else None
-        s = prune_dataset(args.root, args.out, review, drop_unreviewed=args.drop_unreviewed)
+        s = prune_dataset(
+            args.root, args.out, review, drop_unreviewed=args.drop_unreviewed, drop_indices=drop
+        )
     except (PruneError, OSError) as e:
         _err(f"정리 실패: {e}")
         return EXIT_RECIPE_ERROR
@@ -978,6 +997,11 @@ def build_parser() -> argparse.ArgumentParser:
     dp.add_argument("root", help="anograft run 출력 폴더 (manifest.csv)")
     dp.add_argument("--out", required=True, help="정리본 폴더 (원본과 달라야 함)")
     dp.add_argument("--review", default=None, help="review.csv 경로 (기본 <root>/review.csv)")
+    dp.add_argument(
+        "--drop-flipped",
+        action="store_true",
+        help="조명 뒤집힘 의심(실제 클래스 방향에서 > 90°)도 제외 — 검수 탭 필터와 같은 집합(은행 필요)",
+    )
     dp.add_argument(
         "--drop-unreviewed", action="store_true", help="미검수도 제외하고 채택(accept)만 남긴다"
     )
