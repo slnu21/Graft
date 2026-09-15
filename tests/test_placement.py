@@ -17,6 +17,7 @@ from anograft.core.stages.placement import (
     allowed_centers,
     candidate_cdf,
     draw_index,
+    fit_diagnostic,
     shrink_patch,
 )
 from anograft.core.types import Context, PlacedDefect, TargetImage
@@ -193,7 +194,13 @@ def test_too_small_roi_fails_soft_with_log_and_warning() -> None:
     assert out.placement is None and out.placed_mask is None
     log = out.log["placement"]
     assert log["failed"] is True and log["shrink_rounds"] == 2 and log["tries"] == 30
-    assert log["reason"] == "max_tries 소진"
+    # 사유 뒤에 진단(v0.6): ROI 최대 폭(내접원 지름) vs 패치 bbox(원본 → 마지막 축소) + 안 들어가는 이유 힌트
+    assert log["reason"].startswith(
+        "max_tries 소진 · ROI 최대 폭 4px vs 패치 30×30px(축소 후 19×19)"
+    )
+    assert "패치가 ROI 폭보다 큽니다" in log["reason"] and "geometry.scale" in log["reason"]
+    assert log["roi_max_width_px"] == 4.0 and log["patch_bbox_px"] == [30, 30]
+    assert log["patch_bbox_last_px"] == [19, 19]
     assert any("placement: scratch/000 배치 실패" in w for w in out.warnings)
     # 실패하면 patch는 입력 그대로 (축소본은 채택될 때만 돌려준다)
     assert out.patch is patch and out.patch_mask is mask
@@ -217,7 +224,27 @@ def test_exhausting_tries_is_logged() -> None:
     out = st.apply(_ctx(roi, patch, mask, 0))
     assert out.placement is None
     log = out.log["placement"]
-    assert log["tries"] == 7 and log["reason"] == "max_tries 소진"
+    assert log["tries"] == 7 and log["reason"].startswith(
+        "max_tries 소진 · ROI 최대 폭 20px vs 패치 19×19px"
+    )
+    assert (
+        "패치가 ROI 폭보다" not in log["reason"]
+    )  # 짧은 변 19 ≤ 폭 20 — 들어갈 수도 있어 힌트 없음
+    assert log["patch_bbox_last_px"] == [19, 19]  # 축소 0회 → "(축소 후 …)" 생략
+    assert "(축소 후" not in log["reason"]
+
+
+def test_fit_diagnostic_measures_ring_width_and_skips_empty() -> None:
+    """링 ROI 의 최대 폭 = 링 두께(내접원 지름). 허용 영역이 비면 빈 문자열."""
+    from anograft.core.roi import annulus_mask
+
+    allowed = annulus_mask((128, 128), (63.5, 63.5), 30.0, 42.0)  # 두께 12
+    _, mask = _square_patch(20, 20)
+    log: dict = {}
+    text = fit_diagnostic(allowed, mask, mask, log)
+    assert 11.0 <= log["roi_max_width_px"] <= 13.0
+    assert "ROI 최대 폭" in text and "패치 20×20px" in text and "패치가 ROI 폭보다 큽니다" in text
+    assert fit_diagnostic(np.zeros((8, 8), dtype=bool), mask, mask, {}) == ""
 
 
 def test_missing_roi_or_patch() -> None:

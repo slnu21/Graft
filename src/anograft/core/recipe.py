@@ -318,8 +318,34 @@ class GrabCutRoiConfig(_Strict):
     erode_px: int = Field(default=8, ge=0)
 
 
+class AnnulusRoiConfig(_Strict):
+    """링(annulus) ROI (v0.6, KNOWN-ISSUES #2 #4) — 원형 부품에서 결함이 생기는 **가공 링 면만** 허용한다. ``otsu``/``grabcut`` 은
+    물체 vs 배경만 가르므로 중앙 리세스에도 결함이 떨어졌다. ``center``/``radius`` 가 null 이면 Otsu 전경의 최소외접원으로
+    대상마다 자동 검출(촬영마다 부품이 움직여도 링이 따라감). ``units: ratio`` 면 ``r_inner``·``r_outer`` 는 그 반경의 배율
+    (토크스 소켓 실측: 319~510 px / 바깥 570 px ≈ 0.56~0.9), ``px`` 면 절대값. ``erode_px`` 는 안·바깥 경계 모두에서 깎는다."""
+
+    method: Literal["annulus"] = "annulus"
+    center: tuple[float, float] | None = None  # (cx, cy) px. null = 자동
+    radius: float | None = Field(
+        default=None, gt=0.0
+    )  # 비율의 기준 반경(px). null = 자동(최소외접원)
+    r_inner: float = Field(default=0.55, ge=0.0)
+    r_outer: float = Field(default=0.9, gt=0.0)
+    units: Literal["ratio", "px"] = "ratio"
+    invert: Literal["auto", "yes", "no"] = "auto"  # 자동 검출의 Otsu 극성
+    erode_px: int = Field(default=4, ge=0)
+
+    @model_validator(mode="after")
+    def _inner_lt_outer(self) -> AnnulusRoiConfig:
+        if self.r_inner >= self.r_outer:
+            raise ValueError(
+                f"r_inner({self.r_inner:g}) 는 r_outer({self.r_outer:g}) 보다 작아야 합니다"
+            )
+        return self
+
+
 RoiConfig = Annotated[
-    OtsuRoiConfig | NoneRoiConfig | MaskDirRoiConfig | GrabCutRoiConfig,
+    OtsuRoiConfig | NoneRoiConfig | MaskDirRoiConfig | GrabCutRoiConfig | AnnulusRoiConfig,
     Field(discriminator="method"),
 ]
 

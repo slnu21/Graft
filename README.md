@@ -12,7 +12,7 @@
 
 ![원본 | 합성 | GT](assets/preview.png)
 
-> **상태: v0.5.0** — CLI 코어(7단계 파이프라인 · 레시피 · 결함 은행 · YOLO/MVTec 출력 · 프리셋 7종 · 은행 없이 도는 self-cut/perlin · 구조 정합 배치 · GrabCut ROI · VisA 어댑터)와 GUI **라벨 · 스튜디오 · 배치** 탭 — 결함 사진만 있으면 GUI 만으로 라벨링 → 미리보기 → 데이터셋 생성까지. 샘플 데이터로 엔드투엔드 검증. **보유 실데이터·표준셋(MVTec AD·VisA) 실제 사본·학습 1 epoch은 아직 미검증**(데이터가 생기면 아래 3줄로 확인).
+> **상태: v0.5.0** — CLI 코어(7단계 파이프라인 · 레시피 · 결함 은행 · YOLO/MVTec 출력 · 프리셋 8종 · 은행 없이 도는 self-cut/perlin · 구조 정합 배치 · GrabCut·annulus ROI · VisA 어댑터)와 GUI **라벨 · 스튜디오 · 배치** 탭 — 결함 사진만 있으면 GUI 만으로 라벨링 → 미리보기 → 데이터셋 생성까지. 샘플 데이터로 엔드투엔드 검증. **보유 실데이터·표준셋(MVTec AD·VisA) 실제 사본·학습 1 epoch은 아직 미검증**(데이터가 생기면 아래 3줄로 확인).
 
 ## 왜
 
@@ -93,6 +93,7 @@ anograft-gui recipes/sample-poisson.yaml                                  # GUI 
 | `self-cut` | CutPaste·Scar | 소스 = 대상 자신의 사각/스카 패치 + 색 지터 · paste | **은행 불필요** — 정상 이미지만으로 시작 |
 | `perlin-texture` | DRAEM | 소스 = 펄린 노이즈 마스크 + 텍스처(대상 자신 증강 또는 `texture_dir`) · alpha β 0.4~1 | **은행 불필요** — 불규칙한 이상 영역 |
 | `structure-aware-graft` | 구조 정합 배치 | poisson-graft + 배치 `structure-aware`(그래디언트 큰 곳 선호 · 결·에지 방향에 정렬) · ROI `grabcut` | 스크래치가 결을 따르고 칩이 모서리에 생기는 부품. 무광·그림자로 Otsu가 안 갈리는 대상 |
+| `annulus-graft` | 링 ROI | poisson-graft + ROI `annulus`(중심·반경을 대상마다 자동 검출, `r_inner`/`r_outer` 비율) | **원형 부품의 가공 링 면에만** 결함을 놓는다 — otsu/grabcut 은 물체 전체를 허용해 중앙 리세스에도 떨어졌다. 촬영마다 부품이 움직여도 링이 따라간다 (v0.6) |
 
 기본값은 샘플 은행에서 "결함이 옅어지는 정도"(hard-paste 대비 마스크 안 L1 비율)를 재서 정했습니다 — 세 조화 방법 모두 정의상 결함 톤을 대상 쪽으로 당기므로 strength를 낮게 뒀습니다. 실데이터 학습 mAP 근거는 아직 없습니다(로드맵).
 
@@ -126,7 +127,7 @@ MIT © 2026 slnu21 — `LICENSE`. 함께 배포되는 구성 요소(PySide6/Qt L
 
 **Graft real, labeled defects onto normal images to build training datasets for anomaly detection — with ground-truth masks and full reproducibility metadata.** Package/CLI: `anograft`. Fully offline, CPU-only; the Windows zip needs no Python.
 
-> **Status: v0.5.0** — CLI core (7-stage pipeline, recipes, defect bank, YOLO/MVTec output, 7 presets, bank-free self-cut/perlin sources, structure-aware placement, GrabCut ROI, VisA adapter) plus the GUI **Label · Studio · Batch** tabs — with only defect photos you can label → preview → generate a dataset entirely in the GUI. Verified end to end on the bundled sample set. **Not yet verified on real customer data, an actual MVTec AD/VisA copy, or a training epoch** — three commands once you have data (below).
+> **Status: v0.5.0** — CLI core (7-stage pipeline, recipes, defect bank, YOLO/MVTec output, 8 presets, bank-free self-cut/perlin sources, structure-aware placement, GrabCut/annulus ROI, VisA adapter) plus the GUI **Label · Studio · Batch** tabs — with only defect photos you can label → preview → generate a dataset entirely in the GUI. Verified end to end on the bundled sample set. **Not yet verified on real customer data, an actual MVTec AD/VisA copy, or a training epoch** — three commands once you have data (below).
 
 ### Why
 
@@ -199,6 +200,7 @@ Same seed and target across the four presets (`preview --compare-methods blend|h
 | `self-cut` | CutPaste · Scar | source = rect/scar patch cut from the target itself + colour jitter · paste | **No bank needed** — start from normal images only |
 | `perlin-texture` | DRAEM | source = Perlin-noise mask + texture (augmented self-window or `texture_dir`) · alpha β 0.4–1 | **No bank needed** — irregular anomaly regions |
 | `structure-aware-graft` | Structure-aware placement | poisson-graft + `structure-aware` placement (prefers high-gradient spots · aligns to grain/edge direction) · `grabcut` ROI | Parts where scratches follow the grain and chips sit on edges; matte/shadowed parts Otsu cannot segment |
+| `annulus-graft` | Ring ROI | poisson-graft + `annulus` ROI (centre/radius auto-detected per target, `r_inner`/`r_outer` as ratios) | **Round parts whose defects only occur on the machined ring** — otsu/grabcut allow the whole object and dropped defects into the central recess. The ring follows the part as it shifts between shots (v0.6) |
 
 Defaults were chosen by measuring how much each method fades the defect on the sample bank (in-mask L1 relative to hard-paste); all three harmonize methods pull defect tone toward the target by construction, so strengths are kept low. No real-data mAP evidence yet (roadmap).
 

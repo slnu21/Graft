@@ -12,6 +12,8 @@ v0.6 — **실데이터 보정**(`KNOWN-ISSUES.md`, 경면 금속 토크스 소�
 - `recipe init --write recipes/new.yaml` 이 없는 상위 폴더를 만든다(KNOWN-ISSUES #10).
 
 ### Added
+- **ROI `annulus`**(KNOWN-ISSUES #2 #4) + 프리셋 **`annulus-graft`**: 원형 부품의 **가공 링 면만** 허용 — `otsu`/`grabcut` 은 물체 vs 배경만 갈라 결함이 안 생기는 중앙 리세스에도 배치됐다. 중심·반경은 대상마다 Otsu 전경의 최소외접원으로 자동 검출(`center`/`radius: null`)하거나 고정, `r_inner`/`r_outer` 는 검출 반경의 비율(`units: ratio`, 토크스 소켓 실측 ≈ 0.56~0.9) 또는 px. `erode_px` 는 안·바깥 경계 모두에서 깎는다. 검출 실패는 이미지 중심으로 대체 + 경고. 합성 토크스 축소판 8장(중심 ±60 px 이동)에서 링 적중 **16/16**(poisson-graft otsu 12/16), 중심 오차 0 px. `core/roi.py::detect_disk/annulus_mask/roi_annulus`, 골든 +2(16장).
+- **배치 실패 진단**: `max_tries` 소진 시 사유에 `ROI 최대 폭 N px vs 패치 W×H px(축소 후 …)` 를 붙이고, 짧은 변이 폭을 넘으면 조치 힌트(geometry.scale · shrink_on_fail · ROI). 사이드카 `placement.roi_max_width_px`·`patch_bbox_px`·`patch_bbox_last_px`.
 - **스튜디오 카드 파라미터 편집기**(`stage-params`): 7단계 카드마다 레시피 스키마(pydantic)에서 위젯을 자동 생성 — 정수/실수 스핀, `[lo, hi]` 범위, on/off, 선택지, 경로(폴더 버튼), 목록, `X | None` 은 체크박스로 켬/끔. 값은 `StudioSession.set_stage_field` 재검증을 거쳐 미리보기 재계산·레시피 저장에 반영, 잘못된 값은 대화상자 없이 **카드 빨간 줄** + 되돌림. 배치 카드에 **ROI 하위 스테이지**(method 콤보 + 폼 — mask_dir 를 고르면 `path` 자리표시). 새 method 를 스키마에 추가하면 GUI 수정 없이 편집기가 생긴다(`gui/studio/params.py` · `param_form.py`, `registry.config_class`).
 - 스튜디오 파이프라인 카드에 **fail-soft 경고 표시**(`⚠ <stage>: …`, ROI 경고는 배치 카드에) · 변형 카드의 잘린 사유는 툴팁에 원문 · 상태바에 "경고 n건 더".
 

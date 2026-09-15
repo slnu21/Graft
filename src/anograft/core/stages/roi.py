@@ -6,6 +6,8 @@
   주입한다. 로더가 없거나 읽기에 실패하면 ROI None + 경고 (fail-soft) → placement가 그 대상을 건너뛴다.
 - ``grabcut``(v0.4): ``core/roi.roi_grabcut`` — rect/otsu 초기화, 작업 해상도 ``work_px``, 시드는 대상 **파일 이름**의
   ``stable_seed``(폴더를 옮겨도 같은 ROI). GrabCut 이 실패하면 Otsu 로 대체하고 ``fallback`` 을 로그·경고에.
+- ``annulus``(v0.6): ``core/roi.roi_annulus`` — 원형 부품의 링 면. 중심·반경은 대상마다 자동(Otsu 전경 최소외접원) 또는 고정,
+  ``r_inner``/``r_outer`` 는 비율 또는 px. 자동 검출 실패 시 이미지 중심으로 대체 + 경고.
 
 ROI 면적 0이면 ``roi``는 전부 False인 배열이고 경고를 남긴다 — 예외를 던지지 않는다.
 """
@@ -20,7 +22,13 @@ from typing import Any, ClassVar
 import numpy as np
 
 from anograft.core import roi as R
-from anograft.core.recipe import GrabCutRoiConfig, MaskDirRoiConfig, NoneRoiConfig, OtsuRoiConfig
+from anograft.core.recipe import (
+    AnnulusRoiConfig,
+    GrabCutRoiConfig,
+    MaskDirRoiConfig,
+    NoneRoiConfig,
+    OtsuRoiConfig,
+)
 from anograft.core.registry import register
 from anograft.core.seeds import stable_seed
 from anograft.core.types import Context
@@ -153,4 +161,45 @@ class GrabCutRoi:
         out = _finish(ctx, res.roi, log)
         if res.fallback is not None:
             out = out.warn(f"roi: grabcut 실패 → otsu 로 대체 — {res.fallback}")
+        return out
+
+
+@register
+class AnnulusRoi:
+    stage: ClassVar[str] = "roi"
+    methods: ClassVar[tuple[str, ...]] = ("annulus",)
+    requires: ClassVar[tuple[str, ...]] = ()
+
+    def __init__(self, cfg: AnnulusRoiConfig, deps: Mapping[str, Any]) -> None:
+        self.cfg = cfg
+
+    def apply(self, ctx: Context) -> Context:
+        cfg = self.cfg
+        res = R.roi_annulus(
+            ctx.target.image,
+            center=cfg.center,
+            radius=cfg.radius,
+            r_inner=cfg.r_inner,
+            r_outer=cfg.r_outer,
+            units=cfg.units,
+            invert=cfg.invert,
+            erode_px=cfg.erode_px,
+        )
+        log: dict[str, Any] = {
+            "method": "annulus",
+            "center": [round(res.center[0], 2), round(res.center[1], 2)],
+            "center_source": res.center_source,
+            "radius_px": round(res.radius, 2),
+            "radius_source": res.radius_source,
+            "r_inner_px": round(res.r_inner_px, 2),
+            "r_outer_px": round(res.r_outer_px, 2),
+            "units": cfg.units,
+            "erode_px": cfg.erode_px,
+            "area_before_erode_px": res.area_before_erode,
+        }
+        if res.fallback is not None:
+            log["fallback"] = res.fallback
+        out = _finish(ctx, res.roi, log)
+        if res.fallback is not None:
+            out = out.warn(f"roi: annulus 자동 검출 실패 — {res.fallback}")
         return out

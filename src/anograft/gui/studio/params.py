@@ -33,6 +33,8 @@ ON_DEFAULTS: dict[str, Any] = {
     "gamma": [0.8, 1.25],
     "classes": [],
     "texture_dir": "",
+    "center": [0.0, 0.0],  # annulus — 고정 중심(px). 켠 뒤 대상 좌표로 고친다
+    "radius": 100.0,  # annulus — 고정 기준 반경(px)
 }
 
 _BIG = 1_000_000_000

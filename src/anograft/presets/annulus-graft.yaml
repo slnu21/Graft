@@ -1,0 +1,47 @@
+# Annulus Graft (v0.6) — poisson-graft 위에 ROI 만 링(annulus)으로. 원형 부품의 **가공 링 면에만** 결함을 놓는다.
+#   왜: otsu/grabcut 은 물체 vs 배경만 갈라 중앙 리세스(결함이 생기지 않는 면)에도 배치됐다(KNOWN-ISSUES #2, 토크스 소켓 실측
+#   poisson-graft 적중 0/4 · mask_dir 링 9/9). mask_dir 는 대상마다 마스크 파일이 필요했지만(#4) annulus 는 중심·반경을
+#   대상마다 Otsu 전경의 최소외접원으로 자동 검출해 촬영 위치가 40~70 px 흔들려도 링이 따라간다.
+#   r_inner/r_outer 는 검출 반경의 배율(units: ratio) — 토크스 소켓 실측 319~510 px / 바깥 570 px ≈ 0.56~0.9.
+#   부품마다 한 번 맞춘다: 스튜디오에서 ROI 오버레이를 켜고 배치 카드의 r_inner/r_outer 를 링에 맞출 때까지 조정.
+#   center/radius 를 고정값으로 두면(지그 고정 촬영) 검출을 건너뛴다. 결함 패치가 링 폭보다 크면 배치가 실패하고 사유에
+#   "ROI 최대 폭 vs 패치" 진단이 붙는다 → geometry.scale 을 낮추거나 shrink_on_fail 을 늘린다.
+pipeline:
+  source:
+    method: bank
+    classes: null
+    min_sources_warn: 10
+  geometry:
+    method: affine
+    scale: [0.8, 1.25]
+    rotate: [-180, 180]
+    flip: true
+    elastic: { alpha: 0, sigma: 4 }
+  placement:
+    method: sampled
+    roi: { method: annulus, center: null, radius: null, r_inner: 0.55, r_outer: 0.9, units: ratio, invert: auto, erode_px: 4 }
+    distribution: uniform
+    margin_px: 8
+    max_tries: 50
+    shrink_on_fail: { factor: 0.8, rounds: 3 }
+  blend:
+    method: poisson
+    poisson_mode: normal
+    mask_dilate_px: 5
+    feather_px: 3
+  harmonize:
+    method: stats
+    strength: 0.3
+    ring_px: 12
+  degrade:
+    method: camera
+    noise_sigma: [0, 2.0]
+    blur_sigma: [0, 0.6]
+    jpeg_quality: null
+    motion_blur_px: null
+    vignette: null
+    gamma: null
+  gtmask:
+    policy: union
+    diff_threshold: 12
+    dilate_px: 2

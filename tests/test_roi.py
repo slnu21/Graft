@@ -1,6 +1,7 @@
 """3단계(앞) roi — 설계 §11: 원판 이미지에서 ``auto``가 원판을 고름(밝은 배경·어두운 배경 양쪽) · ``erode_px``로 면적 감소 ·
 ``none``은 전체 · ``mask_dir`` 로드(+ 로더 없음/실패는 fail-soft) · ``grabcut``(v0.4): rect/otsu 초기화가 원판을 찾음(Otsu 와 IoU),
-같은 입력 → 같은 ROI(시드), ``work_px`` 축소 후 원본 크기, 너무 작은 이미지는 Otsu 로 대체(fail-soft), 스테이지 로그·시드."""
+같은 입력 → 같은 ROI(시드), ``work_px`` 축소 후 원본 크기, 너무 작은 이미지는 Otsu 로 대체(fail-soft), 스테이지 로그·시드 ·
+``annulus``(v0.6): 중심·반경 자동 검출(이동·리세스·극성), 비율/px, 고정 중심, erode 양쪽, 검출 실패 대체 + 경고."""
 
 from __future__ import annotations
 
@@ -11,9 +12,15 @@ import numpy as np
 import pytest
 
 from anograft.core import roi as R
-from anograft.core.recipe import GrabCutRoiConfig, MaskDirRoiConfig, NoneRoiConfig, OtsuRoiConfig
+from anograft.core.recipe import (
+    AnnulusRoiConfig,
+    GrabCutRoiConfig,
+    MaskDirRoiConfig,
+    NoneRoiConfig,
+    OtsuRoiConfig,
+)
 from anograft.core.seeds import stable_seed
-from anograft.core.stages.roi import GrabCutRoi, MaskDirRoi, NoneRoi, OtsuRoi
+from anograft.core.stages.roi import AnnulusRoi, GrabCutRoi, MaskDirRoi, NoneRoi, OtsuRoi
 from anograft.io import imgio
 from tests.fixtures import context, disk_image, disk_target
 
@@ -265,3 +272,146 @@ def test_grabcut_stage_warns_on_fallback(monkeypatch: pytest.MonkeyPatch) -> Non
     assert out.roi is not None and out.roi.any()  # Otsu 대체
     assert out.log["roi"]["fallback"].startswith("cv2.error")
     assert any("grabcut 실패" in w for w in out.warnings)
+
+
+# ---------------------------------------------------------------------------
+# annulus (v0.6) — KNOWN-ISSUES #2 #4
+# ---------------------------------------------------------------------------
+
+
+def _ring_part(
+    size: int = 128, center: tuple[int, int] | None = None, recess: int = 18
+) -> np.ndarray:
+    """밝은 원판 + 어두운 중앙 리세스(토크스 소켓 축소판). 배경 40."""
+    img = np.full((size, size, 3), 40, dtype=np.uint8)
+    c = center or (size // 2, size // 2)
+    cv2.circle(img, c, size // 3, (200, 200, 200), -1)
+    if recess:
+        cv2.circle(img, c, recess, (40, 40, 40), -1)
+    return img
+
+
+def _radii(roi: np.ndarray, center: tuple[float, float]) -> tuple[float, float]:
+    yy, xx = np.nonzero(roi)
+    d = np.hypot(yy - center[1], xx - center[0])
+    return float(d.min()), float(d.max())
+
+
+def test_detect_disk_finds_center_and_radius_even_with_recess_and_shift() -> None:
+    fit = R.detect_disk(disk_image(128))
+    assert (
+        fit is not None
+        and fit.center == (64.0, 64.0)
+        and fit.radius == pytest.approx(42.0, abs=0.6)
+    )
+    assert fit.inverted is False
+    # 중앙 리세스가 있어 전경이 링이어도 최소외접원은 바깥 원 · 부품이 움직여도 따라간다
+    fit2 = R.detect_disk(_ring_part(128, center=(80, 50)))
+    assert fit2 is not None and fit2.center == pytest.approx((80.0, 50.0), abs=0.6)
+    assert fit2.radius == pytest.approx(42.0, abs=0.6)
+    # 밝은 배경·어두운 부품(극성 반전)도 auto 가 잡는다
+    fit3 = R.detect_disk(disk_image(128, invert=True))
+    assert fit3 is not None and fit3.inverted is True and fit3.center == (64.0, 64.0)
+    # 잡음 성분(작은 점)이 있어도 가장 큰 성분만 쓴다
+    noisy = _ring_part(128)
+    cv2.circle(noisy, (8, 8), 3, (200, 200, 200), -1)
+    fit4 = R.detect_disk(noisy)
+    assert fit4 is not None and fit4.center == pytest.approx((64.0, 64.0), abs=0.6)
+
+
+def test_annulus_mask_geometry() -> None:
+    m = R.annulus_mask((64, 64), (31.5, 31.5), 10.0, 20.0)
+    lo, hi = _radii(m, (31.5, 31.5))
+    assert lo >= 10.0 and hi < 20.0 and m.dtype == bool
+    assert R.annulus_mask((64, 64), (31.5, 31.5), 0.0, 5.0).sum() > 0  # r_inner 0 = 원판
+    assert not R.annulus_mask((64, 64), (31.5, 31.5), 20.0, 20.0).any()  # 두께 0
+
+
+def test_roi_annulus_ratio_follows_detected_disk_and_erodes_both_edges() -> None:
+    img = _ring_part(128, center=(70, 58))
+    res = R.roi_annulus(img, r_inner=0.5, r_outer=1.0, erode_px=0)
+    assert res.center_source == "auto" and res.radius_source == "auto" and res.fallback is None
+    assert res.center == pytest.approx((70.0, 58.0), abs=0.6) and res.radius == pytest.approx(
+        42.0, abs=0.6
+    )
+    assert (res.r_inner_px, res.r_outer_px) == pytest.approx((21.0, 42.0), abs=0.3)
+    lo, hi = _radii(res.roi, res.center)
+    assert 20.5 <= lo <= 22.0 and 40.5 <= hi <= 42.5
+    # erode 는 안·바깥 경계 모두에서 깎는다 (erode_px 는 바깥에서만 깎아 중앙으로 밀던 otsu 와 다르다 — KI #2)
+    er = R.roi_annulus(img, r_inner=0.5, r_outer=1.0, erode_px=4)
+    lo2, hi2 = _radii(er.roi, er.center)
+    assert lo2 >= lo + 3 and hi2 <= hi - 3 and er.area_before_erode == res.area_before_erode
+    assert not (er.roi & ~res.roi).any()
+
+
+def test_roi_annulus_px_units_and_fixed_center_skip_detection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[int] = []
+    real = R.detect_disk
+
+    def counting(*a, **k):
+        calls.append(1)
+        return real(*a, **k)
+
+    monkeypatch.setattr(R, "detect_disk", counting)
+    res = R.roi_annulus(
+        disk_image(128), center=(64.0, 64.0), r_inner=10.0, r_outer=30.0, units="px"
+    )
+    assert calls == [] and res.center_source == "fixed" and res.radius_source == "unused"
+    assert _radii(res.roi, (64.0, 64.0)) == pytest.approx((10.0, 29.9), abs=0.3)
+    # 비율 + 고정 반경 → 검출 없음
+    res2 = R.roi_annulus(
+        disk_image(128), center=(64.0, 64.0), radius=50.0, r_inner=0.2, r_outer=0.6
+    )
+    assert (
+        calls == []
+        and res2.radius_source == "fixed"
+        and (res2.r_inner_px, res2.r_outer_px) == (10.0, 30.0)
+    )
+    # 비율 + 자동 반경 → 검출 1회
+    R.roi_annulus(disk_image(128), center=(64.0, 64.0), r_inner=0.2, r_outer=0.6)
+    assert calls == [1]
+
+
+def test_roi_annulus_falls_back_to_image_center_when_detection_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(R, "detect_disk", lambda *a, **k: None)
+    res = R.roi_annulus(np.zeros((40, 60, 3), dtype=np.uint8), r_inner=0.2, r_outer=0.8)
+    assert res.center == (29.5, 19.5) and res.radius == 20.0
+    assert res.center_source == "auto→image-center" and res.radius_source == "auto→half-min-side"
+    assert res.fallback is not None and "이미지 중심" in res.fallback
+    assert res.roi.any()
+
+
+def test_annulus_stage_logs_and_warns_on_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    out = AnnulusRoi(AnnulusRoiConfig(r_inner=0.5, r_outer=1.0, erode_px=2), {}).apply(
+        context(disk_target(128))
+    )
+    assert out.roi is not None and out.roi.any() and out.warnings == ()
+    log = out.log["roi"]
+    assert (
+        log["method"] == "annulus"
+        and log["center"] == [64.0, 64.0]
+        and log["center_source"] == "auto"
+    )
+    assert log["radius_px"] == pytest.approx(42.0, abs=0.6) and log["units"] == "ratio"
+    assert log["r_inner_px"] == pytest.approx(21.0, abs=0.3) and log["erode_px"] == 2
+    assert (
+        log["area_px"] == int(out.roi.sum()) < log["area_before_erode_px"] and "fallback" not in log
+    )
+    # 자동 검출 실패 → 대체 + 경고(카드에 뜬다)
+    monkeypatch.setattr(R, "detect_disk", lambda *a, **k: None)
+    out2 = AnnulusRoi(AnnulusRoiConfig(), {}).apply(context(disk_target(64)))
+    assert out2.roi is not None and "fallback" in out2.log["roi"]
+    assert any(w.startswith("roi: annulus 자동 검출 실패") for w in out2.warnings)
+
+
+def test_annulus_config_requires_inner_lt_outer() -> None:
+    with pytest.raises(ValueError, match="r_inner"):
+        AnnulusRoiConfig(r_inner=0.9, r_outer=0.9)
+    cfg = AnnulusRoiConfig.model_validate(
+        {"method": "annulus", "center": [700, 700], "units": "px", "r_inner": 319, "r_outer": 510}
+    )
+    assert cfg.center == (700.0, 700.0) and cfg.model_dump(mode="json")["center"] == [700.0, 700.0]
