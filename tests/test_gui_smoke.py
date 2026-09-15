@@ -289,3 +289,26 @@ def test_stage_param_form_edits_recipe_and_shows_errors_inline(
     finally:
         win.close()
         qapp.processEvents()
+
+
+def test_inputs_panel_um_per_px_edits_recipe(qapp: QApplication) -> None:
+    """v0.7.x — 입력 패널 µm/px 스핀 → inputs.um_per_px(0 = 모름 = null) → 레시피 저장에 반영."""
+    ses = StudioSession(default_recipe())
+    win = MainWindow(ses, start_worker=False)
+    try:
+        panel = win.studio.inputs
+        assert panel.um.value() == 0.0 and ses.recipe.inputs.um_per_px is None
+        panel.um.setValue(2.5)
+        panel.um.editingFinished.emit()
+        assert ses.recipe.inputs.um_per_px == 2.5
+        assert "um_per_px: 2.5" in ses.recipe.to_yaml()
+        panel.um.setValue(0.0)
+        panel.um.editingFinished.emit()
+        assert ses.recipe.inputs.um_per_px is None
+        # sync 가 스핀을 되돌린다
+        ses.set_field(("inputs", "um_per_px"), 1.25)
+        win.studio.sync_widgets()
+        assert panel.um.value() == 1.25
+    finally:
+        win.close()
+        qapp.processEvents()

@@ -147,6 +147,7 @@ class StudioTab(QWidget):
         s.save_clicked.connect(self.save_recipe_dialog)
         s.batch_clicked.connect(self.send_to_batch)
         self.inputs.open_requested.connect(self.open_inputs)
+        self.inputs.um_per_px_changed.connect(self._on_um_per_px)
         self.rail.selected.connect(self._on_target)
         self.pipe.method_changed.connect(
             lambda st, m: self._edit(lambda: self.session.set_method(st, m))
@@ -268,6 +269,17 @@ class StudioTab(QWidget):
             self.status.emit(f"v{k + 1} 계산 중…")
 
     # ------------------------------------------------------------------ 열기·저장
+
+    def _on_um_per_px(self, value: object) -> None:
+        """대상 픽셀 피치 — 레시피 inputs.um_per_px(재검증 → 재준비 → 미리보기). 은행 피치가 없으면 경고가 그대로 알린다."""
+        try:
+            self.session.set_field(("inputs", "um_per_px"), value)
+        except SessionError as e:
+            QMessageBox.warning(self, "µm/px", str(e))
+            self.sync_widgets()
+            return
+        self.sync_widgets()
+        self.request_previews()
 
     def open_inputs(self, bank: str, targets: str) -> None:
         try:
