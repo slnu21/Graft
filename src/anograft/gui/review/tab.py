@@ -107,7 +107,7 @@ class HistogramWidget(QWidget):
         p.drawLine(int(left), int(bottom), int(right), int(bottom))
         for i in (0, n // 2, n):
             v = h.edges[i]
-            label = f"{v:.0f}" if v >= 10 else f"{v:.1f}"
+            label = (f"{v:.0f}" if v >= 10 else f"{v:.1f}") if h.log else f"{v:+.0f}"
             x = left + i * bw
             p.drawText(int(min(x, right - 40)), self.height() - 6, label)
         p.setPen(QColor(SYNTH_COLOR))
@@ -194,6 +194,7 @@ class ReviewTab(QWidget):
         self.dist_key = QComboBox()
         self.dist_key.addItem("면적 area (px)", "area")
         self.dist_key.addItem("긴 변 length (px)", "length")
+        self.dist_key.addItem("대비 contrast (gray)", "contrast")
         v.addWidget(self.dist_key)
         self.hist = HistogramWidget()
         v.addWidget(self.hist, 1)
@@ -401,7 +402,11 @@ class ReviewTab(QWidget):
             return
         key = str(self.dist_key.currentData() or "area")
         h = self.session.distribution(key)
-        title = "면적 px (로그 구간)" if key == "area" else "긴 변 px (로그 구간)"
+        title = {
+            "area": "면적 px (로그 구간)",
+            "length": "긴 변 px (로그 구간)",
+            "contrast": "대비 gray (마스크 − 링, 선형)",
+        }.get(key, key)
         if self.session.bank is None:
             title += " — 은행 없음"
         self.hist.set_histogram(h, title)

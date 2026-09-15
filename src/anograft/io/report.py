@@ -35,6 +35,7 @@ class ReportData:
     skipped_reasons: Mapping[str, int] = field(default_factory=dict)
     hist_area: Any = None  # Histogram(edges, a, b, log)
     hist_length: Any = None
+    hist_contrast: Any = None  # 선형 구간(음수 가능)
     bank_name: str = ""
     warnings: Sequence[str] = ()
 
@@ -71,8 +72,9 @@ def svg_histogram(hist: Any, title: str, *, width: int = 520, height: int = 200)
             )
     for i in (0, n // 2, n):
         x = left + i * bw
+        label = _fmt(hist.edges[i]) if getattr(hist, "log", True) else f"{hist.edges[i]:+.0f}"
         parts.append(
-            f'<text x="{min(x, right - 30):.0f}" y="{height - 8}" class="ax">{_fmt(hist.edges[i])}</text>'
+            f'<text x="{min(x, right - 30):.0f}" y="{height - 8}" class="ax">{label}</text>'
         )
     parts.append("</svg>")
     return "".join(parts)
@@ -121,7 +123,7 @@ code{{background:#f4f6f8;padding:1px 4px;border-radius:4px}}
 <div class="tile"><b>{c.get("fallback", 0)}</b>폴백 fallback</div>
 </div>
 <h2>분포 Distribution <span class="muted">— 합성(반려 제외) vs 실제(은행 소스), 로그 구간</span></h2>
-<div class="grid">{svg_histogram(d.hist_area, "면적 area (px)")}{svg_histogram(d.hist_length, "긴 변 length (px)")}</div>
+<div class="grid">{svg_histogram(d.hist_area, "면적 area (px)")}{svg_histogram(d.hist_length, "긴 변 length (px)")}{svg_histogram(d.hist_contrast, "대비 contrast (gray, 마스크 − 링)")}</div>
 <h2>클래스별 인스턴스 <span class="muted">(채택 + 미검수)</span></h2>
 <table><tr><th>클래스</th><th>인스턴스</th></tr>{per_class or '<tr><td colspan="2" class="muted">없음</td></tr>'}</table>
 <h2>반려 Rejected ({len(d.rejected)})</h2>

@@ -231,3 +231,45 @@ def test_report_render_and_session_report(output_root: Path, tmp_path: Path) -> 
         or (tmp_path / "cli.html").is_file()
     )
     assert main(["dataset", "report", str(tmp_path / "nope")]) != EXIT_OK
+
+
+# --- 대비 분포(v0.7.x) -----------------------------------------------------------
+
+
+def test_contrast_distribution_synthetic_vs_real(output_root: Path) -> None:
+    import numpy as np
+
+    from anograft.gui.review.session import DIST_KEYS, mask_contrast
+
+    assert "contrast" in DIST_KEYS
+    g = np.full((40, 40), 100, dtype=np.uint8)
+    g[15:25, 15:25] = 160
+    m = np.zeros((40, 40), dtype=np.uint8)
+    m[15:25, 15:25] = 255
+    assert mask_contrast(g, m) == 60.0
+    assert mask_contrast(g, np.zeros_like(m)) is None
+    assert mask_contrast(g, np.full_like(m, 255)) is None  # 링이 없다
+    s = ReviewSession()
+    items = s.load(output_root)
+    ok = [it for it in items if it.status == "ok"]
+    syn = s.synthetic_values("contrast")
+    assert len(syn) == sum(len(s.item(x.index).instances) for x in ok)
+    assert all(isinstance(v, float) for v in syn) and ok[0].contrasts is not None
+    real = s.real_values("contrast")
+    assert len(real) == 5 and all(v != 0.0 for v in real)  # 얼룩은 배경보다 밝다
+    h = s.distribution("contrast")
+    assert not h.log and sum(h.a) == len(syn) and sum(h.b) == 5
+    assert h.edges[0] <= min(syn + real) and h.edges[-1] >= max(syn + real)
+    with pytest.raises(ReviewError):
+        s.synthetic_values("bogus")
+    # 반려하면 합성 값에서 빠진다
+    s.set_verdict(ok[0].index, "reject")
+    assert len(s.synthetic_values("contrast")) == len(syn) - len(ok[0].contrasts)
+    # 리포트에 세 번째 히스토그램
+    data = s.report_data()
+    assert (
+        data.hist_contrast is not None
+        and "대비" in (output_root / "review-report.html").read_text(encoding="utf-8")
+        if s.write_report()
+        else True
+    )
