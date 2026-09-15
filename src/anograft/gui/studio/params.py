@@ -229,7 +229,9 @@ def coerce(spec: FieldSpec, raw: Any) -> Any:
             return [s.strip() for s in raw.split(",") if s.strip()]
         return [str(s) for s in raw]
     if spec.kind == "path":
-        return Path(str(raw)).as_posix() if str(raw).strip() else ""
+        # 레시피 경로는 posix 표기 — Windows 백슬래시는 OS 와 무관하게 '/' 로(POSIX 에선 Path.as_posix 가 '\\' 를 안 바꾼다)
+        text = str(raw).strip()
+        return Path(text.replace("\\", "/")).as_posix() if text else ""
     if spec.kind == "text":
         return str(raw)
     if spec.kind in ("int_range", "range"):
