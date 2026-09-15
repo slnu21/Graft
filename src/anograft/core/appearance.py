@@ -108,6 +108,17 @@ def is_directional(r: float | None, n: int) -> bool:
     return r >= LIGHT_REAL_MIN and n * r * r >= LIGHT_RAYLEIGH_Z
 
 
+def flip_breaks_lighting(flip: str, light_dir_deg: float | None) -> bool:
+    """flip 모드가 그 클래스의 하이라이트 방향을 뒤집는가. ``both`` 는 항상; ``vertical`` 은 조명이 위/아래에서 올 때
+    (방향이 세로축에서 45° 안), ``horizontal`` 은 옆에서 올 때. 방향을 모르면(None) horizontal/vertical 도 위험으로 본다."""
+    if flip == "none":
+        return False
+    if flip == "both" or light_dir_deg is None:
+        return True
+    vertical_light = abs(math.sin(math.radians(light_dir_deg))) >= math.cos(math.radians(45.0))
+    return vertical_light if flip == "vertical" else not vertical_light
+
+
 def circular_mean(angles_deg: Sequence[float]) -> float | None:
     """각도 집합의 평균 방향(°). 비면 None."""
     if not angles_deg:

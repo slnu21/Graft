@@ -95,15 +95,20 @@ def test_lighting_warning_rules() -> None:
     )
     # ±180 + flip (poisson-graft 기본) → 경고, 클래스·원인 명시
     w = runner.lighting_warning(_recipe("poisson-graft"), bank)
-    assert w and "pit(R 1.00, n 3)" in w and "rotate [-180, 180] + flip" in w and "dent-graft" in w
+    assert (
+        w
+        and "pit(R 1.00, n 3)" in w
+        and "rotate [-180, 180] + flip both" in w
+        and "dent-graft" in w
+    )
     assert w.startswith("geometry: ")  # 스튜디오 기하 카드 라우팅
     # dent-graft(±15, flip 끔) → 없음
     assert runner.lighting_warning(_recipe("dent-graft"), bank) is None
     # 회전만 좁혀도 flip 이 켜져 있으면 경고(원인은 flip 만)
-    w = runner.lighting_warning(_recipe("poisson-graft", rotate=[-30, 30], flip=True), bank)
-    assert w and "flip" in w and "rotate" not in w.split("로 합성하면")[0].split(" 을 ")[1]
+    w = runner.lighting_warning(_recipe("poisson-graft", rotate=[-30, 30], flip="both"), bank)
+    assert w and "flip both" in w and "rotate" not in w.split("로 합성하면")[0].split(" 을 ")[1]
     assert (
-        runner.lighting_warning(_recipe("poisson-graft", rotate=[-45, 45], flip=False), bank)
+        runner.lighting_warning(_recipe("poisson-graft", rotate=[-45, 45], flip="none"), bank)
         is None
     )
     # 조명 의존 클래스를 뽑지 않으면 없음

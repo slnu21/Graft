@@ -20,7 +20,7 @@ pipeline:
     method: affine
     scale: [1.0, 1.0]
     rotate: [0, 0]
-    flip: false
+    flip: none
     elastic: { alpha: 0, sigma: 4 }
   placement:
     method: sampled

@@ -5,6 +5,7 @@
 ## [Unreleased]
 
 ### Added
+- **`geometry.flip` 가 4가지** — `none · horizontal · vertical · both`(YAML `true/false` 는 both/none 으로 그대로 읽힘, rng 소비 both 2·h/v 1·none 0 → 기존 레시피·골든 불변). 조명 경고는 **방향으로 판단**(`flip_breaks_lighting`): 위/아래에서 오는 조명이면 `horizontal` 은 안전(찍힘도 좌우 뒤집기로 두 배). `per_class` 표·카드 폼(콤보)·`DENT_OVERRIDE`(`none`)·프리셋 YAML 어휘 갱신.
 - `tools/train_smoke.py --synthetic a --synthetic b …` — 출력 여러 개(다른 프리셋·시드)를 한 학습셋으로(접두어 `syn<k>_`, 클래스 순서가 다르면 오류).
 - 스튜디오 기하 카드에 **`per_class` 편집 표** — 은행 클래스마다 적용 체크 · 회전 lo/hi · flip(기본/켬/끔). 디바운스 뒤 재검증(카드 폼과 같은 규칙), scale 오버라이드는 YAML 값 보존. ▶ 버튼·`--auto-dent` 결과가 표에 그대로 보인다.
 - 검수 탭 **표시된 것 전부 반려** — 현재 필터(예: 조명 뒤집힘 의심·폴백)의 합성 결과를 한 번에.

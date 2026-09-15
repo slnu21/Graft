@@ -34,7 +34,7 @@ def test_dent_graft_preset_values_and_others_unchanged() -> None:
     assert "dent-graft" in R.preset_names()
     d = _recipe("dent-graft")
     g, p = d.pipeline.geometry, d.pipeline.placement
-    assert g.rotate == (-15.0, 15.0) and g.flip is False and g.scale == (0.9, 1.1)
+    assert g.rotate == (-15.0, 15.0) and g.flip == "none" and g.scale == (0.9, 1.1)
     assert p.method == "structure-aware" and p.prefer == "uniform" and p.align == "along"
     assert p.jitter_deg == 5 and p.max_align_deg == 30.0
     assert d.pipeline.blend.method == "poisson" and d.pipeline.blend.poisson_mode == "normal"
@@ -42,7 +42,7 @@ def test_dent_graft_preset_values_and_others_unchanged() -> None:
     # 기존 프리셋은 ±180 · flip 유지 (재현성)
     for name in ("poisson-graft", "hard-paste", "structure-aware-graft", "annulus-graft"):
         g2 = _recipe(name).pipeline.geometry
-        assert g2.rotate == (-180.0, 180.0) and g2.flip is True, name
+        assert g2.rotate == (-180.0, 180.0) and g2.flip == "both", name
 
 
 def test_dent_graft_runs_and_rotation_stays_in_range() -> None:

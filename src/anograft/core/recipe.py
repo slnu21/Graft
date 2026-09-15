@@ -314,13 +314,29 @@ def _check_rotate(v: tuple[float, float]) -> tuple[float, float]:
     return v
 
 
+FlipMode = Literal["none", "horizontal", "vertical", "both"]
+FLIP_MODES: tuple[str, ...] = ("none", "horizontal", "vertical", "both")
+
+
+def _norm_flip(v: Any) -> Any:
+    """``flip`` 하위 호환 — ``true`` = both(좌우·상하 각각 50 %), ``false`` = none. 문자열은 그대로 검증에."""
+    if isinstance(v, bool):
+        return "both" if v else "none"
+    return v
+
+
 class GeometryOverride(_Strict):
     """클래스별 기하 오버라이드(0.7.3) — 준 것만 덮어쓴다. 한 은행에 스크래치(±180 무방)와 찍힘(조명 의존 → ±15·flip 끔)이
     섞여 있을 때 레시피 하나로. rng 소비는 flip 여부 외엔 같다(범위만 다름)."""
 
     scale: Range | None = None
     rotate: Range | None = None
-    flip: bool | None = None
+    flip: FlipMode | None = None
+
+    @field_validator("flip", mode="before")
+    @classmethod
+    def _flip_compat(cls, v: Any) -> Any:
+        return _norm_flip(v)
 
     @field_validator("scale")
     @classmethod
@@ -337,19 +353,32 @@ class GeometryOverride(_Strict):
 class EffectiveGeometry:
     scale: tuple[float, float]
     rotate: tuple[float, float]
-    flip: bool
+    flip: str  # FlipMode
     overridden: bool
+
+    @property
+    def flip_h(self) -> bool:
+        return self.flip in ("horizontal", "both")
+
+    @property
+    def flip_v(self) -> bool:
+        return self.flip in ("vertical", "both")
 
 
 class AffineGeometryConfig(_Strict):
     method: Literal["affine"] = "affine"
     scale: Range = (0.8, 1.25)  # 물리 축척 × 이 배율
     rotate: Range = (-180.0, 180.0)  # deg
-    flip: bool = True
+    flip: FlipMode = "both"  # none · horizontal · vertical · both(좌우·상하 각각 50 %). YAML 의 true/false 도 받는다(0.7.5 전 호환)
     elastic: ElasticConfig = Field(default_factory=ElasticConfig)
     per_class: dict[str, GeometryOverride] = Field(
         default_factory=dict
     )  # 클래스 → 오버라이드(카드 편집기엔 안 나옴 — YAML 로). 은행에 없는 클래스는 validate_against 경고
+
+    @field_validator("flip", mode="before")
+    @classmethod
+    def _flip_compat(cls, v: Any) -> Any:
+        return _norm_flip(v)
 
     @field_validator("scale")
     @classmethod
@@ -1035,5 +1064,5 @@ def init_recipe_dict(
 
 DENT_OVERRIDE: dict[str, Any] = {
     "rotate": [-15.0, 15.0],
-    "flip": False,
-}  # 조명 의존 클래스의 기하(dent-graft 와 같음)
+    "flip": "none",
+}  # 조명 의존 클래스의 기하(dent-graft 와 같음). 조명이 위/아래에서 오면 "horizontal" 도 안전(경고가 방향으로 판단)

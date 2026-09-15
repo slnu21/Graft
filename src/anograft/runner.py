@@ -32,6 +32,7 @@ from anograft.bank import Bank
 from anograft.bank.bank import BankError
 from anograft.core import recipe as R
 from anograft.core import registry
+from anograft.core.appearance import flip_breaks_lighting
 from anograft.core.pipeline import Pipeline, RoiCache
 from anograft.core.recipe import Recipe
 from anograft.core.seeds import image_rng, pipeline_hash
@@ -176,20 +177,24 @@ def lighting_warning(recipe: Recipe, bank: Bank) -> str | None:
         eff = geo.for_class(r.cls)  # 클래스별 오버라이드가 있으면 그 범위로 판단
         lo, hi = eff.rotate
         wide = (hi - lo) > LIGHT_ROTATE_MAX_DEG
-        if not wide and not eff.flip:
+        flip_bad = flip_breaks_lighting(
+            eff.flip, r.light_dir
+        )  # 위/아래 조명이면 horizontal 은 안전
+        if not wide and not flip_bad:
             continue
         bad.append(f"{r.cls}(R {r.light_r:.2f}, n {r.light_n})")
         if wide:
             causes.add(f"rotate [{lo:g}, {hi:g}]")
-        if eff.flip:
-            causes.add("flip")
+        if flip_bad:
+            causes.add(f"flip {eff.flip}")
     if not bad:
         return None
     what = " · ".join(bad)
-    cause = " + ".join(sorted(causes, key=lambda c: (c == "flip", c)))
+    cause = " + ".join(sorted(causes, key=lambda c: (c.startswith("flip"), c)))
     return (  # `geometry:` 접두 — 스튜디오가 기하 카드에 ⚠ 로 라우팅(스테이지 경고 규약)
-        f"geometry: 조명 의존 결함 {what} 을 {cause} 로 합성하면 하이라이트 방향이 뒤집힙니다 — 프리셋 dent-graft(±15°, flip 끔), "
-        f"geometry.rotate 를 ±45° 안으로·flip false, 또는 그 클래스만 geometry.per_class: {{<class>: {{rotate: [-15, 15], flip: false}}}} "
+        f"geometry: 조명 의존 결함 {what} 을 {cause} 로 합성하면 하이라이트 방향이 뒤집힙니다 — 프리셋 dent-graft(±15°, flip none), "
+        f"geometry.rotate 를 ±45° 안으로·flip none(조명이 위/아래에서 오면 horizontal 은 됨), "
+        f"또는 그 클래스만 geometry.per_class: {{<class>: {{rotate: [-15, 15], flip: none}}}} "
         f"(검수 탭 '조명 방향' 분포로 확인)"
     )
 
