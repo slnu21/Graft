@@ -398,15 +398,32 @@ def test_geometry_card_shows_lighting_warning(
         assert not any(
             w.startswith("geometry:") for w in ses.warnings
         )  # reprepare 가 경고를 다시 계산
-        assert not card.fix.isVisible() and card.info.isVisible() and "pit" in card.info.text()
+        # 표(per_class 편집기)가 은행 클래스로 생겼고 pit 행이 켜져 있다 · 정보 줄은 표가 대신하므로 숨김
+        ed = card.per_class
+        assert ed is not None and ed.isVisible() and "pit" in ed.rows and not card.info.isVisible()
+        assert not card.fix.isVisible() and ed.rows["pit"].use.isChecked()
+        assert ed.rows["pit"].lo.value() == -15.0 and ed.rows["pit"].flip.currentIndex() == 2
         tab.request_previews()
         assert _pump(qapp, lambda: "geometry" not in tab.pipe.stage_warnings())
+        # 표에서 pit 을 끄면(디바운스 → flush) per_class 가 비고 경고·버튼이 돌아온다
+        ed.rows["pit"].use.setChecked(False)
+        ed.flush()
+        assert ses.recipe.pipeline.geometry.per_class == {}
+        assert card.fix.isVisible()
+        # 표에서 다시 켜고 회전을 ±10 으로
+        ed.rows["pit"].use.setChecked(True)
+        ed.rows["pit"].lo.setValue(-10.0)
+        ed.rows["pit"].hi.setValue(10.0)
+        ed.flush()
+        per = ses.recipe.pipeline.geometry.per_class
+        assert per["pit"].rotate == (-10.0, 10.0) and per["pit"].flip is False
+        assert not card.fix.isVisible()
         # 전체 회전을 조여도(다른 길) 마찬가지
         ses.set_stage_field("geometry", "per_class", {})
         ses.set_stage_field("geometry", "rotate", (-15.0, 15.0))
         ses.set_stage_field("geometry", "flip", False)
         tab.sync_widgets()
-        assert not card.fix.isVisible() and not card.info.isVisible()
+        assert not card.fix.isVisible() and not ed.rows["pit"].use.isChecked()
     finally:
         win.worker.stop()
         win.close()
@@ -527,3 +544,36 @@ def test_variant_card_marks_flipped_lighting(
         win.worker.stop()
         win.close()
         qapp.processEvents()
+
+
+def test_per_class_editor_roundtrip(qapp: QApplication) -> None:
+    """0.7.5+ — per_class 표: 행 = 클래스, set_value → 위젯, 편집 → changed(dict); scale 은 보존; 디바운스 중엔 덮어쓰지 않는다."""
+    from anograft.core import recipe as R
+    from anograft.gui.studio.per_class import PerClassEditor
+
+    ed = PerClassEditor()
+    got: list[dict] = []
+    ed.changed.connect(got.append)
+    assert not ed.isVisible() and ed.value() == {}
+    ed.show()
+    ed.set_classes(["scratch", "pit"])
+    assert list(ed.rows) == ["scratch", "pit"] and ed.value() == {}
+    ed.set_value({"pit": R.GeometryOverride(rotate=(-15, 15), flip=False, scale=(0.9, 1.1))})
+    r = ed.rows["pit"]
+    assert r.use.isChecked() and r.lo.value() == -15.0 and r.flip.currentIndex() == 2
+    assert not ed.rows["scratch"].use.isChecked()
+    assert ed.value() == {"pit": {"rotate": [-15.0, 15.0], "flip": False, "scale": [0.9, 1.1]}}
+    # 편집 → 디바운스 → flush 로 emit
+    r.hi.setValue(20.0)
+    r.flip.setCurrentIndex(0)  # 기본
+    assert ed._timer.isActive() and not got
+    ed.set_value(
+        {"pit": R.GeometryOverride(rotate=(-15, 15), flip=False, scale=(0.9, 1.1))}
+    )  # 대기 중 — 위젯을 덮어쓰지 않음(세션 값은 갱신)
+    assert r.hi.value() == 20.0
+    ed.flush()
+    assert got and got[-1] == {"pit": {"rotate": [-15.0, 20.0], "flip": None, "scale": [0.9, 1.1]}}
+    # 레시피에만 있는 클래스도 행이 생긴다
+    ed.set_value({"dent": R.GeometryOverride(flip=False)})
+    assert "dent" in ed.rows and ed.rows["dent"].use.isChecked()
+    ed.close()

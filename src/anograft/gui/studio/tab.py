@@ -436,6 +436,8 @@ class StudioTab(QWidget):
             )
         self.sync_widgets()
         n_warn = len(self.session.warnings)
+        self.pipe.set_classes([] if prep.recipe.bankless else list(prep.bank.classes))
+        self.pipe.sync(self.session.recipe)  # 표가 생긴 뒤 값 채우기 · 정보 줄 숨김
         self._sync_fix()
         self.status.emit(
             f"준비 완료 — 은행 {len(prep.bank)}개 · 대상 {len(prep.targets)}장"
