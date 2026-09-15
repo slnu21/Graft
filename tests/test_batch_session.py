@@ -87,8 +87,15 @@ def test_run_batch_matches_cli_and_reports_progress(recipe_file: Path, tmp_path:
     s = BatchSession()
     s.load(recipe_file)
     seen: list[int] = []
-    summary = run_batch(s.build_recipe(), progress=lambda d, t, r: seen.append(d))
+    warned: list[str] = []
+    summary = run_batch(
+        s.build_recipe(), progress=lambda d, t, r: seen.append(d), warn=warned.append
+    )
     assert seen == [1, 2, 3, 4] and not summary.cancelled and summary.done == 4
+    # prepare 경고(축척 …) + 배치 가능성 진단 한 줄이 로그로(0.7.3) — 결과는 CLI 와 같다(ROI 캐시, rng 0회)
+    assert any("축척" in w for w in warned) and any(
+        w.startswith("placement: 배치 가능성") for w in warned
+    )
     assert summary.writer.n_ok + summary.writer.n_skipped == 4
     assert (tmp_path / "out" / "manifest.csv").is_file() and "완료" in summary_text(summary)
     # CLI 와 같은 결과
