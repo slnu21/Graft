@@ -262,7 +262,7 @@ python tools/train_smoke.py --synthetic out/torx-pruned [--synthetic out/torx-de
 | 8 · 9 | 라벨 탭 초안 · 최근 레시피 복원 | GUI |
 | 10 | `recipe init --write recipes/x.yaml` | 폴더 자동 생성 |
 
-**결정 대기 항목(결과로 확정)**: `gtmask.diff_threshold` 12 · 박스→마스크 기본 `grabcut` vs `otsu` · YOLO 박스 GT `dilate_px` · `structure-aware prefer` edges/uniform · `grabcut work_px` 1024→512 · 저신뢰 경고 강화 임계 50 % · `dent-graft` 조화 0.2. 뒤집히는 게 있으면 0.7.3(프리셋 기본값 변경은 골든 갱신 + 데브로그 사유).
+**결정 대기 항목(결과로 확정)**: `gtmask.diff_threshold` 12 · 박스→마스크 기본 `grabcut` vs `otsu` · YOLO 박스 GT `dilate_px` · `structure-aware prefer` edges/uniform · `grabcut work_px` 1024→512 · 저신뢰 경고 강화 임계 50 % · `dent-graft` 조화 0.2 · `max_align_deg` 30 · 조명 임계(R 0.5/0.3 · Rayleigh 2.9 · 링 2 px · 뒤집힘 90°). 뒤집히는 게 있으면 0.7.x 패치(프리셋 기본값 변경은 골든 갱신 + 데브로그 사유).
 
 ### 2차 결과 (채울 것 — 다른 PC 에서 돌린 뒤 이 절을 PR 로)
 
