@@ -28,6 +28,7 @@ import numpy as np
 import yaml
 
 from anograft.bank.mask_from_box import LOW_CONFIDENCE
+from anograft.core.appearance import lighting_of_sources
 from anograft.core.seeds import bank_fingerprint
 from anograft.core.types import DefectSource
 from anograft.io import imgio
@@ -58,6 +59,10 @@ class ClassSummary:
     no_pitch: int = 0  # um_per_px 미지정(은행 기본값도 없음) — 축척 정합에서 빠지는 소스
     tags: Mapping[str, int] = field(default_factory=dict)  # 태그별 소스 수
     low_conf: int = 0  # confidence < LOW_CONFIDENCE (추정 마스크 중 확인이 필요한 것)
+    light_r: float | None = (
+        None  # 조명 일관성 R(둘레 링의 밝은 쪽 각도, ≥ 0.5 면 조명 의존 결함 → dent-graft). n < 3 이면 None
+    )
+    light_n: int = 0  # 각도를 잰 소스 수
 
 
 class Bank:
@@ -124,6 +129,7 @@ class Bank:
                 for t in s.tags:
                     tags[t] = tags.get(t, 0) + 1
             est = sum(n for o, n in origins.items() if o.startswith(ESTIMATED_PREFIX))
+            light_r, light_n = lighting_of_sources([(s.image, s.mask) for s in srcs])
             out.append(
                 ClassSummary(
                     cls=c,
@@ -136,6 +142,8 @@ class Bank:
                     no_pitch=sum(1 for s in srcs if s.um_per_px is None),
                     tags=tags,
                     low_conf=sum(1 for s in srcs if is_low_confidence(s)),
+                    light_r=light_r,
+                    light_n=light_n,
                 )
             )
         return out

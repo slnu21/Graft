@@ -1,0 +1,112 @@
+"""외형 지표 — 그레이 이미지 + 마스크(둘 다 같은 창) → 스칼라. 순수 numpy/opencv.
+
+검수 탭(합성 vs 실제 분포) · 은행 요약(``bank ls`` 의 lightR) · ``runner.lighting_warning`` 이 같은 정의를 쓴다.
+전부 빈 마스크(또는 링 없음)면 None — 호출 쪽이 건너뛴다.
+"""
+
+from __future__ import annotations
+
+import math
+from collections.abc import Sequence
+
+import cv2
+import numpy as np
+
+RING_PX = 8  # 대비 링 폭
+LIGHT_RING_PX = 2  # 조명 방향은 얇은 링 — 하이라이트 림이 1~2 px 라 8 px 링에선 질감에 묻힌다(샘플 pit: R 0.78→0.99)
+LIGHT_REAL_MIN = 0.5  # 실제 소스의 R 이 이 이상이면 '조명 방향이 있는 클래스'
+LIGHT_SYNTH_MAX = 0.3  # 그 클래스의 합성 R 이 이 미만이면 회전이 방향을 뒤집고 있다
+LIGHT_MIN_N = 3  # R 은 n=1 이면 항상 1 — 이보다 적으면 판단하지 않는다
+
+
+def mask_contrast(gray: np.ndarray, mask: np.ndarray, *, ring_px: int = RING_PX) -> float | None:
+    """마스크 안 평균 그레이 − 둘레 링(폭 ``ring_px``, 마스크 제외) 평균. 어느 쪽이든 비면 None. 라벨 탭 통계와 같은 정의."""
+    m = mask > 0
+    if not m.any():
+        return None
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * ring_px + 1, 2 * ring_px + 1))
+    ring = cv2.dilate(m.astype(np.uint8), k) > 0
+    ring &= ~m
+    if not ring.any():
+        return None
+    g = gray.astype(np.float32)
+    return round(float(g[m].mean() - g[ring].mean()), 2)
+
+
+def mask_texture(gray: np.ndarray, mask: np.ndarray) -> float | None:
+    """마스크 안 Sobel 그래디언트 크기 평균(결함 내부의 질감·에지 에너지). 빈 마스크면 None."""
+    m = mask > 0
+    if not m.any():
+        return None
+    g = gray.astype(np.float32)
+    gx = cv2.Sobel(g, cv2.CV_32F, 1, 0, ksize=3)
+    gy = cv2.Sobel(g, cv2.CV_32F, 0, 1, ksize=3)
+    return round(float(np.sqrt(gx * gx + gy * gy)[m].mean()), 2)
+
+
+def mask_sharpness(gray: np.ndarray, mask: np.ndarray) -> float | None:
+    """마스크 안 라플라시안 분산(선명도 — 열화 블러가 결함을 뭉갰는지). 빈 마스크면 None."""
+    m = mask > 0
+    if not m.any():
+        return None
+    lap = cv2.Laplacian(gray.astype(np.float32), cv2.CV_32F, ksize=3)
+    return round(float(lap[m].var()), 2)
+
+
+def mask_lighting(
+    gray: np.ndarray, mask: np.ndarray, *, ring_px: int = LIGHT_RING_PX
+) -> float | None:
+    """둘레 링에서 밝은 쪽이 어느 방향인지 — 각도(°, 이미지 좌표: 0 = 오른쪽, 90 = 아래). KI #5 근거.
+
+    링 픽셀의 (밝기 − 링 평균) 을 무게로 중심→픽셀 단위벡터를 합해 방향을 얻는다. 조명이 한쪽에서 오는
+    움푹/볼록 결함은 하이라이트 림이 한 방향에 몰리므로 실제 소스는 각도가 한 곳에 모이고, 회전 ±180 으로
+    합성하면 고르게 퍼진다(→ ``circular_concentration``). 빈 마스크·링이면 None."""
+    m = mask > 0
+    if not m.any():
+        return None
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * ring_px + 1, 2 * ring_px + 1))
+    ring = cv2.dilate(m.astype(np.uint8), k) > 0
+    ring &= ~m
+    if not ring.any():
+        return None
+    ys, xs = np.nonzero(m)
+    cy, cx = float(ys.mean()), float(xs.mean())
+    ry, rx = np.nonzero(ring)
+    g = gray.astype(np.float32)
+    w = g[ry, rx] - float(g[ring].mean())
+    dy, dx = ry.astype(np.float32) - cy, rx.astype(np.float32) - cx
+    norm = np.hypot(dx, dy)
+    norm[norm == 0] = 1.0
+    vx, vy = float((w * dx / norm).sum()), float((w * dy / norm).sum())
+    if abs(vx) < 1e-6 and abs(vy) < 1e-6:
+        return None
+    return round(math.degrees(math.atan2(vy, vx)), 1)
+
+
+def circular_concentration(angles_deg: Sequence[float]) -> float | None:
+    """각도 집합의 평균 합벡터 길이 R (1 = 전부 같은 방향, 0 = 고르게 퍼짐). 비면 None."""
+    if not angles_deg:
+        return None
+    th = np.radians(np.asarray(list(angles_deg), dtype=np.float64))
+    return round(float(np.hypot(np.cos(th).mean(), np.sin(th).mean())), 3)
+
+
+APPEARANCE_FN = {
+    "contrast": mask_contrast,
+    "texture": mask_texture,
+    "sharpness": mask_sharpness,
+    "lighting": mask_lighting,
+}
+
+
+def gray_of(image: np.ndarray) -> np.ndarray:
+    """BGR/그레이 어느 쪽이든 2D 그레이로."""
+    return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if image.ndim == 3 else image
+
+
+def lighting_of_sources(pairs: Sequence[tuple[np.ndarray, np.ndarray]]) -> tuple[float | None, int]:
+    """(image, mask) 쌍들의 조명 일관성 — ``(R, n)``. n < LIGHT_MIN_N 이면 R 은 None(판단 보류)."""
+    angles = [v for img, m in pairs if (v := mask_lighting(gray_of(img), m)) is not None]
+    if len(angles) < LIGHT_MIN_N:
+        return None, len(angles)
+    return circular_concentration(angles), len(angles)

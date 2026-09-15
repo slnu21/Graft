@@ -32,6 +32,7 @@ from anograft.bank import Bank
 from anograft.bank.bank import BankError
 from anograft.core import recipe as R
 from anograft.core import registry
+from anograft.core.appearance import LIGHT_REAL_MIN
 from anograft.core.pipeline import Pipeline, RoiCache
 from anograft.core.recipe import Recipe
 from anograft.core.seeds import image_rng, pipeline_hash
@@ -157,6 +158,37 @@ def confidence_warning(recipe: Recipe, bank: Bank) -> str | None:
     )
 
 
+LIGHT_ROTATE_MAX_DEG = 90.0  # rotate 범위 폭이 이보다 크면(±45 초과) 조명 방향이 뒤집힌다고 본다
+
+
+def lighting_warning(recipe: Recipe, bank: Bank) -> str | None:
+    """조명 의존 클래스(실제 소스의 하이라이트 방향 일관성 R ≥ LIGHT_REAL_MIN, n ≥ 3)를 rotate 폭 > 90° 또는 flip 으로
+    합성하면 한 줄(KNOWN-ISSUES #5). 은행에서 미리 잡는다 — 검수 탭 '조명 방향' 분포는 사후 확인."""
+    if recipe.bankless or len(bank) == 0:
+        return None
+    geo = recipe.pipeline.geometry
+    lo, hi = geo.rotate
+    wide = (hi - lo) > LIGHT_ROTATE_MAX_DEG
+    if not wide and not geo.flip:
+        return None
+    selected = set(recipe.effective_classes(bank))
+    directional = [
+        r
+        for r in bank.summary()
+        if r.cls in selected and r.light_r is not None and r.light_r >= LIGHT_REAL_MIN
+    ]
+    if not directional:
+        return None
+    what = " · ".join(f"{r.cls}(R {r.light_r:.2f}, n {r.light_n})" for r in directional)
+    cause = " + ".join(
+        p for p, on in ((f"rotate [{lo:g}, {hi:g}]", wide), ("flip", geo.flip)) if on
+    )
+    return (
+        f"조명 의존 결함 {what} 을 {cause} 로 합성하면 하이라이트 방향이 뒤집힙니다 — 프리셋 dent-graft(±15°, flip 끔) "
+        f"또는 geometry.rotate 를 ±45° 안으로, flip false (검수 탭 '조명 방향' 분포로 확인)"
+    )
+
+
 def prepare(recipe: Recipe) -> Prepared:
     try:
         bank = (
@@ -171,7 +203,11 @@ def prepare(recipe: Recipe) -> Prepared:
         warnings += recipe.validate_against(bank)
     except ValueError as e:
         raise PrepareError(f"레시피가 은행과 맞지 않습니다: {e}") from e
-    for w in (scale_warning(recipe, bank), confidence_warning(recipe, bank)):
+    for w in (
+        scale_warning(recipe, bank),
+        confidence_warning(recipe, bank),
+        lighting_warning(recipe, bank),
+    ):
         if w:
             warnings.append(w)
     try:
