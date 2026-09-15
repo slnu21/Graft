@@ -45,6 +45,9 @@ class ReportData:
     directional: Sequence[str] | None = (
         None  # 실제 방향이 유의한 클래스(None 이면 R ≥ 0.5 로만 판단)
     )
+    geometry: str = (
+        ""  # 레시피 기하 한 줄(scale·rotate·flip·per_class) — 조명 히스토그램을 읽을 때의 맥락
+    )
     bank_name: str = ""
     warnings: Sequence[str] = ()
 
@@ -178,6 +181,7 @@ code{{background:#f4f6f8;padding:1px 4px;border-radius:4px}}
 </style></head><body>
 <h1>Graft 검수 리포트 <span class="muted">Review report</span></h1>
 <p class="muted">{e(d.root)} · 레시피 <code>{e(d.recipe_name)}</code> · seed {d.seed if d.seed is not None else "–"} · 프리셋 <code>{e(d.preset)}</code> · pipeline_hash <code>{e(d.pipeline_hash)}</code>{(" · 은행 " + e(d.bank_name)) if d.bank_name else ""}</p>
+{('<p class="muted">기하 geometry — <code>' + e(d.geometry) + "</code></p>") if d.geometry else ""}
 <div class="grid">
 <div class="tile"><b>{total_ok}</b>합성 synthetic</div>
 <div class="tile"><b>{c.get("normal", 0)}</b>정상 normal</div>

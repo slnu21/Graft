@@ -544,10 +544,32 @@ class ReviewSession:
             lighting_r=self.lighting_concentration(),
             lighting_r_class=self.lighting_concentration_by_class(),
             directional=self.directional_classes(),
+            geometry=self.geometry_text(),
             flipped=sorted(self.flipped_lighting()),
             bank_name=self.bank.name if self.bank is not None else "",
             warnings=list(self.warnings),
         )
+
+    def geometry_text(self) -> str:
+        """resolved 레시피의 기하 한 줄 — scale·rotate·flip + per_class(준 필드만). 조명 분포의 맥락."""
+        geo = (self.recipe_meta.get("pipeline") or {}).get("geometry") or {}
+        if not geo:
+            return ""
+
+        def rng(v: Any) -> str:
+            return f"{v[0]:g}~{v[1]:g}" if isinstance(v, (list, tuple)) and len(v) == 2 else str(v)
+
+        parts = [
+            f"scale {rng(geo.get('scale'))}",
+            f"rotate {rng(geo.get('rotate'))}°",
+            f"flip {geo.get('flip')}",
+        ]
+        for c, o in (geo.get("per_class") or {}).items():
+            bits = [
+                f"{k} {rng(v) if k != 'flip' else v}" for k, v in (o or {}).items() if v is not None
+            ]
+            parts.append(f"per_class {c}: {' · '.join(bits) or '(변경 없음)'}")
+        return " · ".join(parts)
 
     def _pipeline_hash(self) -> str:
         """``recipe.resolved.yaml`` 헤더 주석의 pipeline_hash(없으면 첫 사이드카)."""
