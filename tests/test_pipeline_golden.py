@@ -1,5 +1,5 @@
-"""골든 회귀 — 설계 §11: 64×64 합성 대상 + 합성 은행, 시드 고정, **프리셋 8종 × gray/color** → ``tests/golden/<preset>-<gray|color>.png``
-픽셀 바이트 일치(16 골든; self-cut·perlin-texture·structure-aware-graft 는 v0.4, annulus-graft 는 v0.6 에서 추가). 갱신은
+"""골든 회귀 — 설계 §11: 64×64 합성 대상 + 합성 은행, 시드 고정, **프리셋 9종 × gray/color** → ``tests/golden/<preset>-<gray|color>.png``
+픽셀 바이트 일치(18 골든; self-cut·perlin-texture·structure-aware-graft 는 v0.4, annulus-graft·dent-graft 는 v0.6 에서 추가). 갱신은
 ``pytest --update-golden``으로만(``conftest``) — 알고리즘을 의도적으로 바꿨을 때, 데브로그에 사유.
 
 PNG 바이트가 아니라 **디코드한 픽셀 배열**을 비교한다(zlib/OpenCV 버전에 따라 인코딩 바이트는 달라질 수 있다).
@@ -27,6 +27,7 @@ PRESETS = [
     "perlin-texture",
     "structure-aware-graft",
     "annulus-graft",
+    "dent-graft",
 ]
 SEED = 20260914
 SIZE = 64
