@@ -5,6 +5,7 @@
 라벨러 흉내로 0~2px 여유를 준다(박스 ≠ 결함 경계 — 박스→마스크 추정이 실제로 일을 하게).
 
     anograft sample --out samples/metal [--n-normal 12 --n-defect 10 --seed 7]
+    anograft sample --out samples/ring --shape ring      # 원형 부품(가공 링 면 + 어두운 리세스) — annulus ROI·dent-graft 연습용
 
 출력::
 
@@ -27,6 +28,7 @@ import yaml
 from anograft.io import imgio
 
 NAMES = ["scratch", "pit", "stain"]
+SHAPES = ("plate", "ring")
 
 
 @dataclass(frozen=True)
@@ -79,15 +81,81 @@ def brushed_plate(rng: np.random.Generator, w: int, h: int) -> np.ndarray:
     return out
 
 
+def ring_part(rng: np.random.Generator, w: int, h: int) -> tuple[np.ndarray, np.ndarray]:
+    """어두운 배경 + 원형 부품: 바깥 원판의 **가공 링 면**(원주 방향 브러시 결) + 어두운 리세스(가운데 홈).
+    Otsu 전경이 링이 되어 ``annulus`` ROI(가장 큰 성분의 최소외접원 = 바깥 원)와 ``dent-graft`` 를 샘플로 연습할 수 있다.
+    반환 (BGR 이미지, 링 면 마스크)."""
+    bg = np.full((h, w, 3), 26, dtype=np.uint8)
+    bg = np.clip(bg.astype(np.int16) + rng.normal(0, 3, (h, w, 1)), 0, 255).astype(np.uint8)
+    r_out = int(min(w, h) * 0.42 * rng.uniform(0.9, 1.0))
+    r_in = int(r_out * rng.uniform(0.42, 0.5))
+    cx, cy = w // 2 + int(rng.integers(-12, 13)), h // 2 + int(rng.integers(-12, 13))
+    base = rng.uniform(135, 170)
+    tint = np.array([base * rng.uniform(0.98, 1.06), base, base * rng.uniform(0.94, 1.0)])
+    # 원주 방향 결: 극좌표(각도 × 반경)에서 각도 축으로 길게 번진 잡음을 데카르트로 되돌린다
+    n_ang, n_rad = 720, r_out + 2
+    noise = rng.normal(0, 1, (n_ang, n_rad)).astype(np.float32)
+    tiled = np.concatenate(
+        [noise, noise, noise], axis=0
+    )  # 각도는 주기적 — 이어 붙여 번지고 가운데만 취해 이음새 제거
+    streak = cv2.GaussianBlur(tiled, (0, 0), sigmaX=0.8, sigmaY=14)[n_ang : 2 * n_ang] * 50
+    grain = cv2.GaussianBlur(rng.normal(0, 1, (n_ang, n_rad)).astype(np.float32), (0, 0), 0.7) * 6
+    polar = np.clip(tint[None, None, :] + (streak + grain)[..., None], 0, 255).astype(np.uint8)
+    face = cv2.warpPolar(
+        polar,
+        (w, h),
+        (float(cx), float(cy)),
+        float(n_rad),
+        cv2.WARP_INVERSE_MAP + cv2.INTER_LINEAR,
+    )
+    yy, xx = np.mgrid[0:h, 0:w]
+    rr = np.hypot(xx - cx, yy - cy)
+    disk = rr <= r_out
+    recess = rr <= r_in
+    ring = disk & ~recess
+    # 완만한 비네팅(조명이 위에서) + 바깥 모따기(어두움) + 리세스(어둡고 거칠게)
+    shade = 1.0 - 0.10 * ((yy - cy) / max(1, r_out))
+    out = bg.copy()
+    out[ring] = np.clip(face[ring].astype(np.float32) * shade[ring][:, None], 0, 255).astype(
+        np.uint8
+    )
+    chamfer = ring & (rr > r_out - 4)
+    out[chamfer] = (out[chamfer].astype(np.int16) * 0.7).astype(np.uint8)
+    rec_tex = np.clip(
+        48 + rng.normal(0, 4, (h, w)) + 12 * ((yy - cy) / max(1, r_in)), 0, 255
+    ).astype(np.uint8)
+    out[recess] = np.repeat(rec_tex[recess][:, None], 3, axis=1)
+    lip = recess & (rr > r_in - 3) & (yy > cy)  # 홈 가장자리 하이라이트(아래쪽, 옆으로 갈수록 옅게)
+    gain = 60.0 * np.clip((yy - cy) / max(1, r_in), 0, 1)
+    out[lip] = np.clip(out[lip].astype(np.float32) + gain[lip][:, None], 0, 255).astype(np.uint8)
+    return out, (ring.astype(np.uint8) * 255)
+
+
+def _pick_in(rng: np.random.Generator, allowed: np.ndarray, pad: int) -> tuple[int, int]:
+    """``allowed`` 마스크 안(가장자리 ``pad`` 안쪽)에서 무작위 점 (x, y). 침식으로 비면 원래 마스크에서."""
+    k = np.ones((2 * pad + 1, 2 * pad + 1), np.uint8)
+    inner = cv2.erode(allowed, k) if pad > 0 else allowed
+    ys, xs = np.nonzero(inner if inner.any() else allowed)
+    i = int(rng.integers(len(xs)))
+    return int(xs[i]), int(ys[i])
+
+
 def draw_scratch(
-    rng: np.random.Generator, img: np.ndarray, plate_box: tuple[int, int, int, int]
+    rng: np.random.Generator,
+    img: np.ndarray,
+    plate_box: tuple[int, int, int, int],
+    allowed: np.ndarray | None = None,
 ) -> np.ndarray:
     x0, y0, x1, y1 = plate_box
     h, w = img.shape[:2]
     mask = np.zeros((h, w), dtype=np.uint8)
     length = int(rng.uniform(40, 130))
     ang = rng.uniform(0, np.pi)
-    cx, cy = rng.uniform(x0 + 40, x1 - 40), rng.uniform(y0 + 40, y1 - 40)
+    if allowed is not None:  # 링 면처럼 사각형이 아닌 자리 — 길이도 면 폭에 맞춰 줄인다
+        cx, cy = _pick_in(rng, allowed, 24)
+        length = min(length, 70)
+    else:
+        cx, cy = rng.uniform(x0 + 40, x1 - 40), rng.uniform(y0 + 40, y1 - 40)
     pts = []
     for t in np.linspace(-0.5, 0.5, 6):
         jitter = rng.normal(0, 2.0)
@@ -103,12 +171,18 @@ def draw_scratch(
 
 
 def draw_pit(
-    rng: np.random.Generator, img: np.ndarray, plate_box: tuple[int, int, int, int]
+    rng: np.random.Generator,
+    img: np.ndarray,
+    plate_box: tuple[int, int, int, int],
+    allowed: np.ndarray | None = None,
 ) -> np.ndarray:
     x0, y0, x1, y1 = plate_box
     h, w = img.shape[:2]
     mask = np.zeros((h, w), dtype=np.uint8)
-    cx, cy = int(rng.uniform(x0 + 30, x1 - 30)), int(rng.uniform(y0 + 30, y1 - 30))
+    if allowed is not None:
+        cx, cy = _pick_in(rng, allowed, 18)
+    else:
+        cx, cy = int(rng.uniform(x0 + 30, x1 - 30)), int(rng.uniform(y0 + 30, y1 - 30))
     rx, ry = int(rng.integers(5, 14)), int(rng.integers(5, 14))
     ang = float(rng.uniform(0, 180))
     blob = np.zeros((h, w), dtype=np.uint8)
@@ -136,11 +210,17 @@ def draw_pit(
 
 
 def draw_stain(
-    rng: np.random.Generator, img: np.ndarray, plate_box: tuple[int, int, int, int]
+    rng: np.random.Generator,
+    img: np.ndarray,
+    plate_box: tuple[int, int, int, int],
+    allowed: np.ndarray | None = None,
 ) -> np.ndarray:
     x0, y0, x1, y1 = plate_box
     h, w = img.shape[:2]
-    cx, cy = int(rng.uniform(x0 + 40, x1 - 40)), int(rng.uniform(y0 + 40, y1 - 40))
+    if allowed is not None:
+        cx, cy = _pick_in(rng, allowed, 24)
+    else:
+        cx, cy = int(rng.uniform(x0 + 40, x1 - 40)), int(rng.uniform(y0 + 40, y1 - 40))
     blob = np.zeros((h, w), dtype=np.float32)
     for _ in range(int(rng.integers(3, 7))):
         cv2.circle(
@@ -188,10 +268,14 @@ def generate(
     size: tuple[int, int] = (640, 480),
     seed: int = 7,
     gray_every: int = 0,
+    shape: str = "plate",
 ) -> SampleSummary:
-    """``<out>/images``·``labels``·``data.yaml`` 생성. ``gray_every`` N>0이면 N장마다 한 장을 흑백(1ch)으로 저장."""
+    """``<out>/images``·``labels``·``data.yaml`` 생성. ``gray_every`` N>0이면 N장마다 한 장을 흑백(1ch)으로 저장.
+    ``shape``: ``plate``(브러시드 판, 기본 — 종전과 바이트 동일) · ``ring``(원형 부품, 결함은 링 면 안에만)."""
     if n_normal < 0 or n_defect < 0 or n_normal + n_defect == 0:
         raise ValueError("n_normal·n_defect는 0 이상이고 합이 1 이상이어야 합니다")
+    if shape not in SHAPES:
+        raise ValueError(f"shape 는 {'/'.join(SHAPES)} 중 하나 ({shape!r})")
     w, h = size
     if w < 160 or h < 120:
         raise ValueError("size는 최소 160x120 이어야 합니다 (결함을 그릴 판이 필요)")
@@ -202,17 +286,21 @@ def generate(
     total = n_normal + n_defect
     n_lines = 0
     for i in range(total):
-        img = brushed_plate(rng, w, h)
+        allowed: np.ndarray | None = None
+        if shape == "ring":
+            img, allowed = ring_part(rng, w, h)
+        else:
+            img = brushed_plate(rng, w, h)
         lines: list[str] = []
         if i >= n_normal:
             box = plate_box_of(img)
             for _ in range(int(rng.integers(1, 4))):
                 cid = int(rng.integers(len(NAMES)))
-                m = DRAW[NAMES[cid]](rng, img, box)
+                m = DRAW[NAMES[cid]](rng, img, box, allowed)
                 ln = yolo_line(cid, m, rng)
                 if ln:
                     lines.append(ln)
-        stem = f"plate_{i:03d}"
+        stem = f"{shape}_{i:03d}"
         gray = gray_every > 0 and i % gray_every == gray_every - 1
         to_write = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if gray else img
         imgio.write_image(out / "images" / f"{stem}.png", to_write)
@@ -241,6 +329,12 @@ def add_arguments(ap: argparse.ArgumentParser) -> None:
     ap.add_argument(
         "--gray-every", type=int, default=0, help="N>0이면 N장마다 한 장을 흑백(1ch)으로 저장"
     )
+    ap.add_argument(
+        "--shape",
+        choices=list(SHAPES),
+        default="plate",
+        help="plate = 브러시드 판(기본) · ring = 원형 부품(가공 링 면 + 리세스; annulus ROI·dent-graft 연습)",
+    )
 
 
 def run_from_args(args: argparse.Namespace) -> int:
@@ -252,6 +346,7 @@ def run_from_args(args: argparse.Namespace) -> int:
             size=tuple(args.size),
             seed=args.seed,
             gray_every=args.gray_every,
+            shape=args.shape,
         )
     except ValueError as e:
         print(f"샘플 생성 실패: {e}", file=sys.stderr)
