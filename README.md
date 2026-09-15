@@ -115,6 +115,20 @@ anograft-gui recipes/sample-poisson.yaml                                  # GUI 
 
 기본값은 샘플 은행에서 "결함이 옅어지는 정도"(hard-paste 대비 마스크 안 L1 비율)를 재서 정했습니다 — 세 조화 방법 모두 정의상 결함 톤을 대상 쪽으로 당기므로 strength를 낮게 뒀습니다. 실데이터 학습 mAP 근거는 아직 없습니다(로드맵).
 
+### 조명 의존 결함 한 바퀴 (찍힘·덴트)
+
+찍힘은 모양이 곧 조명 효과라 ±180° 로 돌리면 하이라이트가 반대쪽에 붙습니다. 도구가 그걸 **재고 · 미리 잡고 · 골라내는** 순서:
+
+| 단계 | 어디서 | 무엇 |
+|---|---|---|
+| 은행 | `anograft bank ls` · 은행 탭 요약 · `bank preview` 화살표 | 클래스별 **lightR**(실제 소스들의 하이라이트 방향 일관성, 1 = 전부 같은 쪽). `*` = 유의(R ≥ 0.5 이고 n·R² ≥ 2.9 — 클래스당 몇 장이면 우연히도 크므로) |
+| 레시피 | `recipe init --bank … --auto-dent` · `--dent-class 찍힘` | 그 클래스만 `geometry.per_class: {찍힘: {rotate: [-15, 15], flip: false}}` — 스크래치는 그대로 ±180° |
+| 실행 전 | `run --dry-run` · `recipe check` · 스튜디오 기하 카드 ⚠ | 유의한 클래스를 rotate 폭 > 90° 또는 flip 으로 돌리면 경고. 카드의 **▶ 조명 클래스만 ±15°·flip 끔** 이 한 번에 고침 |
+| 미리보기 | 스튜디오 변형 카드 **↯** | 인스턴스의 하이라이트가 실제 방향과 90° 넘게 다르면 표시 |
+| 검수 | 검수 탭 분포 **조명 방향** · 필터 **조명 뒤집힘 의심** · `run --report` | 합성 vs 실제 각도 분포와 클래스별 R, 뒤집힌 이미지 목록. `dataset prune --drop-flipped` 로 제외 |
+
+샘플로 보면: `anograft sample --out s --quickstart` 는 pit 을 조명 의존으로 찾아 per_class 를 써 줍니다. 같은 은행을 `--preset poisson-graft` 로 그대로 돌리면 검수 탭 필터가 40장 중 33장을 골라냅니다(위 스크린샷).
+
 **재현 보증 범위**: 같은 OS · 같은 OpenCV 부버전에서 바이트 동일. 다른 환경에서는 `cv2.seamlessClone` 내부 솔버 차이로 픽셀 단위 차이가 있을 수 있습니다. zip은 OpenCV를 함께 실으므로 zip끼리는 동일합니다.
 
 ## 개발
@@ -232,6 +246,20 @@ Same seed and target across the four presets (`preview --compare-methods blend|h
 When one bank **mixes** scratches (±180° is fine) and dents (lighting-dependent), do not split the recipe — narrow only that class with `geometry.per_class`: `per_class: {dent: {rotate: [-15, 15], flip: false}}` (only the given fields override; other classes are untouched; classes with `lightR` ≥ 0.5 in `bank ls` are the candidates, and the `run` warning spells out the syntax). `anograft recipe init --bank bank/mine --auto-dent` finds those classes and writes the override for you (`--dent-class dent` to name them yourself).
 
 Defaults were chosen by measuring how much each method fades the defect on the sample bank (in-mask L1 relative to hard-paste); all three harmonize methods pull defect tone toward the target by construction, so strengths are kept low. No real-data mAP evidence yet (roadmap).
+
+### The lighting-dependent loop (dents, dings)
+
+A dent's appearance *is* the lighting, so rotating it ±180° puts the highlight on the wrong side. The tool **measures, warns before, and picks out after**:
+
+| Step | Where | What |
+|---|---|---|
+| Bank | `anograft bank ls` · Bank-tab summary · `bank preview` arrows | Per-class **lightR** (how consistently the real sources' highlights point one way; 1 = all the same). `*` = significant (R ≥ 0.5 and n·R² ≥ 2.9 — a handful of sources can be high by chance) |
+| Recipe | `recipe init --bank … --auto-dent` · `--dent-class dent` | Only that class gets `geometry.per_class: {dent: {rotate: [-15, 15], flip: false}}` — scratches keep ±180° |
+| Before running | `run --dry-run` · `recipe check` · Studio geometry card ⚠ | Warns when a significant class is rotated more than 90° or flipped. The card's **▶ dent classes only: ±15°, no flip** fixes it in one click |
+| Preview | Studio variant card **↯** | Shown when an instance's highlight differs from the real direction by more than 90° |
+| Review | Review-tab **lighting** histogram · filter **flipped lighting** · `run --report` | Synthetic vs real angle distribution, per-class R, list of flipped images. `dataset prune --drop-flipped` removes them |
+
+On the sample: `anograft sample --out s --quickstart` detects pit as lighting-dependent and writes the per_class override. Run the same bank with `--preset poisson-graft` instead and the review filter picks out 33 of 40 images (screenshot above).
 
 **Reproducibility scope**: byte-identical on the same OS and OpenCV minor version. Other environments may differ by a few pixels (`cv2.seamlessClone` solver). The zip ships its own OpenCV, so zip-to-zip results match.
 
