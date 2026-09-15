@@ -281,3 +281,131 @@ def test_canvas_without_session_ignores_input(qapp: QApplication) -> None:
     with pytest.raises(ValueError):
         c.set_tool("laser")
     assert np.array_equal(np.zeros(1), np.zeros(1))  # 자리표시
+
+
+# --- v0.6 label-yolo-roi: YOLO 초안 프리필 · ROI 모드 · 최근 레시피/빈 상태 --------------------
+
+
+def test_folder_marks_labeled_images_and_prefills_yolo_draft(
+    qapp: QApplication, tmp_path: Path
+) -> None:
+    d = fake_yolo_dataset(tmp_path / "ds")
+    t = LabelTab()
+    t.confirm_discard = None
+    t.resize(1200, 800)
+    t.show()
+    t.auto_method.setCurrentText("rect")  # 결정적·빠름
+    t.open_folder(d["images"])
+    qapp.processEvents()
+    names = [t.list.item(i).text() for i in range(t.list.count())]
+    assert (
+        names[0] == "▸ d0.png"
+        and "n1.png" in names
+        and not names[names.index("n1.png")].startswith("▸")
+    )
+    assert "YOLO 라벨" in t.list_title.text()
+    # 첫 이미지 d0: 박스 1(spot) → 자동 채움 + 클래스 콤보 동기
+    assert t.session.path.name == "d0.png" and t.session.draft is not None
+    assert t.session.mask.any() and t.cls.currentText() == "spot"
+    assert t.draft_cls.isEnabled() and t.draft_cls.count() == 1 and "박스 1" in t.draft_info.text()
+    assert t.session.mask_origin() == "yolo-box:rect"
+    # d1: 클래스 2개 — 첫 클래스(spot) 자동, 콤보로 crack 선택 → 채우기 → 폴리곤 자리 포함
+    t.session.dirty = False
+    t.list.setCurrentRow(names.index("▸ d1.png"))
+    qapp.processEvents()
+    assert t.draft_cls.count() == 2 and t.cls.currentText() == "spot"
+    t.draft_cls.setCurrentIndex(1)
+    assert t.fill_draft() is not None and t.cls.currentText() == "crack"
+    assert t.session.mask[20:34, 20:34].any() and t.canvas._ov[..., 3].any()
+    # 자동 채우기 끄면 열 때 비어 있고 초안만 안내
+    t.cb_draft_auto.setChecked(False)
+    t.session.dirty = False
+    t.list.setCurrentRow(names.index("▸ d0.png"))
+    qapp.processEvents()
+    assert not t.session.mask.any() and t.draft_cls.isEnabled()
+    # 라벨 없는 이미지 → 초안 비활성
+    t.list.setCurrentRow(names.index("n1.png"))
+    qapp.processEvents()
+    assert not t.draft_cls.isEnabled() and "없음" in t.draft_info.text()
+    t.close()
+
+
+def test_roi_mode_saves_and_reloads_mask_dir_png(qapp: QApplication, tmp_path: Path) -> None:
+    normals = tmp_path / "normals"
+    imgio.write_image(normals / "n0.png", disk_image(128))
+    imgio.write_image(normals / "n1.png", disk_image(128))
+    t = LabelTab()
+    t.confirm_discard = None
+    t.resize(1200, 800)
+    t.show()
+    t.open_folder(normals)
+    qapp.processEvents()
+    assert t.mode == "bank" and t.defect_box.isVisible() and not t.roi_box.isVisible()
+    t.set_mode("roi")
+    qapp.processEvents()
+    assert t.mode == "roi" and t.roi_box.isVisible() and not t.defect_box.isVisible()
+    assert t.btn_save.text().startswith("ROI") and t.list_title.text().startswith("정상 이미지")
+    assert t.roi_dir_path() == tmp_path / "roi" and "mask_dir" in t.roi_hint.text()
+    saved: list[str] = []
+    t.roi_saved.connect(saved.append)
+    assert not t.save()  # 빈 마스크
+    assert "비어" in t.result.text()
+    t.canvas.set_tool("brush")
+    t.canvas.set_brush(10)
+    _drag(t.canvas, [(20.0, 64.0), (100.0, 64.0)])
+    assert t.save() and saved == [(tmp_path / "roi" / "n0.png").as_posix()]
+    m = imgio.read_mask(tmp_path / "roi" / "n0.png")
+    assert m.shape == (128, 128) and m[64, 60] == 255 and not t.session.dirty
+    assert "ROI 1장" in t.roi_hint.text()
+    # 다른 이미지로 갔다가 돌아오면 ROI 를 다시 불러온다
+    t.list.setCurrentRow(1)
+    qapp.processEvents()
+    assert not t.session.mask.any()
+    t.list.setCurrentRow(0)
+    qapp.processEvents()
+    assert t.session.mask[64, 60] == 255 and not t.session.dirty
+    # mask_dir 직접 지정
+    t.roi_dir.setText((tmp_path / "custom").as_posix())
+    t.roi_dir.editingFinished.emit()
+    assert t.roi_dir_path() == tmp_path / "custom" and "만들어진다" in t.roi_hint.text()
+    assert t.save() and (tmp_path / "custom" / "n0.png").is_file()
+    t.close()
+
+
+def test_main_window_recent_recipe_and_empty_state(qapp: QApplication, tmp_path: Path) -> None:
+    from PySide6.QtCore import QSettings
+
+    from anograft.gui.app import EMPTY_STATE, recent_recipe, remember_recipe
+
+    store = QSettings((tmp_path / "s.ini").as_posix(), QSettings.Format.IniFormat)
+    assert recent_recipe(store) is None
+    remember_recipe(tmp_path / "gone.yaml", store)
+    assert recent_recipe(store) is None  # 파일이 없으면 무시
+    recipe = tmp_path / "r.yaml"
+    d = fake_yolo_dataset(tmp_path / "ds")
+    normals = tmp_path / "normals.txt"
+    Y.import_yolo(
+        d["images"],
+        d["labels"],
+        d["names"],
+        tmp_path / "bank",
+        mask_from="rect",
+        list_normals=normals,
+    )
+    ses = StudioSession(
+        default_recipe(bank=(tmp_path / "bank").as_posix(), targets=normals.as_posix())
+    )
+    ses.save(recipe)
+    win = MainWindow(start_worker=False, settings=store)
+    try:
+        win.show_empty_state()
+        assert win.studio.canvas.message == EMPTY_STATE and "No recipe" in EMPTY_STATE
+        win.open_recipe(recipe)
+        qapp.processEvents()
+        assert recent_recipe(store) == recipe.resolve()
+        assert win.label.bank_edit.text() == (tmp_path / "bank").as_posix()
+        remember_recipe(None, store)
+        assert recent_recipe(store) is None
+    finally:
+        win.close()
+        qapp.processEvents()

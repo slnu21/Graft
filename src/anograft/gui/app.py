@@ -6,6 +6,8 @@
 라벨 탭에서 은행에 저장하면(``bank_saved``) 스튜디오가 같은 은행을 쓰고 있을 때 다시 준비한다(새 소스가 미리보기에 바로 반영).
 
 ``run_app(recipe=)``가 ``QApplication``을 만들고 테마를 입힌 뒤 창을 띄운다. 워커 스레드는 창이 닫힐 때 멈춘다.
+레시피 인자가 없으면 **최근 레시피**(``QSettings`` slnu21/Graft ``recent_recipe``, 열기·저장 때 기록)를 복원하고, 그것도 없으면
+스튜디오 캔버스에 **빈 상태 안내**(ko/en — 라벨 → 입력 → 프리셋 → 배치)를 띄운다(KNOWN-ISSUES #9).
 """
 
 from __future__ import annotations
@@ -13,7 +15,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSettings, Qt
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -45,14 +47,53 @@ PLACEHOLDER: dict[str, str] = {
     "bank": "결함 은행 보기·가져오기 — v0.3 (지금은 CLI: anograft bank import-yolo / bank ls)",
     "review": "합성 결과 검수·실제 결함 분포 비교 — v0.7",
 }
+SETTINGS_ORG, SETTINGS_APP = "slnu21", "Graft"
+RECENT_RECIPE_KEY = "recent_recipe"
+EMPTY_STATE = (
+    "레시피가 열려 있지 않습니다 · No recipe loaded\n\n"
+    "①  라벨 탭에서 결함 사진 → 마스크 → 은행에 저장   Label tab: defect photo → mask → save to bank\n"
+    "②  왼쪽 '입력'에 은행 폴더와 정상 이미지 폴더 → 열기   Inputs (left): bank + normal-image folder → Open\n"
+    "③  프리셋을 고르고 대상을 클릭 → 미리보기   Pick a preset, click a target → preview\n"
+    "④  배치로 보내기 → 생성 시작   Send to batch → run\n\n"
+    "또는 상단 '레시피 열기'로 YAML (예: recipes/sample-poisson.yaml)   or 'Open recipe' at the top"
+)
+
+
+def settings() -> QSettings:
+    return QSettings(SETTINGS_ORG, SETTINGS_APP)
+
+
+def recent_recipe(store: QSettings | None = None) -> Path | None:
+    """최근 레시피 경로 — 파일이 아직 있을 때만."""
+    v = (store or settings()).value(RECENT_RECIPE_KEY, "", type=str)
+    if not v:
+        return None
+    p = Path(v)
+    return p if p.is_file() else None
+
+
+def remember_recipe(path: str | Path | None, store: QSettings | None = None) -> None:
+    st = store or settings()
+    if path is None:
+        st.remove(RECENT_RECIPE_KEY)
+    else:
+        st.setValue(RECENT_RECIPE_KEY, Path(path).resolve().as_posix())
+    st.sync()
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, session: StudioSession | None = None, *, start_worker: bool = True) -> None:
+    def __init__(
+        self,
+        session: StudioSession | None = None,
+        *,
+        start_worker: bool = True,
+        settings: QSettings | None = None,
+    ) -> None:
         super().__init__()
         self.setWindowTitle(f"Graft — anograft {__version__}")
         self.resize(1480, 920)
         self.session = session or StudioSession()
+        self.settings = settings  # None = 최근 레시피를 기억하지 않는다(테스트)
         self.worker = PreviewWorker(self)
 
         central = QWidget()
@@ -88,6 +129,7 @@ class MainWindow(QMainWindow):
         self.label.bank_saved.connect(self._on_bank_saved)
         self.batch.status.connect(self.status_bar.showMessage)
         self.studio.send_to_batch_requested.connect(self._on_send_to_batch)
+        self.studio.recipe_opened.connect(self._on_recipe_opened)
         self.label.set_bank(self.session.recipe.inputs.bank_key())
         self.worker.busy.connect(self._on_busy)
         self.studio.sync_widgets()
@@ -125,6 +167,22 @@ class MainWindow(QMainWindow):
         v.addWidget(lab)
         return w
 
+    def _on_recipe_opened(self, path: str) -> None:
+        """스튜디오가 레시피를 열거나 저장했다 — 최근 레시피로 기억, 라벨 탭 은행 동기."""
+        if self.settings is not None:
+            remember_recipe(path, self.settings)
+        self.label.set_bank(self.session.recipe.inputs.bank_key())
+
+    def open_recipe(self, path: str | Path) -> None:
+        self.studio.open_recipe(Path(path))
+
+    def show_empty_state(self) -> None:
+        self.studio.canvas.clear(EMPTY_STATE)
+        self.status_bar.showMessage(
+            "레시피 없음 — 라벨 탭에서 시작하거나 스튜디오 '열기'로 레시피를 여세요 · "
+            "No recipe: start in the Label tab or open a recipe"
+        )
+
     def _on_bank_saved(self, root: str) -> None:
         """라벨 탭이 은행에 소스를 더했다 — 스튜디오가 그 은행을 쓰면 다시 준비(새 소스 반영)."""
         ses = self.session
@@ -151,9 +209,12 @@ class MainWindow(QMainWindow):
 def run_app(recipe: str | None = None, argv: list[str] | None = None) -> int:
     app = QApplication.instance() or QApplication(argv if argv is not None else sys.argv)
     apply_theme(app)
-    win = MainWindow()
+    store = settings()
+    win = MainWindow(settings=store)
     win.show()
-    if recipe:
-        win.studio.open_recipe(Path(recipe))
-        win.label.set_bank(win.session.recipe.inputs.bank_key())
+    start = Path(recipe) if recipe else recent_recipe(store)
+    if start is not None:
+        win.open_recipe(start)
+    else:
+        win.show_empty_state()
     return app.exec()
