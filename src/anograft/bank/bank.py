@@ -84,6 +84,7 @@ class Bank:
         self.root = root
         self.imports = [dict(i) for i in imports]
         self.warnings: list[str] = []  # 로드 중 경고 (깨진 소스 등)
+        self._summary: list[ClassSummary] | None = None  # 소스는 불변 → 요약(조명 R 포함)은 한 번만
         self._by_class: dict[str, list[DefectSource]] = {c: [] for c in self._classes}
         for s in sorted(sources, key=lambda s: s.id):
             if s.cls not in self._by_class:
@@ -118,6 +119,13 @@ class Bank:
         return bank_fingerprint((s.id, int(np.count_nonzero(s.mask))) for s in self.sources())
 
     def summary(self) -> list[ClassSummary]:
+        """클래스별 요약(``bank ls`` 행). 조명 R 계산이 들어 있어 첫 호출 뒤 캐시 — ``Bank`` 는 로드 뒤 바뀌지 않는다
+        (은행 탭 편집은 ``Bank.load`` 로 새 객체)."""
+        if self._summary is None:
+            self._summary = self._compute_summary()
+        return list(self._summary)
+
+    def _compute_summary(self) -> list[ClassSummary]:
         out: list[ClassSummary] = []
         for i, c in enumerate(self._classes):
             srcs = self._by_class[c]

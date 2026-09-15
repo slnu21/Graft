@@ -143,3 +143,13 @@ def test_bank_ls_shows_light_r(tmp_path: Path, capsys: pytest.CaptureFixture[str
     by = {c["class"]: c for c in d["classes"]}
     assert by["pit"]["light_r"] == 1.0 and by["pit"]["light_n"] == 3
     assert by["stain"]["light_r"] is None and by["stain"]["light_n"] == 0
+
+
+def test_bank_summary_is_cached_and_copied() -> None:
+    """요약(조명 R 포함)은 첫 호출 뒤 캐시 — 같은 내용, 호출자가 목록을 바꿔도 캐시는 안 바뀐다."""
+    bank = Bank.from_sources([_dent("down", k=i) for i in range(3)], classes=["pit"])
+    a = bank.summary()
+    b = bank.summary()
+    assert a == b and a is not b and bank._summary is not None
+    a.clear()
+    assert len(bank.summary()) == 1
