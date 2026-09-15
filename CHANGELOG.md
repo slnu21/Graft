@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+## [0.7.7] - 2026-09-16
+
+v0.7.6 의 퀵스타트 멱등 수정 + COCO RLE · `bank merge --dedupe` · dry-run 기하 행.
+
 ### Fixed
 - 퀵스타트(GUI '샘플 데이터' · `sample --quickstart`)를 같은 폴더에 두 번 돌리면 은행이 두 배로 쌓여(`-dup`) 조명 유의성까지 왜곡되던 것 — 퀵스타트 은행은 늘 새로 만든다(멱등).
 
@@ -198,7 +202,8 @@ v0.4 — CPU 알고리즘 확장. **여전히 샘플 데이터로만 검증**(�
 - GUI는 스튜디오 탭만. 재현은 같은 OS·OpenCV 부버전 범위(`seamlessClone` 솔버).
 - `release.yml`의 Windows zip 잡은 첫 push 전이라 CI에서 미검증(로컬 `tools/build_zip.ps1`와 같은 절차).
 
-[Unreleased]: https://github.com/slnu21/Graft/compare/v0.7.6...HEAD
+[Unreleased]: https://github.com/slnu21/Graft/compare/v0.7.7...HEAD
+[0.7.7]: https://github.com/slnu21/Graft/compare/v0.7.6...v0.7.7
 [0.7.6]: https://github.com/slnu21/Graft/compare/v0.7.5...v0.7.6
 [0.7.5]: https://github.com/slnu21/Graft/compare/v0.7.4...v0.7.5
 [0.7.4]: https://github.com/slnu21/Graft/compare/v0.7.3...v0.7.4
