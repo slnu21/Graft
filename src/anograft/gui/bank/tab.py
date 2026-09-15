@@ -201,8 +201,13 @@ class BankTab(QWidget):
         v.addWidget(self.result)
         self.btn_edit = QPushButton("라벨 탭에서 다듬기 Refine in Label")
         self.btn_edit.setObjectName("Primary")
+        self.btn_edit_low = QPushButton("저신뢰 전부 차례로 다듬기 Refine all low")
+        self.btn_edit_low.setToolTip(
+            "confidence < 0.5 인 소스를 신뢰도 오름차순으로 하나씩 라벨 탭에서 연다(라벨 탭 '다음 저신뢰 소스')"
+        )
         self.btn_delete = QPushButton("삭제 Delete (Del)")
         v.addWidget(self.btn_edit)
+        v.addWidget(self.btn_edit_low)
         v.addWidget(self.btn_delete)
         side.setMinimumWidth(340)
         return side
@@ -236,6 +241,7 @@ class BankTab(QWidget):
         self.grid.itemSelectionChanged.connect(self._on_select)
         self.grid.itemDoubleClicked.connect(lambda _it: self.request_edit())
         self.btn_edit.clicked.connect(self.request_edit)
+        self.btn_edit_low.clicked.connect(lambda: self.request_edit_next_low(None))
         self.btn_delete.clicked.connect(self.delete_selected)
 
     # ------------------------------------------------------------------ 열기
@@ -359,6 +365,9 @@ class BankTab(QWidget):
         ids = self.selected_ids()
         self.btn_delete.setEnabled(bool(ids))
         self.btn_edit.setEnabled(len(ids) == 1)
+        self.btn_edit_low.setEnabled(
+            self.session.loaded and bool(self.session.bank and self.session.bank.low_confidence())
+        )
         if not ids:
             self.detail.clear()
             self.meta.setText(
@@ -427,6 +436,31 @@ class BankTab(QWidget):
         if n and self.session.root is not None:
             self.bank_changed.emit(self.session.root.as_posix())
         return n
+
+    def next_low_confidence(self, after: str | None) -> str | None:
+        """``after`` 다음의 저신뢰 소스 id(신뢰도 오름차순 = 가장 나쁜 것부터; 끝이면 처음부터). 없으면 None."""
+        rows = (
+            self.session.filtered(only_low=True, sort="confidence") if self.session.loaded else []
+        )
+        ids = [r.id for r in rows]
+        if not ids:
+            return None
+        if after in ids:
+            k = ids.index(after)
+            if len(ids) == 1:
+                return None
+            return ids[(k + 1) % len(ids)]
+        return ids[0]
+
+    def request_edit_next_low(self, after: str | None = None) -> bool:
+        """다음 저신뢰 소스를 골라 라벨 탭 편집을 요청. 없으면 상태 안내."""
+        sid = self.next_low_confidence(after)
+        if sid is None or self.session.root is None:
+            self.status.emit("저신뢰 소스가 (더) 없습니다 — 다듬기 끝")
+            return False
+        self.select_ids([sid])
+        self.edit_requested.emit(self.session.root.as_posix(), sid)
+        return True
 
     def request_edit(self) -> None:
         sid = self.current_id()

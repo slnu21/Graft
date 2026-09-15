@@ -168,3 +168,46 @@ def test_main_window_refine_roundtrip(qapp: QApplication, bank_root: Path, tmp_p
         win.worker.stop()
         win.close()
         qapp.processEvents()
+
+
+def test_refine_all_low_loop(qapp: QApplication, bank_root: Path, tmp_path: Path) -> None:
+    """v0.7.x — 은행 탭 '저신뢰 전부 차례로 다듬기' → 라벨 탭 편집 → '다음 저신뢰 소스' → … → 없으면 은행 탭으로."""
+    win = MainWindow(start_worker=False)
+    try:
+        win.show()
+        win.label.confirm_discard = None
+        # 픽스처 얼룩은 대비가 커서 저신뢰가 없다 — 메타를 고쳐 셋을 저신뢰로
+        import json
+
+        for k, meta_file in enumerate(sorted(bank_root.rglob("*.json"))[:3]):
+            m = json.loads(meta_file.read_text(encoding="utf-8"))
+            m["confidence"], m["flags"] = 0.1 * (k + 1), ["low-contrast"]
+            meta_file.write_text(json.dumps(m, ensure_ascii=False), encoding="utf-8")
+        win.bank.open_bank(bank_root)
+        low = [r.id for r in win.bank.session.filtered(only_low=True, sort="confidence")]
+        assert len(low) == 3 and win.bank.btn_edit_low.isEnabled()
+        assert win.bank.next_low_confidence(None) == low[0]
+        assert win.bank.next_low_confidence(low[0]) == low[1]
+        assert win.bank.next_low_confidence(low[-1]) == low[0]  # 순환
+        assert win.bank.request_edit_next_low(None)
+        qapp.processEvents()
+        assert win.tabs.currentWidget() is win.label and win.label.edit_target[1] == low[0]
+        assert not win.label.btn_next_low.isHidden()
+        # 저장 없이 다음으로 → 두 번째 저신뢰
+        win.label.request_next_low()
+        qapp.processEvents()
+        assert win.label.edit_target[1] == low[1]
+        # 다듬어 저장하면 저신뢰에서 빠진다 → 목록이 줄어든다
+        w = win.label.session.mask.shape[1]
+        win.label.canvas.set_tool("brush")
+        _drag(win.label.canvas, [(1.0, 1.0), (float(w - 2), 1.0)])
+        assert win.label.save()
+        qapp.processEvents()
+        remaining = [r.id for r in win.bank.session.filtered(only_low=True)]
+        assert low[1] not in remaining and len(remaining) == len(low) - 1
+        # 편집 모드 종료 시 버튼 숨김
+        win.label.open_image(next(iter((tmp_path / "ds" / "images").glob("n0.png"))))
+        assert win.label.btn_next_low.isHidden()
+    finally:
+        win.close()
+        qapp.processEvents()
