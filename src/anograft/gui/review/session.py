@@ -37,14 +37,19 @@ from anograft.io.prune import (
 from anograft.io.report import ReportData, skipped_reason_counts, write_report
 
 FILTERS: tuple[str, ...] = ("all", "unreviewed", "accept", "reject", "fallback", "skipped")
-DIST_KEYS: tuple[str, ...] = ("area", "length", "contrast", "texture", "sharpness")
+DIST_KEYS: tuple[str, ...] = ("area", "length", "contrast", "texture", "sharpness", "lighting")
 IMAGE_KEYS: tuple[str, ...] = (
     "contrast",
     "texture",
     "sharpness",
+    "lighting",
 )  # 이미지·마스크를 읽어 계산(지연·캐시)
-LINEAR_KEYS: tuple[str, ...] = IMAGE_KEYS  # 외형 지표는 0·음수가 정상값 → 선형 구간(면적·길이는 로그)
+LINEAR_KEYS: tuple[str, ...] = (
+    IMAGE_KEYS  # 외형 지표는 0·음수가 정상값 → 선형 구간(면적·길이는 로그)
+)
+FIXED_RANGE: dict[str, tuple[float, float]] = {"lighting": (-180.0, 180.0)}  # 각도는 구간 고정
 RING_PX = 8
+LIGHT_RING_PX = 2  # 조명 방향은 얇은 링 — 하이라이트 림이 1~2 px 라 8 px 링에선 질감에 묻힌다(샘플 pit: R 0.78→0.99)
 
 
 class ReviewError(ValueError):
@@ -75,7 +80,10 @@ class ReviewItem:
     contrasts: list[float] | None = None  # 인스턴스별 대비(이미지·마스크를 읽어야 해서 지연)
     appearance: dict[str, list[float]] = field(
         default_factory=dict
-    )  # key → 인스턴스별 값(contrast·texture·sharpness)
+    )  # key → 인스턴스별 값(contrast·texture·sharpness·lighting)
+    appearance_cls: dict[str, list[str]] = field(
+        default_factory=dict
+    )  # 위와 나란한 인스턴스 클래스
 
 
 @dataclass(frozen=True)
@@ -91,15 +99,24 @@ class Histogram:
 
 
 def histogram(
-    a: Sequence[float], b: Sequence[float], *, bins: int = 12, log: bool = True
+    a: Sequence[float],
+    b: Sequence[float],
+    *,
+    bins: int = 12,
+    log: bool = True,
+    value_range: tuple[float, float] | None = None,
 ) -> Histogram:
-    """두 계열을 같은 구간으로. 값이 하나도 없으면 빈 히스토그램(edges 0..1). 로그 구간은 양수만 센다."""
+    """두 계열을 같은 구간으로. 값이 하나도 없으면 빈 히스토그램(edges 0..1). 로그 구간은 양수만 센다.
+    ``value_range`` 는 선형 구간을 데이터 대신 고정할 때(각도 −180..180)."""
     va = [float(v) for v in a if v > 0] if log else [float(v) for v in a]
     vb = [float(v) for v in b if v > 0] if log else [float(v) for v in b]
     allv = va + vb
     if not allv:
-        return Histogram(tuple(np.linspace(0, 1, bins + 1)), (0,) * bins, (0,) * bins, log)
+        lo0, hi0 = value_range if (value_range is not None and not log) else (0.0, 1.0)
+        return Histogram(tuple(np.linspace(lo0, hi0, bins + 1)), (0,) * bins, (0,) * bins, log)
     lo, hi = min(allv), max(allv)
+    if value_range is not None and not log:
+        lo, hi = value_range
     if log:
         lo, hi = math.log10(lo), math.log10(hi)
     if hi - lo < 1e-9:
@@ -147,7 +164,50 @@ def mask_sharpness(gray: np.ndarray, mask: np.ndarray) -> float | None:
     return round(float(lap[m].var()), 2)
 
 
-APPEARANCE_FN = {"contrast": mask_contrast, "texture": mask_texture, "sharpness": mask_sharpness}
+def mask_lighting(
+    gray: np.ndarray, mask: np.ndarray, *, ring_px: int = LIGHT_RING_PX
+) -> float | None:
+    """둘레 링에서 밝은 쪽이 어느 방향인지 — 각도(°, 이미지 좌표: 0 = 오른쪽, 90 = 아래). KI #5 근거.
+
+    링 픽셀의 (밝기 − 링 평균) 을 무게로 중심→픽셀 단위벡터를 합해 방향을 얻는다. 조명이 한쪽에서 오는
+    움푹/볼록 결함은 하이라이트 림이 한 방향에 몰리므로 실제 소스는 각도가 한 곳에 모이고, 회전 ±180 으로
+    합성하면 고르게 퍼진다(→ ``circular_concentration``). 빈 마스크·링이면 None."""
+    m = mask > 0
+    if not m.any():
+        return None
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * ring_px + 1, 2 * ring_px + 1))
+    ring = cv2.dilate(m.astype(np.uint8), k) > 0
+    ring &= ~m
+    if not ring.any():
+        return None
+    ys, xs = np.nonzero(m)
+    cy, cx = float(ys.mean()), float(xs.mean())
+    ry, rx = np.nonzero(ring)
+    g = gray.astype(np.float32)
+    w = g[ry, rx] - float(g[ring].mean())
+    dy, dx = ry.astype(np.float32) - cy, rx.astype(np.float32) - cx
+    norm = np.hypot(dx, dy)
+    norm[norm == 0] = 1.0
+    vx, vy = float((w * dx / norm).sum()), float((w * dy / norm).sum())
+    if abs(vx) < 1e-6 and abs(vy) < 1e-6:
+        return None
+    return round(math.degrees(math.atan2(vy, vx)), 1)
+
+
+def circular_concentration(angles_deg: Sequence[float]) -> float | None:
+    """각도 집합의 평균 합벡터 길이 R (1 = 전부 같은 방향, 0 = 고르게 퍼짐). 비면 None."""
+    if not angles_deg:
+        return None
+    th = np.radians(np.asarray(list(angles_deg), dtype=np.float64))
+    return round(float(np.hypot(np.cos(th).mean(), np.sin(th).mean())), 3)
+
+
+APPEARANCE_FN = {
+    "contrast": mask_contrast,
+    "texture": mask_texture,
+    "sharpness": mask_sharpness,
+    "lighting": mask_lighting,
+}
 
 
 def _split(s: str) -> tuple[str, ...]:
@@ -346,6 +406,7 @@ class ReviewSession:
             return it.appearance[key]
         for k in IMAGE_KEYS:
             it.appearance[k] = []
+            it.appearance_cls[k] = []
         it.contrasts = it.appearance["contrast"]
         if self.root is None or not it.image or not it.mask:
             return it.appearance[key]
@@ -368,7 +429,34 @@ class ReviewSession:
                 v = fn(g_win, m_win)
                 if v is not None:
                     it.appearance[k].append(v)
+                    it.appearance_cls[k].append(str(inst.get("class") or "?"))
         return it.appearance[key]
+
+    def synthetic_by_class(self, key: str) -> dict[str, list[float]]:
+        """외형 지표를 클래스별로(채택/미검수만). 조명 일관성처럼 클래스마다 성격이 다른 지표용."""
+        if key not in IMAGE_KEYS:
+            raise ReviewError(f"클래스별 분포는 외형 지표만 (선택: {', '.join(IMAGE_KEYS)})")
+        out: dict[str, list[float]] = {}
+        for it in self.items:
+            if it.status != "ok" or it.verdict == "reject":
+                continue
+            self.item(it.index)
+            vals = self._item_appearance(it, key)
+            for v, c in zip(vals, it.appearance_cls.get(key, ()), strict=True):
+                out.setdefault(c, []).append(v)
+        return out
+
+    def real_by_class(self, key: str) -> dict[str, list[float]]:
+        if key not in IMAGE_KEYS:
+            raise ReviewError(f"클래스별 분포는 외형 지표만 (선택: {', '.join(IMAGE_KEYS)})")
+        out: dict[str, list[float]] = {}
+        if self.bank is None:
+            return out
+        for s in self.bank.sources():
+            v = APPEARANCE_FN[key](cv2.cvtColor(s.image, cv2.COLOR_BGR2GRAY), s.mask)
+            if v is not None:
+                out.setdefault(s.cls, []).append(v)
+        return out
 
     def real_values(self, key: str = "area") -> list[float]:
         if key not in DIST_KEYS:
@@ -396,7 +484,23 @@ class ReviewSession:
             self.real_values(key),
             bins=bins,
             log=key not in LINEAR_KEYS,
+            value_range=FIXED_RANGE.get(key),
         )
+
+    def lighting_concentration(self) -> tuple[float | None, float | None]:
+        """조명 일관성 R — (합성, 실제) 전체. 합성이 실제보다 뚜렷이 낮으면 회전 범위가 조명 방향을 깨고 있다(→ dent-graft)."""
+        return (
+            circular_concentration(self.synthetic_values("lighting")),
+            circular_concentration(self.real_values("lighting")),
+        )
+
+    def lighting_concentration_by_class(self) -> dict[str, tuple[float | None, float | None]]:
+        """클래스별 R — 방향성 없는 클래스(얼룩·스크래치)가 전체 R 을 희석하므로 판단은 클래스별로."""
+        syn, real = self.synthetic_by_class("lighting"), self.real_by_class("lighting")
+        return {
+            c: (circular_concentration(syn.get(c, [])), circular_concentration(real.get(c, [])))
+            for c in sorted(set(syn) | set(real))
+        }
 
     # ------------------------------------------------------------------ 리포트
 
@@ -433,6 +537,9 @@ class ReviewSession:
             hist_area=self.distribution("area"),
             hist_length=self.distribution("length"),
             hist_contrast=self.distribution("contrast"),
+            hist_lighting=self.distribution("lighting"),
+            lighting_r=self.lighting_concentration(),
+            lighting_r_class=self.lighting_concentration_by_class(),
             bank_name=self.bank.name if self.bank is not None else "",
             warnings=list(self.warnings),
         )

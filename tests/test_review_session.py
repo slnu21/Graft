@@ -280,7 +280,7 @@ def test_texture_and_sharpness_distributions(output_root: Path) -> None:
 
     from anograft.gui.review.session import IMAGE_KEYS, mask_sharpness, mask_texture
 
-    assert IMAGE_KEYS == ("contrast", "texture", "sharpness")
+    assert IMAGE_KEYS == ("contrast", "texture", "sharpness", "lighting")
     flat = np.full((32, 32), 100, dtype=np.uint8)
     m = np.zeros((32, 32), dtype=np.uint8)
     m[8:24, 8:24] = 255
@@ -304,3 +304,74 @@ def test_texture_and_sharpness_distributions(output_root: Path) -> None:
     assert len(s.real_values("texture")) == 5 and len(s.real_values("sharpness")) == 5
     h = s.distribution("texture")
     assert not h.log and sum(h.b) == 5  # 0 도 정상값이라 선형 구간
+
+
+def test_lighting_direction_and_concentration(output_root: Path, tmp_path: Path) -> None:
+    """조명 방향(링에서 밝은 쪽 각도)·일관성 R — KI #5(회전 ±180 이 하이라이트를 뒤집는다)의 검수 근거."""
+    import numpy as np
+
+    from anograft.gui.review.session import (
+        FIXED_RANGE,
+        LIGHT_RING_PX,
+        circular_concentration,
+        mask_lighting,
+    )
+    from anograft.io.report import lighting_broken_classes, lighting_line
+
+    g = np.full((40, 40), 100, dtype=np.uint8)
+    m = np.zeros((40, 40), dtype=np.uint8)
+    m[14:26, 14:26] = 255
+    g[26:29, 12:28] = 200  # 아래쪽 림이 밝다 → 90°
+    assert LIGHT_RING_PX < 8 and abs(mask_lighting(g, m) - 90.0) < 5
+    assert abs(mask_lighting(g[::-1].copy(), m[::-1].copy()) + 90.0) < 5  # 상하 반전 → −90°
+    assert (
+        abs(mask_lighting(np.ascontiguousarray(g.T), np.ascontiguousarray(m.T))) < 5
+    )  # 전치 → 오른쪽 0°
+    assert mask_lighting(np.full_like(g, 100), m) is None  # 링이 균일하면 방향 없음
+    assert (
+        mask_lighting(g, np.zeros_like(m)) is None
+        and mask_lighting(g, np.full_like(m, 255)) is None
+    )
+    assert circular_concentration([]) is None
+    assert circular_concentration([90, 90, 90]) == 1.0 and circular_concentration([0, 180]) == 0.0
+    assert 0.5 < circular_concentration([80, 100, 90, 95]) <= 1.0
+    # 각도 히스토그램은 구간 고정(−180..180) — 값 범위와 무관
+    h = histogram([90, 91], [88], bins=12, log=False, value_range=FIXED_RANGE["lighting"])
+    assert h.edges[0] == -180.0 and h.edges[-1] == 180.0 and sum(h.a) == 2 and sum(h.b) == 1
+    # 리포트 한 줄: 실제가 뚜렷하고 합성이 무작위면 dent-graft 안내
+    assert lighting_line((None, None)) == ""
+    assert "0.10" in lighting_line((0.1, 0.9)) and "dent-graft" not in lighting_line((0.1, 0.9))
+    per = {"pit": (0.12, 0.99), "scratch": (None, 0.26), "stain": (0.2, 0.45)}
+    assert lighting_broken_classes(per) == ["pit"]  # 실제 ≥ 0.5 · 합성 < 0.3 인 클래스만
+    assert lighting_broken_classes({"pit": (0.51, 0.99)}) == []
+    line = lighting_line((0.12, 0.41), per)
+    assert "dent-graft" in line and "<b>pit</b>" in line and "scratch –/0.26" in line
+    assert "dent-graft" not in lighting_line((0.5, 0.9), {"pit": (0.51, 0.99)})
+    # 세션: 합성·실제 값 수, 분포·R·리포트 필드
+    s = ReviewSession()
+    items = s.load(output_root)
+    ok = [it for it in items if it.status == "ok"]
+    syn = s.synthetic_values("lighting")
+    assert len(syn) <= sum(len(s.item(x.index).instances) for x in ok) and all(
+        -180 <= v <= 180 for v in syn
+    )
+    assert len(s.real_values("lighting")) <= 5
+    h = s.distribution("lighting")
+    assert not h.log and h.edges[0] == -180.0 and h.edges[-1] == 180.0
+    rs, rr = s.lighting_concentration()
+    assert (rs is None or 0 <= rs <= 1) and (rr is None or 0 <= rr <= 1)
+    by_cls = s.synthetic_by_class("lighting")
+    assert sum(len(v) for v in by_cls.values()) == len(syn) and set(by_cls) <= {"crack", "spot"}
+    assert sum(len(v) for v in s.synthetic_by_class("contrast").values()) == len(
+        s.synthetic_values("contrast")
+    )
+    assert set(s.real_by_class("contrast")) == {"crack", "spot"}  # 은행 클래스별
+    with pytest.raises(ReviewError):
+        s.synthetic_by_class("area")
+    per = s.lighting_concentration_by_class()
+    assert all(len(v) == 2 for v in per.values())
+    data = s.report_data()
+    assert data.hist_lighting is not None and data.lighting_r == (rs, rr)
+    assert data.lighting_r_class == per
+    page = s.write_report(tmp_path / "r.html").read_text(encoding="utf-8")
+    assert "조명 방향" in page and ("조명 일관성 R" in page) == (rs is not None or rr is not None)
