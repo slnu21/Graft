@@ -683,11 +683,19 @@ class Recipe(_Strict):
 
     @classmethod
     def load(cls, path: str | Path, **overrides: Any) -> Recipe:
-        """파일 로드 + CLI 오버라이드(``seed=``, ``count=``, ``out=``)."""
-        data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+        """파일 로드 + CLI 오버라이드(``seed=``, ``count=``, ``out=``). 상대 입력 경로는 ``resolve_recipe_paths`` 규칙
+        (cwd 우선, 없으면 레시피 파일 기준)."""
+        return cls.load_with_notes(path, **overrides)[0]
+
+    @classmethod
+    def load_with_notes(cls, path: str | Path, **overrides: Any) -> tuple[Recipe, list[str]]:
+        """``load`` + 레시피 파일 기준으로 다시 해석한 경로 목록(사용자에게 알릴 것)."""
+        p = Path(path)
+        data = yaml.safe_load(p.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
             raise ValueError(f"레시피 YAML의 최상위는 매핑이어야 합니다: {path}")
-        return cls.from_dict(apply_overrides(data, **overrides))
+        data, notes = resolve_recipe_paths(data, p.parent)
+        return cls.from_dict(apply_overrides(data, **overrides)), notes
 
     # --- 은행 대조 (런타임 검증) ---
 
@@ -835,6 +843,58 @@ def apply_preset(data: dict[str, Any]) -> dict[str, Any]:
     out = dict(data)
     out["pipeline"] = merged
     return out
+
+
+# 레시피 안의 입력 경로 — (키 경로, 이 값이 있을 때만 조건) · output.root 는 아직 없는 폴더라 존재 검사가 무의미해 제외(cwd 기준)
+_INPUT_PATH_KEYS: tuple[tuple[tuple[str, ...], tuple[str, ...] | None], ...] = (
+    (("inputs", "bank"), None),
+    (("inputs", "targets"), None),
+    (("pipeline", "source", "texture_dir"), None),
+    (("pipeline", "placement", "roi", "path"), None),
+)
+
+
+def resolve_recipe_paths(
+    data: dict[str, Any], base: str | Path
+) -> tuple[dict[str, Any], list[str]]:
+    """상대 입력 경로를 **cwd 우선, 없으면 레시피 파일 기준**으로 해석한다(KNOWN-ISSUES #9 보완 방향). 반환 ``(새 dict, 노트)``.
+
+    - cwd 에 있으면 그대로(하위 호환 — repo 루트에서 `recipes/x.yaml` 을 돌리는 기본 사용법은 변하지 않는다).
+    - cwd 에 없고 ``base/<경로>`` 가 있으면 그것으로 바꾸고 노트 한 줄. 둘 다 없으면 그대로 두어 원래 오류가 난다.
+    - 절대경로·null 은 건드리지 않는다. 검증 전 dict 단계라 pydantic 가 그대로 검증한다.
+    """
+    base = Path(base)
+    out: dict[str, Any] = dict(data)
+    notes: list[str] = []
+    for keys, _cond in _INPUT_PATH_KEYS:
+        node: Any = out
+        parents: list[dict[str, Any]] = []
+        ok = True
+        for k in keys[:-1]:
+            if not isinstance(node, dict) or k not in node or not isinstance(node[k], dict):
+                ok = False
+                break
+            parents.append(node)
+            node = node[k]
+        if not ok or not isinstance(node, dict):
+            continue
+        value = node.get(keys[-1])
+        if not isinstance(value, str) or not value.strip():
+            continue
+        rel = Path(value)
+        if rel.is_absolute() or rel.exists():
+            continue
+        candidate = base / rel
+        if not candidate.exists():
+            continue
+        # 경로 사슬을 복사해 원본 dict 를 바꾸지 않는다
+        cur = out
+        for k in keys[:-1]:
+            cur[k] = dict(cur[k])
+            cur = cur[k]
+        cur[keys[-1]] = candidate.as_posix()
+        notes.append(f"{'.'.join(keys)}: {value} → {candidate.as_posix()} (레시피 파일 기준)")
+    return out, notes
 
 
 def apply_overrides(

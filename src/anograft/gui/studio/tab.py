@@ -300,7 +300,13 @@ class StudioTab(QWidget):
             )
         else:
             self.request_previews()
-        self.status.emit(f"레시피 열림: {Path(path).as_posix()}")
+        msg = f"레시피 열림: {Path(path).as_posix()}"
+        if self.session.path_notes:
+            msg += (
+                f" · 경로 {len(self.session.path_notes)}개를 레시피 파일 기준으로 해석: "
+                + "; ".join(self.session.path_notes)
+            )
+        self.status.emit(msg)
         self.recipe_opened.emit(Path(path).as_posix())
 
     def open_recipe_dialog(self) -> None:

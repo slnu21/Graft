@@ -60,6 +60,7 @@ class StudioSession:
         self.long_side: int = 1024  # 미리보기 축소 긴 변 (0 = 원본)
         self.generation: int = 0
         self.warnings: list[str] = []
+        self.path_notes: list[str] = []  # 레시피 파일 기준으로 다시 해석한 경로(load 때)
 
     # ------------------------------------------------------------------ 레시피 변경 (전부 재검증)
 
@@ -151,7 +152,7 @@ class StudioSession:
 
     def load(self, path: str | Path) -> R.Recipe:
         try:
-            rec = R.Recipe.load(path)
+            rec, self.path_notes = R.Recipe.load_with_notes(path)
         except ValidationError as e:
             raise SessionError(R.format_validation_error(e)) from e
         except (KeyError, ValueError, OSError) as e:

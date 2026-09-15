@@ -50,7 +50,10 @@ def _err(msg: str) -> None:
 def _load_recipe(args: argparse.Namespace, **overrides: object) -> R.Recipe | None:
     """레시피 로드 + CLI 오버라이드. 실패하면 stderr에 사유를 쓰고 None."""
     try:
-        return R.Recipe.load(args.recipe, **overrides)
+        rec, notes = R.Recipe.load_with_notes(args.recipe, **overrides)
+        for n in notes:
+            _err(f"경로: {n}")
+        return rec
     except ValidationError as e:
         _err(R.format_validation_error(e))
     except (KeyError, ValueError, OSError) as e:
@@ -138,7 +141,9 @@ def _unusable_stages(rec: R.Recipe) -> list[str]:
 
 def cmd_recipe_check(args: argparse.Namespace) -> int:
     try:
-        rec = R.Recipe.load(args.recipe)
+        rec, notes = R.Recipe.load_with_notes(args.recipe)
+        for n in notes:
+            _err(f"경로: {n}")
     except ValidationError as e:
         print(R.format_validation_error(e), file=sys.stderr)
         return EXIT_RECIPE_ERROR
