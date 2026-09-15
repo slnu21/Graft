@@ -425,6 +425,8 @@ class ReviewTab(QWidget):
                 title += f" · ⚠ {', '.join(broken)} 회전이 조명을 뒤집음 → dent-graft"
         if self.session.bank is None:
             title += " — 은행 없음"
+        elif self.session.real_classes():
+            title += f" · 실제 = {', '.join(self.session.real_classes() or [])}"
         self.hist.set_histogram(h, title)
 
     def selected_indices(self) -> list[str]:

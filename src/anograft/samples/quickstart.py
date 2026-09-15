@@ -11,8 +11,10 @@ from pathlib import Path
 
 import yaml
 
+from anograft.bank import Bank
 from anograft.bank.importers.yolo import import_yolo
 from anograft.core import recipe as R
+from anograft.core.appearance import LIGHT_REAL_MIN
 from anograft.samples.yolo import SHAPES, generate
 
 PRESET_FOR_SHAPE = {"plate": ("poisson-graft", None), "ring": ("dent-graft", "annulus")}
@@ -27,11 +29,20 @@ class Quickstart:
     preset: str
     n_sources: int
     low_confidence: int
+    dent_classes: tuple[
+        str, ...
+    ] = ()  # 은행에서 조명 의존으로 판정돼 geometry.per_class(±15·flip 끔)에 들어간 클래스
 
     def line(self) -> str:
         return (
             f"샘플 {self.root.as_posix()} → 은행 {self.bank.as_posix()} (소스 {self.n_sources}, "
-            f"저신뢰 {self.low_confidence}) · 정상 {self.normals.name} · 레시피 {self.recipe.name} ({self.preset})"
+            f"저신뢰 {self.low_confidence}) · 정상 {self.normals.name} · 레시피 {self.recipe.name} ({self.preset}"
+            + (
+                f", 조명 의존 {', '.join(self.dent_classes)} → per_class ±15°"
+                if self.dent_classes
+                else ""
+            )
+            + ")"
         )
 
 
@@ -56,6 +67,12 @@ def quickstart(
         root / "images", root / "labels", root / "data.yaml", bank, list_normals=normals
     )
     preset, roi = PRESET_FOR_SHAPE[shape]
+    # 은행에서 조명 의존 클래스(lightR ≥ 0.5, n ≥ 3)를 찾아 그 클래스만 ±15°·flip 끔 — 샘플 pit 이 그렇다(KI #5 를 처음부터 맞게)
+    dent = tuple(
+        r.cls
+        for r in Bank.load(bank).summary()
+        if r.light_r is not None and r.light_r >= LIGHT_REAL_MIN
+    )
     data = R.init_recipe_dict(
         preset,
         name=f"sample-{shape}",
@@ -64,6 +81,7 @@ def quickstart(
         out=(root / "out").as_posix(),
         count=count,
         roi=roi,
+        dent_classes=dent,
     )
     src = data["pipeline"]["source"]
     src["min_sources_warn"] = 3  # 샘플은 클래스당 몇 장뿐 — 경고로 화면을 덮지 않게
@@ -78,4 +96,6 @@ def quickstart(
         + yaml.safe_dump(data, sort_keys=False, allow_unicode=True, default_flow_style=None),
         encoding="utf-8",
     )
-    return Quickstart(root, bank, normals, recipe, preset, len(res.stats.added), res.low_confidence)
+    return Quickstart(
+        root, bank, normals, recipe, preset, len(res.stats.added), res.low_confidence, dent
+    )
