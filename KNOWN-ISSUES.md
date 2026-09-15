@@ -212,3 +212,49 @@ FileNotFoundError: [Errno 2] No such file or directory: 'recipes\\gbs1005.yaml'
 - YOLO 임포트, 은행 누적, 재현성(같은 명령 → 마스크 10개 해시 동일), 한글 클래스명(UTF-8 폴더·`bank.yaml` 정상), YOLO writer 출력(`nc: 1` · `names: [찍힘]`), 워커 병렬 `run`(ok 37 · skipped 3 · 오류 0) 모두 정상.
 - 스킵 3건은 전부 `placement: 배치 실패 — max_tries 소진`. 링 폭보다 큰 결함 패치가 들어갈 자리를 못 찾은 경우로, 좁은 ROI 를 쓰면 예상되는 동작이다. 다만 **ROI 폭 대비 패치 크기**를 사전에 알려 주는 진단이 있으면 좋겠다.
 - GrabCut ROI 는 1400×1400 에서 미리보기 1장당 수십 초가 걸려 대화형 사용에 부담이 있다(`work_px` 조정 여지).
+
+---
+
+## 2차 적용 절차 (v0.7.2 기준 — 다른 PC 에서 그대로 따라 하기)
+
+> 목적: 위 10건이 실제 토크스 소켓 데이터에서 통했는지 확인하고, 아래 **결정 대기 항목**을 확정한다. 결과는 이 파일에 "2차 결과" 절로 덧붙여 PR 로.
+
+```powershell
+# 0. 환경 — 문제 보고 첫 줄
+anograft doctor --json > doctor.json
+
+# 1. 은행 (기존 은행이 있으면 bank ls 만; 새로 넣으면 --tags 로 제품명·--um-per-px 로 피치)
+anograft bank import-yolo --images ng/images --labels ng/labels --names ng/data.yaml --out bank/torx --tags torx,lot1 --um-per-px <피치>
+anograft bank ls bank/torx --json > bank-ls.json      # lowconf 열 · no_um 열 — 저신뢰 비율이 #3 의 답
+anograft bank preview bank/torx --out bank-preview.png  # 빨간 테두리 = 저신뢰. 실제로 엉뚱한 마스크와 일치하는가?
+
+# 2. 저신뢰 다듬기 (GUI) — 은행 탭 → "저신뢰 전부 차례로 다듬기" → 라벨 탭에서 다듬고 Ctrl+S → 다음 저신뢰
+#    또는 기존 YOLO 라벨을 라벨 탭에서 열면 초안이 자동으로 채워진다(images/ 옆 labels/).
+
+# 3. 링 ROI 레시피 (#2 #4) — annulus-graft, r_inner/r_outer 를 스튜디오 ROI 오버레이에 맞춰 조정(실측 0.56~0.9)
+anograft recipe init --preset annulus-graft --bank bank/torx --targets ok/ --out out/torx-annulus --count 40 --write recipes/torx-annulus.yaml
+#    찍힘이면 dent-graft 도 (#5): --preset dent-graft, roi 는 annulus 로 바꿔서
+anograft run recipes/torx-annulus.yaml --workers 4          # stderr 경고: 축척 정합 · 저신뢰 · skipped 사유(ROI 폭 vs 패치)
+
+# 4. 검수 (GUI 검수 탭 또는) — 반려하고 정리본 + 리포트
+anograft dataset report out/torx-annulus                    # 합성 vs 실제 면적·긴 변·대비 히스토그램
+anograft dataset prune out/torx-annulus --out out/torx-pruned
+
+# 5. 학습(선택, ultralytics 별도 설치) — 합성 유/무 mAP
+python tools/train_smoke.py --synthetic out/torx-pruned --base <기존 YOLO 셋> --out train/merged
+```
+
+**확인할 것 (항목 ↔ 근거)**
+
+| # | 확인 | 어디서 |
+|---|---|---|
+| 1 | 스튜디오 1024 축소에서 `mask_dir` ROI 가 동작 | 스튜디오 배치 카드 ⚠ 없음, ROI 오버레이 |
+| 2 · 4 | annulus 링 안에만 배치(중심 반경 319~510) | 사이드카 `placement.center` 반경 · `roi.center_source: detected` |
+| 3 | 저신뢰 비율이 실제 실패 마스크와 맞는가 | `bank ls --json` `low_confidence_ids` vs `bank preview` 눈 확인 |
+| 5 | dent-graft 가 자연스러운가(음영 방향) | 스튜디오 변형 6개 vs poisson-graft |
+| 6 | 축척 경고가 사라지는가(피치 넣은 뒤) | `run` stderr · 상태바 |
+| 7 | `source.tags` 로 제품 필터 | `run --dry-run` `source.tags` 행 |
+| 8 · 9 | 라벨 탭 초안 · 최근 레시피 복원 | GUI |
+| 10 | `recipe init --write recipes/x.yaml` | 폴더 자동 생성 |
+
+**결정 대기 항목(결과로 확정)**: `gtmask.diff_threshold` 12 · 박스→마스크 기본 `grabcut` vs `otsu` · YOLO 박스 GT `dilate_px` · `structure-aware prefer` edges/uniform · `grabcut work_px` 1024→512 · 저신뢰 경고 강화 임계 50 % · `dent-graft` 조화 0.2. 뒤집히는 게 있으면 0.7.3(프리셋 기본값 변경은 골든 갱신 + 데브로그 사유).
