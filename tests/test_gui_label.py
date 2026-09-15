@@ -400,6 +400,7 @@ def test_main_window_recent_recipe_and_empty_state(qapp: QApplication, tmp_path:
     try:
         win.show_empty_state()
         assert win.studio.canvas.message == EMPTY_STATE and "No recipe" in EMPTY_STATE
+        assert "샘플 데이터" in EMPTY_STATE  # 0.7.3+: 데이터 없는 사용자의 첫 행동
         win.open_recipe(recipe)
         qapp.processEvents()
         assert recent_recipe(store) == recipe.resolve()
