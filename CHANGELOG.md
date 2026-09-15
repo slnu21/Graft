@@ -4,7 +4,9 @@
 
 ## [Unreleased]
 
-v0.6 — **실데이터 보정**(`KNOWN-ISSUES.md`, 경면 금속 토크스 소켓 1차 적용에서 나온 10건).
+## [0.6.0] - 2026-09-15
+
+v0.6 — **실데이터 보정**(`KNOWN-ISSUES.md`, 경면 금속 토크스 소켓 1차 적용에서 나온 10건 전부). 프리셋 9종 · 골든 18장. 2차 실데이터 적용은 아직.
 
 ### Fixed
 - **`mask_dir` ROI 가 미리보기 축소에서 깨지던 문제**(KNOWN-ISSUES #1): `roi_from_mask` 가 대상과 크기가 다른 마스크를 `INTER_NEAREST` 로 맞춘다(같은 비율만 — 비율이 다르면 "다른 이미지의 마스크" 로 실패). 사이드카 `roi.resized_from`. 스튜디오 1024·768·512 축소에서 원본 크기 ROI 마스크가 그대로 동작.
@@ -79,7 +81,8 @@ v0.4 — CPU 알고리즘 확장. **여전히 샘플 데이터로만 검증**(�
 - GUI는 스튜디오 탭만. 재현은 같은 OS·OpenCV 부버전 범위(`seamlessClone` 솔버).
 - `release.yml`의 Windows zip 잡은 첫 push 전이라 CI에서 미검증(로컬 `tools/build_zip.ps1`와 같은 절차).
 
-[Unreleased]: https://github.com/slnu21/Graft/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/slnu21/Graft/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/slnu21/Graft/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/slnu21/Graft/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/slnu21/Graft/compare/v0.1.0...v0.4.0
 [0.1.0]: https://github.com/slnu21/Graft/releases/tag/v0.1.0
