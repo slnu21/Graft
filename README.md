@@ -49,7 +49,7 @@ anograft bank ls bank/sample                                              # 클�
 anograft bank preview bank/sample --out out/bank-preview.png              # 추정 마스크를 눈으로 (amber = 추정, ellipse = 과라벨)
 anograft run recipes/sample-poisson.yaml --workers 4                      # → out/sample/{images,masks,meta,labels,data.yaml,manifest.csv}
 anograft preview recipes/sample-poisson.yaml --index 0 --compare-methods blend --out out/compare.png
-anograft-gui recipes/sample-poisson.yaml                                  # GUI (zip: .\anograft-gui.exe · pip: python -m anograft.gui)
+anograft-gui recipes/sample-poisson.yaml                                  # GUI (zip: .\anograft-gui.exe · pip: python -m anograft.gui). 인자 없이 켜면 최근 레시피 복원, 없으면 시작 안내
 ```
 
 `anograft methods`가 스테이지별 선택지와 가용 여부를, `anograft recipe init --preset <이름> --write my.yaml`이 프리셋을 펼친 레시피를 줍니다. 레시피 상대경로는 **현재 폴더 기준**입니다.
@@ -71,6 +71,8 @@ anograft-gui recipes/sample-poisson.yaml                                  # GUI 
 | MVTec AD 로컬 사본 | `anograft dataset info mvtec-ad` → `anograft bank import-dataset mvtec-ad <root>/metal_nut --out bank/metal_nut` (내려받지 않음, CC BY-NC-SA) |
 | VisA 로컬 사본 | `anograft dataset info visa` → `anograft bank import-dataset visa <VisA>/candle --out bank/candle` (결함 유형 세분이 없어 클래스 `anomaly` 하나, CC BY-NC-SA) |
 | **결함 사진만**(라벨 없음) | GUI **라벨 탭** — 폴더 열기 → 사진 선택 → 브러시/폴리곤/자동 선택(박스를 끌면 GrabCut) → 클래스 입력 → **은행에 저장**(Ctrl+S). 라벨링 도구가 따로 필요 없다 (v0.5). 그다음 스튜디오에서 미리보기 → **배치로 보내기** → 배치 탭 **생성 시작** — CLI 없이 끝까지 |
+| YOLO 라벨을 GUI 에서 다듬기 | 라벨 탭에서 `images/` 를 열면 옆의 `labels/<stem>.txt`(+`data.yaml`)를 찾아 **YOLO 초안**으로 마스크를 미리 채운다(박스 → GrabCut 추정, 폴리곤 → 채움, 목록에 `▸`). 손보고 저장하면 `manual:mixed`, 그대로 저장하면 임포터와 같은 `yolo-box:*` (v0.6) |
+| 결함이 생겨도 되는 면만 지정(ROI) | 라벨 탭 **저장 대상 → ROI 마스크**: 정상 이미지 폴더를 열고 허용 영역을 칠해 `<mask_dir>/<stem>.png` 로 저장 → 레시피 `placement.roi: {method: mask_dir, path: <mask_dir>}`. 원형 부품은 파일 없이 `annulus` ROI (v0.6) |
 
 그다음은 `recipe init` → `inputs.bank`·`inputs.targets`(정상 이미지 폴더 또는 목록) 수정 → `run`. 출력 `images/`·`labels/`·`data.yaml`은 기존 YOLO 학습셋에 그대로 합쳐집니다(같은 `names` 순서). `python tools/train_smoke.py --synthetic out/sample --base <기존셋> --out train/merged`가 합쳐서 `ultralytics` 1 epoch을 돌립니다(ultralytics는 별도 설치, `--dry-run`은 합치기만).
 
@@ -180,6 +182,8 @@ In the Studio, the **pipeline cards** on the right let you pick each stage's met
 | Local MVTec AD copy | `anograft dataset info mvtec-ad` → `anograft bank import-dataset mvtec-ad <root>/metal_nut --out bank/metal_nut` (never downloaded; CC BY-NC-SA) |
 | Local VisA copy | `anograft dataset info visa` → `anograft bank import-dataset visa <VisA>/candle --out bank/candle` (no defect-type split, so one class `anomaly`; CC BY-NC-SA) |
 | **Only defect photos** (no labels) | GUI **Label tab** — open folder → pick a photo → brush / polygon / auto-select (drag a box → GrabCut) → type the class → **Save to bank** (Ctrl+S). No separate labelling tool needed (v0.5). Then preview in Studio → **Send to batch** → **Run** in the Batch tab — no CLI required |
+| Refine YOLO labels in the GUI | Open `images/` in the Label tab: the neighbouring `labels/<stem>.txt` (+`data.yaml`) is loaded as a **YOLO draft** that pre-fills the mask (box → GrabCut estimate, polygon → fill; `▸` in the list). Edited masks save as `manual:mixed`, untouched ones as `yolo-box:*` like the importer (v0.6) |
+| Restrict where defects may go (ROI) | Label tab **Save as → ROI mask**: open the normal-image folder, paint the allowed surface, save to `<mask_dir>/<stem>.png` → recipe `placement.roi: {method: mask_dir, path: <mask_dir>}`. Round parts need no files — use the `annulus` ROI (v0.6) |
 
 Then `recipe init` → edit `inputs.bank` / `inputs.targets` (normal-image folder or list) → `run`. The output `images/`, `labels/`, `data.yaml` merge straight into an existing YOLO set (same `names` order). `python tools/train_smoke.py --synthetic out/sample --base <your set> --out train/merged` merges and runs one `ultralytics` epoch (install ultralytics separately; `--dry-run` only merges).
 

@@ -7,6 +7,12 @@
 
 단축키: B 브러시 · E 지우개 · P 폴리곤 · A 자동 선택 · H 팬 · [ ] 브러시 크기 · Ctrl+Z/Y · Enter 폴리곤 확정 · Esc 취소 ·
 Ctrl+S 은행에 저장 · PageDown/PageUp 다음/이전 이미지.
+
+(v0.6) **YOLO 초안** — 이미지를 열 때 옆의 ``labels/<stem>.txt``(+ ``data.yaml`` names)를 찾으면 오른쪽 "YOLO 초안" 에 박스·폴리곤
+수와 클래스가 뜨고, "열 때 자동 채우기" 가 켜져 있으면 첫 클래스의 초안으로 마스크를 미리 채운다(클래스 콤보 동기). 목록에서
+라벨이 있는 이미지는 ``▸`` 표시. **ROI 모드** — 오른쪽 "저장 대상" 을 ROI 로 바꾸면 은행 대신 ``<mask_dir>/<stem>.png``
+(``placement.roi: mask_dir`` 형식) 로 저장하고, 이미지를 열 때 같은 이름의 ROI 가 있으면 불러온다. 정상 이미지 폴더를 열어
+"결함이 생겨도 되는 면" 을 칠한다.
 """
 
 from __future__ import annotations
@@ -28,6 +34,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QMessageBox,
     QPushButton,
+    QRadioButton,
     QSizePolicy,
     QSlider,
     QSplitter,
@@ -38,7 +45,12 @@ from PySide6.QtWidgets import (
 from anograft.bank.bank import BANK_FILE, read_bank_meta
 from anograft.bank.mask_from_box import METHODS as AUTO_METHODS
 from anograft.gui.label.canvas import LabelCanvas
-from anograft.gui.label.session import LabelError, LabelSession
+from anograft.gui.label.session import (
+    LabelError,
+    LabelSession,
+    find_yolo_label,
+    roi_png_path,
+)
 from anograft.gui.studio.panels import h4
 from anograft.io import imgio
 
@@ -51,9 +63,15 @@ TOOL_BUTTONS: tuple[tuple[str, str, str], ...] = (
 )
 
 
+MODE_BANK = "bank"
+MODE_ROI = "roi"
+LABELED_MARK = "▸ "  # 목록에서 YOLO 라벨이 있는 이미지 표시
+
+
 class LabelTab(QWidget):
     status = Signal(str)
     bank_saved = Signal(str)  # 은행 루트(posix) — 스튜디오가 같은 은행이면 다시 준비
+    roi_saved = Signal(str)  # 저장된 ROI PNG(posix)
 
     def __init__(self, session: LabelSession | None = None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -210,12 +228,77 @@ class LabelTab(QWidget):
         v = QVBoxLayout(side)
         v.setContentsMargins(12, 12, 12, 12)
         v.setSpacing(6)
-        v.addWidget(h4("결함 정보 Defect"))
+        v.addWidget(h4("저장 대상 Save as"))
+        mode_row = QHBoxLayout()
+        mode_row.setSpacing(10)
+        self.rb_bank = QRadioButton("은행 소스 Bank")
+        self.rb_bank.setToolTip("결함 마스크를 은행에 소스로 저장 (성분별 크롭 + 메타)")
+        self.rb_roi = QRadioButton("ROI 마스크 ROI")
+        self.rb_roi.setToolTip(
+            "정상 이미지에서 결함이 생겨도 되는 면을 칠해 <mask_dir>/<stem>.png 로 저장 — "
+            "레시피 placement.roi: {method: mask_dir, path: <mask_dir>} 가 읽는다"
+        )
+        self.rb_bank.setChecked(True)
+        mode_row.addWidget(self.rb_bank)
+        mode_row.addWidget(self.rb_roi)
+        mode_row.addStretch(1)
+        v.addLayout(mode_row)
+        self.roi_box = QWidget()
+        rv = QVBoxLayout(self.roi_box)
+        rv.setContentsMargins(0, 0, 0, 0)
+        rv.setSpacing(6)
+        dir_row = QHBoxLayout()
+        dir_row.setSpacing(6)
+        self.roi_dir = QLineEdit()
+        self.roi_dir.setPlaceholderText("ROI 마스크 폴더 (mask_dir) — 비면 <이미지 폴더>/../roi")
+        self.btn_roi_dir = QPushButton("폴더")
+        self.btn_roi_dir.setFixedWidth(44)
+        dir_row.addWidget(self._muted("mask_dir"))
+        dir_row.addWidget(self.roi_dir, 1)
+        dir_row.addWidget(self.btn_roi_dir)
+        rv.addLayout(dir_row)
+        self.roi_hint = self._muted("")
+        self.roi_hint.setWordWrap(True)
+        rv.addWidget(self.roi_hint)
+        v.addWidget(self.roi_box)
+        self.roi_box.hide()
+        v.addSpacing(4)
+
+        v.addWidget(h4("YOLO 초안 Draft"))
+        self.draft_info = self._muted("없음 — labels/<stem>.txt 가 옆에 있으면 자동으로 찾는다")
+        self.draft_info.setWordWrap(True)
+        v.addWidget(self.draft_info)
+        draft_row = QHBoxLayout()
+        draft_row.setSpacing(6)
+        self.draft_cls = QComboBox()
+        self.draft_cls.setToolTip(
+            "초안에 있는 클래스 — 고르면 그 클래스의 박스/폴리곤으로 마스크를 채운다"
+        )
+        self.btn_draft = QPushButton("채우기 Fill")
+        self.btn_draft.setToolTip("현재 마스크를 초안으로 교체 (Ctrl+Z 로 복구)")
+        draft_row.addWidget(self.draft_cls, 1)
+        draft_row.addWidget(self.btn_draft)
+        v.addLayout(draft_row)
+        self.cb_draft_auto = QCheckBox("열 때 자동 채우기")
+        self.cb_draft_auto.setChecked(True)
+        self.cb_draft_auto.setToolTip(
+            "이미지를 열 때 라벨이 있으면 첫 클래스 초안으로 마스크를 미리 채운다"
+        )
+        v.addWidget(self.cb_draft_auto)
+        self._set_draft_enabled(False)
+        v.addSpacing(4)
+
+        self.defect_title = h4("결함 정보 Defect")
+        v.addWidget(self.defect_title)
         self.cls = QComboBox()
         self.cls.setEditable(True)
         self.cls.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         self.cls.lineEdit().setPlaceholderText("클래스 이름 (예: scratch)")
-        v.addLayout(self._kv("클래스", self.cls))
+        self.defect_box = QWidget()
+        dv = QVBoxLayout(self.defect_box)
+        dv.setContentsMargins(0, 0, 0, 0)
+        dv.setSpacing(6)
+        dv.addLayout(self._kv("클래스", self.cls))
         self.origin = self._muted("–")
         self.origin.setWordWrap(True)
         v.addLayout(self._kv("원본", self.origin))
@@ -227,15 +310,16 @@ class LabelTab(QWidget):
         self.um.setToolTip(
             "픽셀 피치 µm/px — 은행 소스에 저장돼 대상과의 축척 정합에 쓰인다. 0 = 모름"
         )
-        v.addLayout(self._kv("µm/px", self.um))
+        dv.addLayout(self._kv("µm/px", self.um))
         self.tags = QLineEdit()
         self.tags.setPlaceholderText("태그, 쉼표로 (예: 가공면, 직선형)")
-        v.addLayout(self._kv("태그", self.tags))
+        dv.addLayout(self._kv("태그", self.tags))
         self.cb_whole = QCheckBox("성분을 나누지 않고 하나로 저장")
         self.cb_whole.setToolTip(
             "끄면 떨어진 조각마다 소스 하나(기본). 한 결함이 여러 조각이면 켠다"
         )
-        v.addWidget(self.cb_whole)
+        dv.addWidget(self.cb_whole)
+        v.addWidget(self.defect_box)
         v.addSpacing(8)
         v.addWidget(h4("마스크 통계 Mask"))
         self.stats = QLabel("–")
@@ -296,8 +380,12 @@ class LabelTab(QWidget):
         c.auto_done.connect(lambda m: self.status.emit(f"자동 선택: {m}"))
         c.error.connect(self._on_error)
         self.um.valueChanged.connect(lambda _v: self._refresh_stats())
-        self.btn_save.clicked.connect(self.save_to_bank)
-        QShortcut(QKeySequence("Ctrl+S"), self, activated=self.save_to_bank)
+        self.btn_save.clicked.connect(self.save)
+        QShortcut(QKeySequence("Ctrl+S"), self, activated=self.save)
+        self.rb_roi.toggled.connect(self._on_mode)
+        self.btn_roi_dir.clicked.connect(self._pick_roi_dir)
+        self.roi_dir.editingFinished.connect(self._refresh_roi_hint)
+        self.btn_draft.clicked.connect(self.fill_draft)
         QShortcut(QKeySequence(Qt.Key.Key_PageDown), self, activated=lambda: self.step(1))
         QShortcut(QKeySequence(Qt.Key.Key_PageUp), self, activated=lambda: self.step(-1))
 
@@ -325,12 +413,21 @@ class LabelTab(QWidget):
             self._on_error(f"폴더를 열 수 없습니다: {e}")
             return
         self.folder, self.files = d, files
+        n_labeled = 0
         self.list.blockSignals(True)
         self.list.clear()
         for p in files:
-            self.list.addItem(p.name)
+            lp = find_yolo_label(p)
+            labeled = lp is not None and lp.stat().st_size > 0  # 빈 라벨 파일 = 정상 이미지
+            n_labeled += labeled
+            self.list.addItem((LABELED_MARK if labeled else "") + p.name)
         self.list.blockSignals(False)
-        self.list_title.setText(f"결함 이미지 · {len(files)}장 — {d.name}")
+        title = f"{'정상' if self.mode == MODE_ROI else '결함'} 이미지 · {len(files)}장 — {d.name}"
+        if n_labeled:
+            title += f" · YOLO 라벨 {n_labeled}"
+        self.list_title.setText(title)
+        self.list_title.setToolTip(f"{d.as_posix()}\n{title}")
+        self._refresh_roi_hint()
         if files:
             self.list.setCurrentRow(0)
         else:
@@ -347,11 +444,168 @@ class LabelTab(QWidget):
         self.canvas.set_session(self.session)
         self.origin.setText(Path(path).name)
         self.result.setText("")
+        msg = f"열림: {Path(path).as_posix()} · {self.session.shape[1]}×{self.session.shape[0]}"
+        extra = self._load_draft() if self.mode == MODE_BANK else self._load_roi()
+        if extra:
+            msg += " · " + extra
         self.refresh()
-        self.status.emit(
-            f"열림: {Path(path).as_posix()} · {self.session.shape[1]}×{self.session.shape[0]}"
-        )
+        self.status.emit(msg)
         return True
+
+    # ------------------------------------------------------------------ YOLO 초안
+
+    def _set_draft_enabled(self, on: bool) -> None:
+        self.draft_cls.setEnabled(on)
+        self.btn_draft.setEnabled(on)
+
+    def _load_draft(self) -> str:
+        """이미지 옆 라벨을 찾아 패널을 채우고, 자동이면 첫 클래스로 마스크를 미리 채운다. 반환 = 상태줄에 덧붙일 문구."""
+        try:
+            draft = self.session.load_yolo_draft()
+        except LabelError as e:
+            draft = None
+            self._on_error(str(e))
+        self.draft_cls.blockSignals(True)
+        self.draft_cls.clear()
+        if draft is None or not draft.items:
+            self.draft_cls.blockSignals(False)
+            self._set_draft_enabled(False)
+            self.draft_info.setText(
+                "없음 — labels/<stem>.txt 가 옆에 있으면 자동으로 찾는다"
+                if draft is None
+                else f"{draft.label_path.name}: 항목 없음"
+                + (f" · {draft.warnings[0]}" if draft.warnings else "")
+            )
+            return ""
+        for cid in draft.class_ids:
+            self.draft_cls.addItem(draft.class_name(cid), cid)
+        self.draft_cls.blockSignals(False)
+        self._set_draft_enabled(True)
+        info = draft.summary()
+        if draft.names_path is not None:
+            info += f" · names {draft.names_path.name}"
+        if draft.warnings:
+            info += f" · ⚠ {draft.warnings[0]}"
+        self.draft_info.setText(info)
+        if self.cb_draft_auto.isChecked():
+            return self.fill_draft() or ""
+        return f"YOLO 초안 {len(draft.items)}개 (채우기로 적용)"
+
+    def fill_draft(self) -> str | None:
+        """선택한 클래스의 초안으로 마스크를 교체하고 클래스 콤보를 맞춘다. 반환 = 상태 문구(실패 None)."""
+        draft = self.session.draft
+        if draft is None or self.draft_cls.count() == 0:
+            self._on_error("YOLO 초안이 없습니다")
+            return None
+        cid = int(self.draft_cls.currentData())
+        try:
+            used = self.session.apply_draft(cid, self.auto_method.currentText())
+        except LabelError as e:
+            self._on_error(str(e))
+            return None
+        self.canvas.refresh_overlay()
+        name = draft.class_name(cid)
+        self.cls.setEditText(name)
+        n = len(draft.items_for(cid))
+        methods = ", ".join(sorted(set(used))) if used else "폴리곤"
+        msg = f"YOLO 초안 채움: {name} {n}개 ({methods}) — 다듬은 뒤 저장"
+        self.refresh()
+        self.status.emit(msg)
+        return msg
+
+    # ------------------------------------------------------------------ ROI 모드
+
+    @property
+    def mode(self) -> str:
+        return MODE_ROI if self.rb_roi.isChecked() else MODE_BANK
+
+    def set_mode(self, mode: str) -> None:
+        (self.rb_roi if mode == MODE_ROI else self.rb_bank).setChecked(True)
+
+    def _on_mode(self, _checked: bool = False) -> None:
+        roi = self.mode == MODE_ROI
+        self.roi_box.setVisible(roi)
+        self.defect_box.setVisible(not roi)
+        self.defect_title.setVisible(not roi)
+        self.btn_save.setText(
+            "ROI 저장 Save ROI  (Ctrl+S)" if roi else "은행에 저장 Save to bank  (Ctrl+S)"
+        )
+        if self.folder is not None:
+            self.list_title.setText(
+                self.list_title.text().replace("결함 이미지", "정상 이미지")
+                if roi
+                else self.list_title.text().replace("정상 이미지", "결함 이미지")
+            )
+        self._refresh_roi_hint()
+        if roi and self.session.loaded and not self.session.dirty:
+            extra = self._load_roi()
+            if extra:
+                self.status.emit(extra)
+
+    def roi_dir_path(self) -> Path | None:
+        text = self.roi_dir.text().strip()
+        if text:
+            return Path(text)
+        if self.folder is not None:
+            return self.folder.parent / "roi"
+        return None
+
+    def _pick_roi_dir(self) -> None:
+        start = self.roi_dir.text().strip() or (self.folder.as_posix() if self.folder else ".")
+        d = QFileDialog.getExistingDirectory(self, "ROI 마스크 폴더 (mask_dir)", start)
+        if d:
+            self.roi_dir.setText(Path(d).as_posix())
+            self._refresh_roi_hint()
+
+    def _refresh_roi_hint(self) -> None:
+        d = self.roi_dir_path()
+        if d is None:
+            self.roi_hint.setText("정상 이미지 폴더를 열면 기본 mask_dir 은 <폴더>/../roi")
+            return
+        n = len(list(d.glob("*.png"))) if d.is_dir() else 0
+        self.roi_hint.setText(
+            f"{d.as_posix()} — ROI {n}장"
+            + (" (폴더가 만들어진다)" if not d.is_dir() else "")
+            + f"\n레시피: placement.roi: {{method: mask_dir, path: {d.as_posix()}}}"
+        )
+
+    def _load_roi(self) -> str:
+        """ROI 모드에서 이미지를 열 때 같은 이름의 ROI PNG 가 있으면 불러온다."""
+        d = self.roi_dir_path()
+        if d is None or self.session.path is None:
+            return ""
+        p = roi_png_path(d, self.session.path)
+        if not p.is_file():
+            return "ROI 없음 — 결함이 생겨도 되는 면을 칠한다"
+        try:
+            self.session.load_mask(p)
+        except (LabelError, imgio.ImageReadError) as e:
+            self._on_error(f"ROI 불러오기 실패: {e}")
+            return ""
+        self.session.dirty = False
+        self.canvas.refresh_overlay()
+        return f"ROI 불러옴: {p.name}"
+
+    def save_roi(self) -> bool:
+        d = self.roi_dir_path()
+        if d is None or self.session.path is None:
+            self._on_error("정상 이미지를 먼저 여세요")
+            return False
+        out = roi_png_path(d, self.session.path)
+        try:
+            self.session.save_roi_png(out)
+        except (LabelError, OSError) as e:
+            self._on_error(str(e))
+            return False
+        msg = f"ROI 저장: {out.as_posix()}"
+        self.result.setText(msg)
+        self.status.emit(msg)
+        self._refresh_roi_hint()
+        self.roi_saved.emit(out.as_posix())
+        return True
+
+    def save(self) -> bool:
+        return self.save_roi() if self.mode == MODE_ROI else self.save_to_bank()
 
     def step(self, delta: int) -> None:
         if not self.files:
@@ -497,8 +751,12 @@ class LabelTab(QWidget):
             return
         parts = [
             f"면적 {st.area_px:,} px · {st.area_ratio * 100:.2f}%",
-            f"성분 {st.n_components}"
-            + ("개 → 소스 하나로 저장" if self.cb_whole.isChecked() else "개 → 소스 각각"),
+            f"성분 {st.n_components}개"
+            + (
+                ""
+                if self.mode == MODE_ROI
+                else (" → 소스 하나로 저장" if self.cb_whole.isChecked() else " → 소스 각각")
+            ),
             f"길이 {st.length_px:.0f} px"
             + (f" · {st.length_um / 1000:.2f} mm" if st.length_um else ""),
         ]

@@ -17,6 +17,9 @@ v0.6 — **실데이터 보정**(`KNOWN-ISSUES.md`, 경면 금속 토크스 소�
 - **스튜디오 카드 파라미터 편집기**(`stage-params`): 7단계 카드마다 레시피 스키마(pydantic)에서 위젯을 자동 생성 — 정수/실수 스핀, `[lo, hi]` 범위, on/off, 선택지, 경로(폴더 버튼), 목록, `X | None` 은 체크박스로 켬/끔. 값은 `StudioSession.set_stage_field` 재검증을 거쳐 미리보기 재계산·레시피 저장에 반영, 잘못된 값은 대화상자 없이 **카드 빨간 줄** + 되돌림. 배치 카드에 **ROI 하위 스테이지**(method 콤보 + 폼 — mask_dir 를 고르면 `path` 자리표시). 새 method 를 스키마에 추가하면 GUI 수정 없이 편집기가 생긴다(`gui/studio/params.py` · `param_form.py`, `registry.config_class`).
 - **`source.tags` 필터**(KNOWN-ISSUES #7): `pipeline.source.tags: {include: [..], exclude: [..]}` — 임포트 `--tags` 로 붙인 제품명 등으로 은행 소스를 고른다(include 중 하나라도 · exclude 중 하나라도 제외). 클래스·확률은 그대로고 클래스 안의 풀만 줄어듦, 순서 유지(재현성). 필터 후 0개 클래스는 경고 + 건너뜀, 전부 0 이면 prepare 실패. `run --dry-run` 에 `source.tags` 행 + 필터 후 소스 수, 사이드카 `source.tags`. 스튜디오 소스 카드에 `tags.include`/`tags.exclude` 목록 필드가 자동으로 생김.
 - **µm/px 축척 정합 표면화**(KNOWN-ISSUES #6): `bank ls` 에 `no_um` 열(피치 없는 소스 수)과 태그별 수 · `runner.prepare` 가 소스/대상 피치가 빠져 정합이 (일부) 꺼진 상태를 한 줄로 경고 — CLI stderr·스튜디오 상태바·배치 로그에 그대로.
+- **라벨 탭 YOLO 초안**(KNOWN-ISSUES #8): 이미지를 열 때 옆의 `labels/<stem>.txt`(`images`↔`labels` 미러 · 같은 폴더 · `<folder>/labels/`)와 `data.yaml`/`classes.txt` names 를 찾아 박스는 GrabCut/Otsu/타원/사각 추정, 폴리곤은 채움으로 마스크를 **미리 채운다**(클래스 콤보 동기, 클래스별 채우기, "열 때 자동 채우기"). 목록에 라벨 있는 이미지 `▸`. 손대지 않은 초안은 임포터와 같은 `yolo-box:<method>`/`yolo-polygon`(= `bank ls` est), 손대면 `manual:mixed`.
+- **라벨 탭 ROI 모드**(KNOWN-ISSUES #4 임의 형상): "저장 대상 → ROI 마스크" 로 바꾸면 정상 이미지에 허용 영역을 칠해 `<mask_dir>/<stem>.png`(`placement.roi: mask_dir` 형식, 원본 크기·크롭 없음)로 저장하고, 이미지를 열 때 같은 이름의 ROI 를 불러온다. `LabelSession.save_roi_png`.
+- **GUI 시작 안내**(KNOWN-ISSUES #9): 레시피 인자 없이 켜면 최근 레시피(열기·저장 때 기억, `QSettings`)를 복원하고, 없으면 스튜디오 캔버스에 ko/en 4단계 안내(라벨 → 입력 → 프리셋 → 배치)와 상태바 문구.
 - 스튜디오 파이프라인 카드에 **fail-soft 경고 표시**(`⚠ <stage>: …`, ROI 경고는 배치 카드에) · 변형 카드의 잘린 사유는 툴팁에 원문 · 상태바에 "경고 n건 더".
 
 ## [0.5.0] - 2026-09-15

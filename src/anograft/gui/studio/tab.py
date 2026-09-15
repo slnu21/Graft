@@ -60,6 +60,9 @@ class StudioTab(QWidget):
     status = Signal(str)
     context = Signal(str)
     send_to_batch_requested = Signal()
+    recipe_opened = Signal(
+        str
+    )  # 레시피 파일을 열거나 저장했다(posix) — 메인 창이 최근 레시피로 기억
 
     def __init__(
         self, session: StudioSession, worker: PreviewWorker, parent: QWidget | None = None
@@ -291,6 +294,7 @@ class StudioTab(QWidget):
         else:
             self.request_previews()
         self.status.emit(f"레시피 열림: {Path(path).as_posix()}")
+        self.recipe_opened.emit(Path(path).as_posix())
 
     def open_recipe_dialog(self) -> None:
         f, _ = QFileDialog.getOpenFileName(self, "레시피 열기", "recipes", "레시피 (*.yaml *.yml)")
@@ -307,6 +311,7 @@ class StudioTab(QWidget):
         if f:
             p = self.session.save(f)
             self.status.emit(f"레시피 저장: {p.as_posix()} → {self.session.run_command()}")
+            self.recipe_opened.emit(p.as_posix())
 
     def send_to_batch(self) -> None:
         """현재 레시피를 배치 탭으로(저장하지 않아도 된다 — 배치 탭이 Recipe 객체를 받는다). 메인 창이 탭을 전환한다.
