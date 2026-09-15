@@ -18,11 +18,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import cv2
 import numpy as np
 import yaml
 
 from anograft.bank import Bank
 from anograft.bank.bank import BankError
+from anograft.io import imgio
 from anograft.io.manifest import MANIFEST_FILE, read_manifest
 from anograft.io.prune import (
     REVIEW_FILE,
@@ -35,6 +37,8 @@ from anograft.io.prune import (
 from anograft.io.report import ReportData, skipped_reason_counts, write_report
 
 FILTERS: tuple[str, ...] = ("all", "unreviewed", "accept", "reject", "fallback", "skipped")
+DIST_KEYS: tuple[str, ...] = ("area", "length", "contrast")  # contrast 는 선형 구간(음수 가능)
+RING_PX = 8
 
 
 class ReviewError(ValueError):
@@ -62,6 +66,7 @@ class ReviewItem:
     instances: list[dict[str, Any]] = field(default_factory=list)  # gtmask.instances
     warnings: list[str] = field(default_factory=list)
     loaded: bool = False
+    contrasts: list[float] | None = None  # 인스턴스별 대비(이미지·마스크를 읽어야 해서 지연)
 
 
 @dataclass(frozen=True)
@@ -97,6 +102,20 @@ def histogram(
     cb, _ = np.histogram(xb, bins=edges) if len(xb) else (np.zeros(bins, dtype=int), None)
     real_edges = tuple(float(10**e) if log else float(e) for e in edges)
     return Histogram(real_edges, tuple(int(v) for v in ca), tuple(int(v) for v in cb), log)
+
+
+def mask_contrast(gray: np.ndarray, mask: np.ndarray, *, ring_px: int = RING_PX) -> float | None:
+    """마스크 안 평균 그레이 − 둘레 링(폭 ``ring_px``, 마스크 제외) 평균. 어느 쪽이든 비면 None. 라벨 탭 통계와 같은 정의."""
+    m = mask > 0
+    if not m.any():
+        return None
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * ring_px + 1, 2 * ring_px + 1))
+    ring = cv2.dilate(m.astype(np.uint8), k) > 0
+    ring &= ~m
+    if not ring.any():
+        return None
+    g = gray.astype(np.float32)
+    return round(float(g[m].mean() - g[ring].mean()), 2)
 
 
 def _split(s: str) -> tuple[str, ...]:
@@ -270,12 +289,17 @@ class ReviewSession:
     # ------------------------------------------------------------------ 분포
 
     def synthetic_values(self, key: str = "area") -> list[float]:
-        """합성 인스턴스의 면적 또는 긴 변(bbox) — 채택/미검수만(반려는 제외)."""
+        """합성 인스턴스의 면적·긴 변(bbox)·대비(마스크 안 평균 그레이 − 링 평균) — 채택/미검수만(반려는 제외)."""
+        if key not in DIST_KEYS:
+            raise ReviewError(f"분포 키 {key!r} (선택: {', '.join(DIST_KEYS)})")
         vals: list[float] = []
         for it in self.items:
             if it.status != "ok" or it.verdict == "reject":
                 continue
             self.item(it.index)
+            if key == "contrast":
+                vals += self._item_contrasts(it)
+                continue
             for inst in it.instances:
                 if key == "area":
                     vals.append(float(inst.get("area_px") or 0))
@@ -284,13 +308,45 @@ class ReviewSession:
                     vals.append(float(max(bb[2], bb[3])))
         return vals
 
+    def _item_contrasts(self, it: ReviewItem) -> list[float]:
+        """인스턴스 bbox 창 안에서 GT 마스크 vs 링 대비 — 이미지·마스크를 한 번 읽어 캐시."""
+        if it.contrasts is not None:
+            return it.contrasts
+        it.contrasts = []
+        if self.root is None or not it.image or not it.mask:
+            return it.contrasts
+        try:
+            image, _g = imgio.read_image(self.root / it.image)
+            mask = imgio.read_mask(self.root / it.mask)
+        except (OSError, imgio.ImageReadError):
+            return it.contrasts
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        h, w = gray.shape[:2]
+        for inst in it.instances:
+            bb = inst.get("bbox") or None
+            if not bb:
+                continue
+            x, y, bw, bh = (int(v) for v in bb)
+            x0, y0 = max(0, x - RING_PX), max(0, y - RING_PX)
+            x1, y1 = min(w, x + bw + RING_PX), min(h, y + bh + RING_PX)
+            c = mask_contrast(gray[y0:y1, x0:x1], mask[y0:y1, x0:x1])
+            if c is not None:
+                it.contrasts.append(c)
+        return it.contrasts
+
     def real_values(self, key: str = "area") -> list[float]:
+        if key not in DIST_KEYS:
+            raise ReviewError(f"분포 키 {key!r} (선택: {', '.join(DIST_KEYS)})")
         if self.bank is None:
             return []
         vals: list[float] = []
         for s in self.bank.sources():
             if key == "area":
                 vals.append(float(np.count_nonzero(s.mask)))
+            elif key == "contrast":
+                c = mask_contrast(cv2.cvtColor(s.image, cv2.COLOR_BGR2GRAY), s.mask)
+                if c is not None:
+                    vals.append(c)
             else:
                 ys, xs = np.nonzero(s.mask)
                 if len(xs) == 0:
@@ -299,7 +355,9 @@ class ReviewSession:
         return vals
 
     def distribution(self, key: str = "area", *, bins: int = 12) -> Histogram:
-        return histogram(self.synthetic_values(key), self.real_values(key), bins=bins, log=True)
+        return histogram(
+            self.synthetic_values(key), self.real_values(key), bins=bins, log=key != "contrast"
+        )
 
     # ------------------------------------------------------------------ 리포트
 
@@ -335,6 +393,7 @@ class ReviewSession:
             ),
             hist_area=self.distribution("area"),
             hist_length=self.distribution("length"),
+            hist_contrast=self.distribution("contrast"),
             bank_name=self.bank.name if self.bank is not None else "",
             warnings=list(self.warnings),
         )
