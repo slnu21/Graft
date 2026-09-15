@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-09-16
+
+v0.7.2 후속 — 진단·시작 패치(조명 방향 지표·경고 · 배치 가능성 진단 · GUI 샘플 한 클릭 · ring 샘플 · `max_align_deg`). 레시피 스키마는 옵션 추가만.
+
 ### Added
 - 검수 탭 분포에 **질감 texture**(마스크 안 Sobel 그래디언트 평균)·**선명도 sharpness**(라플라시안 분산) — 대비와 함께 외형 지표 3종(전부 선형 구간, 이미지·마스크를 한 번 읽어 같이 캐시).
 - 검수 탭 분포에 **조명 방향 lighting**(둘레 2 px 링에서 밝은 쪽 각도, −180..180° 고정 구간) + **조명 일관성 R**(전체·클래스별, 1 = 하이라이트가 모두 같은 방향) — KI #5 의 검수 근거. 어느 클래스든 실제 R ≥ 0.5 인데 합성 R < 0.3 이면 리포트·히스토그램 제목에 "회전이 조명을 뒤집음 → dent-graft". 샘플 pit: 실제 0.99 · poisson-graft(±180°) 0.12 · dent-graft(±15°) 0.51.
@@ -138,7 +142,8 @@ v0.4 — CPU 알고리즘 확장. **여전히 샘플 데이터로만 검증**(�
 - GUI는 스튜디오 탭만. 재현은 같은 OS·OpenCV 부버전 범위(`seamlessClone` 솔버).
 - `release.yml`의 Windows zip 잡은 첫 push 전이라 CI에서 미검증(로컬 `tools/build_zip.ps1`와 같은 절차).
 
-[Unreleased]: https://github.com/slnu21/Graft/compare/v0.7.2...HEAD
+[Unreleased]: https://github.com/slnu21/Graft/compare/v0.7.3...HEAD
+[0.7.3]: https://github.com/slnu21/Graft/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/slnu21/Graft/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/slnu21/Graft/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/slnu21/Graft/compare/v0.6.0...v0.7.0
