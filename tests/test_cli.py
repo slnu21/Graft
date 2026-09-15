@@ -192,7 +192,9 @@ def test_recipe_check_validates_against_bank(
     workspace: dict[str, Path], capsys: pytest.CaptureFixture[str]
 ) -> None:
     assert main(["recipe", "check", str(workspace["recipe"])]) == EXIT_OK
-    assert "은행 대조 OK" in capsys.readouterr().out
+    cap = capsys.readouterr()
+    assert "은행 대조 OK" in cap.out
+    assert "축척 정합" in cap.err  # run/GUI 와 같은 prepare 경고(은행 피치 없음)가 check 에도
 
 
 def test_run_writes_triplets_manifest_and_is_reproducible(

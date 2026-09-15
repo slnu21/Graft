@@ -169,10 +169,12 @@ def cmd_recipe_check(args: argparse.Namespace) -> int:
     elif bank_path is not None and (bank_path / "bank.yaml").is_file():
         try:
             bank = Bank.load(bank_path)
-            for w in rec.validate_against(bank):
+            for w in runner.prepare_warnings(
+                rec, bank
+            ):  # run/GUI 와 같은 경고(대조·축척·저신뢰·조명)
                 _err(f"경고: {w}")
             print(f"은행 대조 OK: {bank.name} — 클래스 {bank.classes}, 소스 {len(bank)}")
-        except (BankError, ValueError) as e:
+        except (BankError, ValueError, runner.PrepareError) as e:
             _err(f"은행 대조 실패: {e}")
             problems.append(str(e))
     else:

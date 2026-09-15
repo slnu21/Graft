@@ -190,8 +190,9 @@ def lighting_warning(recipe: Recipe, bank: Bank) -> str | None:
     )
 
 
-def _prepare_warnings(recipe: Recipe, bank: Bank) -> list[str]:
-    """은행 경고 + 레시피↔은행 대조 + 축척·저신뢰·조명 한 줄 경고 — ``prepare``·``reprepare`` 공용."""
+def prepare_warnings(recipe: Recipe, bank: Bank) -> list[str]:
+    """은행 경고 + 레시피↔은행 대조 + 축척·저신뢰·조명 한 줄 경고 — ``prepare``·``reprepare``·``recipe check`` 공용.
+    대조가 치명적이면 ``PrepareError``."""
     warnings = list(bank.warnings)
     try:
         warnings += recipe.validate_against(bank)
@@ -216,7 +217,7 @@ def prepare(recipe: Recipe) -> Prepared:
         )
     except BankError as e:
         raise PrepareError(str(e)) from e
-    warnings = _prepare_warnings(recipe, bank)
+    warnings = prepare_warnings(recipe, bank)
     try:
         targets = list_targets(recipe.inputs.targets)
     except TargetsError as e:
@@ -239,7 +240,7 @@ def reprepare(prep: Prepared, recipe: Recipe) -> Prepared:
         prep.recipe.inputs.targets,
     ):
         raise ValueError("은행 또는 대상 경로가 바뀌었습니다 — prepare()를 다시 부르세요")
-    warnings = _prepare_warnings(
+    warnings = prepare_warnings(
         recipe, prep.bank
     )  # 축척·저신뢰·조명 경고는 레시피에 따라 바뀐다(카드 편집)
     deps = build_deps(recipe, prep.bank, warnings)
