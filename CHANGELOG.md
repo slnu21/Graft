@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+## [0.7.6] - 2026-09-16
+
+v0.7.5 후속 — flip 모드(none/horizontal/vertical/both, 호환) · per_class 편집 표 · 변형 카드 ↯ · 안전한 flip 자동 선택 · train_smoke 다중 출력. 기존 레시피·골든 불변.
+
 ### Added
 - 조명 의존 클래스의 자동 오버라이드(`--auto-dent` · 퀵스타트 · 기하 카드 ▶)가 **방향에 안전한 flip 을 고른다**(`recipe.dent_override_for(light_dir)`: 위/아래 조명 → `horizontal`, 옆 → `vertical`, 모르면 `none`) — 찍힘도 좌우 뒤집기로 데이터 두 배. `--dent-class` 로 이름만 주면 `none`.
 - **`geometry.flip` 가 4가지** — `none · horizontal · vertical · both`(YAML `true/false` 는 both/none 으로 그대로 읽힘, rng 소비 both 2·h/v 1·none 0 → 기존 레시피·골든 불변). 조명 경고는 **방향으로 판단**(`flip_breaks_lighting`): 위/아래에서 오는 조명이면 `horizontal` 은 안전(찍힘도 좌우 뒤집기로 두 배). `per_class` 표·카드 폼(콤보)·`DENT_OVERRIDE`(`none`)·프리셋 YAML 어휘 갱신.
@@ -12,6 +16,10 @@
 - 검수 탭 **표시된 것 전부 반려** — 현재 필터(예: 조명 뒤집힘 의심·폴백)의 합성 결과를 한 번에.
 - `bank ls` `lightR` 열에 `*`(유의한 조명 의존) — 0.66 과 1.00* 을 한눈에.
 - 스튜디오 변형 카드에 **↯ 조명 뒤집힘 의심** — 은행에서 방향이 유의한 클래스(`Bank.real_lighting_direction`, `ClassSummary.light_dir`)의 실제 평균 방향과 90° 넘게 벗어난 인스턴스가 있으면 캡션 ↯ + 툴팁(인스턴스·조치). 검수 탭 필터를 미리보기에서 미리. `core.appearance.lighting_stats/flipped_instances`.
+
+### Changed
+- 프리셋 YAML flip 어휘 `both`/`none`(값 동일) · `DENT_OVERRIDE.flip = none`, 자동 경로는 방향에 따라 `horizontal`/`vertical`.
+- CI wheel e2e 에 ring 퀵스타트 경로(16-54).
 
 ## [0.7.5] - 2026-09-16
 
@@ -182,7 +190,8 @@ v0.4 — CPU 알고리즘 확장. **여전히 샘플 데이터로만 검증**(�
 - GUI는 스튜디오 탭만. 재현은 같은 OS·OpenCV 부버전 범위(`seamlessClone` 솔버).
 - `release.yml`의 Windows zip 잡은 첫 push 전이라 CI에서 미검증(로컬 `tools/build_zip.ps1`와 같은 절차).
 
-[Unreleased]: https://github.com/slnu21/Graft/compare/v0.7.5...HEAD
+[Unreleased]: https://github.com/slnu21/Graft/compare/v0.7.6...HEAD
+[0.7.6]: https://github.com/slnu21/Graft/compare/v0.7.5...v0.7.6
 [0.7.5]: https://github.com/slnu21/Graft/compare/v0.7.4...v0.7.5
 [0.7.4]: https://github.com/slnu21/Graft/compare/v0.7.3...v0.7.4
 [0.7.3]: https://github.com/slnu21/Graft/compare/v0.7.2...v0.7.3
