@@ -154,3 +154,32 @@ def test_main_window_send_to_batch(qapp: QApplication, recipe_file: Path, tmp_pa
     finally:
         win.close()
         qapp.processEvents()
+
+
+def test_batch_finish_enables_review_and_main_window_opens_review_tab(
+    qapp: QApplication, recipe_file: Path, tmp_path: Path
+) -> None:
+    """v0.7.x — 배치 완료 → '검수 탭에서 열기' → 검수 탭이 그 출력을 열고 전환."""
+    win = MainWindow(start_worker=False)
+    try:
+        win.show()
+        tab = win.batch
+        assert not tab.btn_review.isEnabled()
+        assert tab.open_recipe(recipe_file)
+        tab.out.setText((tmp_path / "gui-review").as_posix())
+        tab.workers.setValue(0)
+        tab.count.setValue(2)
+        finished: list[object] = []
+        tab.run_finished.connect(finished.append)
+        assert tab.start()
+        assert _pump(qapp, lambda: bool(finished)) and _pump(qapp, lambda: tab.worker is None)
+        assert tab.btn_review.isEnabled()
+        assert win.review.root_edit.text() == (tmp_path / "gui-review").as_posix()  # 경로만 채워짐
+        assert not win.review.session.loaded
+        tab.request_review()
+        qapp.processEvents()
+        assert win.tabs.currentWidget() is win.review and win.review.session.loaded
+        assert win.review.session.root == tmp_path / "gui-review"
+    finally:
+        win.close()
+        qapp.processEvents()

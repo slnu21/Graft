@@ -124,3 +124,21 @@ def test_review_tab_report_button(qapp: QApplication, output_root: Path) -> None
     p = t.write_report()
     assert p is not None and p.is_file() and "리포트" in t.result.text()
     t.close()
+
+
+def test_next_unreviewed_cycles(qapp: QApplication, output_root: Path) -> None:  # noqa: F811
+    t = ReviewTab()
+    t.open_root(output_root)
+    t.cb_next.setChecked(False)
+    oks = [it.index for it in t.session.items if it.status == "ok"]
+    first = t.next_unreviewed()
+    assert first == oks[0]
+    t.verdict("accept")
+    nxt = t.next_unreviewed()
+    assert nxt == (oks[1] if len(oks) > 1 else None) or nxt != first
+    for _ in oks:
+        if t.current_index() in oks and t.session.item(t.current_index()).verdict == "":
+            t.verdict("reject")
+        t.next_unreviewed()
+    assert t.session.counts()["unreviewed"] == 0 and t.next_unreviewed() is None
+    t.close()
