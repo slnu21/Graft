@@ -142,6 +142,9 @@ def test_stats_values() -> None:
     s.stroke([(10, 10)], 3)  # 배경(40) 위 조각 하나 더 — 성분 2, 대비 음수 쪽으로
     st2 = s.stats()
     assert st2.n_components == 2 and st2.contrast is not None
+    assert (
+        st2.lighting_deg is None or -180 <= st2.lighting_deg <= 180
+    )  # 균일 원판이면 방향 없음(None)
 
 
 def test_mask_origin_reflects_tools() -> None:
@@ -236,3 +239,28 @@ def test_auto_select_records_confidence_for_status(tmp_path: Path) -> None:
     assert s.last_auto_confidence is not None and "box-edge" in s.last_auto_confidence.flags
     s.set_image(blob_image(64), path=Path("c.png"))
     assert s.last_auto_confidence is None
+
+
+def test_stats_lighting_direction() -> None:
+    """0.7.3 — 마스크 둘레 2 px 링에서 밝은 쪽 각도(검수 탭·bank ls lightR 와 같은 정의). 아래 림이 밝으면 ≈ 90°."""
+    import numpy as np
+
+    from anograft.gui.label.session import LabelSession
+
+    img = np.full((60, 60, 3), 120, dtype=np.uint8)
+    img[36:39, 22:38] = 220  # 마스크(24:36) 바로 아래 림
+    s = LabelSession()
+    s.set_image(img)
+    m = np.zeros((60, 60), dtype=np.uint8)
+    m[24:36, 24:36] = 255
+    s.set_mask(m)
+    st = s.stats()
+    assert st.lighting_deg is not None and abs(st.lighting_deg - 90.0) < 5
+    from anograft.gui.label.tab import lighting_word
+
+    assert lighting_word(90) == "아래" and lighting_word(0) == "오른" and lighting_word(-90) == "위"
+    assert (
+        lighting_word(180) == "왼"
+        and lighting_word(-180) == "왼"
+        and lighting_word(44) == "오른아래"
+    )

@@ -74,6 +74,12 @@ MODE_ROI = "roi"
 LABELED_MARK = "▸ "  # 목록에서 YOLO 라벨이 있는 이미지 표시
 
 
+def lighting_word(deg: float) -> str:
+    """각도 → 8방향 낱말(이미지 좌표: 0 = 오른쪽, 90 = 아래)."""
+    words = ("오른", "오른아래", "아래", "왼아래", "왼", "왼위", "위", "오른위")
+    return words[int(((deg + 22.5) % 360) // 45)]
+
+
 class LabelTab(QWidget):
     status = Signal(str)
     bank_saved = Signal(str)  # 은행 루트(posix) — 스튜디오가 같은 은행이면 다시 준비
@@ -865,6 +871,10 @@ class LabelTab(QWidget):
         if st.contrast is not None:
             parts.append(
                 f"평균 대비 {st.contrast:+.0f} ({'배경보다 어두움' if st.contrast < 0 else '배경보다 밝음'})"
+            )
+        if st.lighting_deg is not None:
+            parts.append(
+                f"조명 방향 {st.lighting_deg:+.0f}° ({lighting_word(st.lighting_deg)} 쪽이 밝음)"
             )
         self.stats.setText("\n".join(parts))
 
