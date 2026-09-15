@@ -21,6 +21,7 @@ from anograft.bank.importers import dataset as dataset_importer
 from anograft.bank.importers import pairs as pairs_importer
 from anograft.bank.importers import yolo as yolo_importer
 from anograft.bank.importers.common import DEFAULT_MARGIN, DEFAULT_MIN_AREA
+from anograft.bank.mask_from_box import LOW_CONFIDENCE
 from anograft.bank.mask_from_box import METHODS as MASK_METHODS
 from anograft.core import recipe as R
 from anograft.core import registry
@@ -322,7 +323,10 @@ def cmd_bank_import_yolo(args: argparse.Namespace) -> int:
         print("  클래스별: " + ", ".join(f"{c} {per.get(c, 0)}" for c in res.classes))
     if res.mask_methods:
         print(
-            "  박스→마스크: " + ", ".join(f"{m} {n}" for m, n in sorted(res.mask_methods.items()))
+            "  박스→마스크: "
+            + ", ".join(f"{m} {n}" for m, n in sorted(res.mask_methods.items()))
+            + f" · 저신뢰(<{LOW_CONFIDENCE}) {res.low_confidence}"
+            + (" — bank preview 로 확인, 라벨 탭에서 다듬기" if res.low_confidence else "")
         )
     if args.list_normals:
         print(
@@ -406,11 +410,15 @@ def cmd_bank_preview(args: argparse.Namespace) -> int:
         _err(f"클래스 '{args.cls}' 소스 없음 (은행: {bank.classes})")
         return EXIT_RECIPE_ERROR
     sources = sources[: args.limit] if args.limit else sources
-    tiles = [source_tile(s.image, s.mask, s.id, s.mask_origin, tile=args.tile) for s in sources]
+    tiles = [
+        source_tile(s.image, s.mask, s.id, s.mask_origin, tile=args.tile, confidence=s.confidence)
+        for s in sources
+    ]
     imgio.write_image(Path(args.out), render_grid(tiles, cols=args.cols))
     est = sum(1 for s in sources if s.mask_origin.startswith("yolo-box:"))
+    low = sum(1 for s in sources if s.confidence is not None and s.confidence < LOW_CONFIDENCE)
     print(
-        f"은행 미리보기: {Path(args.out).as_posix()} — 소스 {len(tiles)}개 (추정 마스크 {est}) · "
+        f"은행 미리보기: {Path(args.out).as_posix()} — 소스 {len(tiles)}개 (추정 마스크 {est}, 저신뢰 {low} = 빨간 테두리) · "
         f"{args.cols}열 · 타일 {args.tile}px"
     )
     return EXIT_OK
@@ -449,15 +457,23 @@ def cmd_bank_ls(args: argparse.Namespace) -> int:
     width = max((len(r.cls) for r in rows), default=5)
     print(
         f"  {'id':>3}  {'class'.ljust(width)}  {'n':>5}  {'area_med':>9}  {'exact':>5}  {'est':>5}  "
-        f"{'no_um':>5}  origins · tags"
+        f"{'lowconf':>7}  {'no_um':>5}  origins · tags"
     )
     for r in rows:
         origins = ", ".join(f"{k}:{v}" for k, v in sorted(r.origins.items()))
         tags = ", ".join(f"{k}:{v}" for k, v in sorted(r.tags.items()))
         print(
             f"  {r.class_id:>3}  {r.cls.ljust(width)}  {r.count:>5}  {r.area_median:>9.0f}  "
-            f"{r.exact:>5}  {r.estimated:>5}  {r.no_pitch:>5}  {origins}"
+            f"{r.exact:>5}  {r.estimated:>5}  {r.low_conf:>7}  {r.no_pitch:>5}  {origins}"
             + (f" · {tags}" if tags else "")
+        )
+    low = bank.low_confidence()
+    if low:
+        est = sum(r.estimated for r in rows)
+        _err(
+            f"참고: 저신뢰(confidence < {LOW_CONFIDENCE}) 추정 마스크 {len(low)}/{est}개 — "
+            f"bank preview 로 확인하고 라벨 탭 YOLO 초안으로 다듬거나 --mask-from otsu 로 다시 임포트. "
+            f"예: {', '.join(s.id + ' ' + ('/'.join(s.flags) or '-') for s in low[:3])}"
         )
     if no_pitch:
         _err(

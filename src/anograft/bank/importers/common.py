@@ -66,6 +66,8 @@ class ImportRecord:
     box_in_origin: BBox | None = None  # 라벨 박스 원본 (박스 라벨일 때)
     um_per_px: float | None = None
     tags: tuple[str, ...] = ()
+    confidence: float | None = None  # 추정 마스크 타당성(mask_confidence) — 박스 라벨일 때
+    flags: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -212,6 +214,8 @@ class BankWriter:
                 "um_per_px": rec.um_per_px,
                 "area_px": area,
                 "tags": list(rec.tags),
+                "confidence": rec.confidence,
+                "flags": list(rec.flags),
             }
             (cdir / f"{sid}{META_SUFFIX}").write_text(
                 json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8"

@@ -12,10 +12,15 @@
 - **``cv2.grabCut``은 내부 k-means가 OpenCV 전역 RNG를 쓴다** → 호출 직전 ``cv2.setRNGSeed(seed)``. 호출자는 소스 id의
   **안정 해시**(``stable_seed`` — 파이썬 ``hash()``는 프로세스마다 달라 쓸 수 없다)를 넘긴다. 같은 입력 → 같은 마스크.
 - 추정 마스크는 **박스 밖으로 나가지 않는다**(박스가 라벨러의 의도 경계). 반환 마스크는 이미지 크기 ``HxW uint8 0/255``.
+- (v0.6) **``mask_confidence``** — 면적 비율만 보던 폴백 사슬을 보완하는 **타당성 점수**(KNOWN-ISSUES #3: 경면 금속에서
+  그럴듯한 면적의 엉뚱한 영역이 채택됨). 마스크 안 평균 vs 박스 바깥 링 평균의 분리도(링 σ 단위) · 박스 테두리 접촉 비율 ·
+  성분 수 · 포화 비율을 0..1 점수와 flags 로. 채택 여부는 바꾸지 않고(재현성) 은행 메타 ``confidence``/``flags`` 에 남겨
+  ``bank ls``·``bank preview``·``run`` 경고가 쓴다. 휴리스틱이다 — ``LOW_CONFIDENCE`` 미만은 "눈으로 확인" 신호.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Literal
 
 import cv2
@@ -24,7 +29,14 @@ import numpy as np
 from anograft.core.channels import promote_to_bgr
 from anograft.core.seeds import stable_seed
 
-__all__ = ["METHODS", "mask_from_box", "stable_seed"]
+__all__ = [
+    "LOW_CONFIDENCE",
+    "METHODS",
+    "MaskConfidence",
+    "mask_confidence",
+    "mask_from_box",
+    "stable_seed",
+]
 
 Box = tuple[int, int, int, int]  # x, y, w, h (이미지 좌표, 정수)
 Method = Literal["grabcut", "otsu", "ellipse", "rect"]
@@ -34,6 +46,9 @@ _CHAIN: tuple[str, ...] = ("grabcut", "otsu", "ellipse", "rect")  # 폴백 순�
 AREA_RATIO_MIN = 0.05
 AREA_RATIO_MAX = 0.95
 GRABCUT_ITERS = 5
+LOW_CONFIDENCE = 0.5  # 이 미만이면 bank ls/preview/run 이 "확인 필요"로 센다
+SEPARATION_FULL = 2.0  # 링 σ 의 이 배수 이상 떨어지면 대비 점수 1.0
+SATURATED_GRAY = 250
 
 
 def clip_box(box: Box, shape: tuple[int, ...]) -> Box | None:
@@ -111,6 +126,90 @@ def mask_grabcut(image: np.ndarray, box: Box, margin: int, seed: int) -> np.ndar
     m = np.zeros(bgr.shape[:2], dtype=np.uint8)
     m[wy : wy + wh, wx : wx + ww] = fg.astype(np.uint8) * 255
     return m & mask_rect(bgr.shape, box)
+
+
+@dataclass(frozen=True)
+class MaskConfidence:
+    """추정 마스크의 타당성 — ``score`` 0..1 와 사람이 읽을 ``flags``. 나머지는 근거 수치."""
+
+    score: float
+    flags: tuple[str, ...]
+    contrast: float  # 마스크 안 평균 그레이 − 박스 바깥 링 평균 (부호 있음)
+    separation: float  # |contrast| / (링 σ + 1)
+    touch: float  # 박스 테두리 픽셀 중 마스크가 닿은 비율
+    n_components: int
+    saturated: float  # 마스크 안 포화(≥ SATURATED_GRAY) 비율
+    area_ratio: float  # 마스크 면적 / 박스 면적
+
+
+def mask_confidence(
+    image: np.ndarray, mask: np.ndarray, box: Box, *, margin: int = 6
+) -> MaskConfidence:
+    """박스 추정 마스크가 "결함을 잡았는지"의 휴리스틱 점수.
+
+    - **분리도**: 마스크 안 평균 그레이가 박스 **바깥** 링(폭 ``margin``)의 평균에서 링 σ 의 몇 배 떨어졌나. 밝은 금속을 밝은 금속
+      위에서 잡으면 0 근처 → ``low-contrast``. 점수 = min(1, 분리도 / SEPARATION_FULL).
+    - **테두리 접촉**: 박스 테두리 픽셀 중 마스크가 닿은 비율. 반 넘게 닿으면 박스를 그냥 채운 것에 가깝다 → ``box-edge``, ×(1 − touch/2).
+    - **성분 수**: 4개 넘으면 텍스처를 주워 담은 모양 → ``fragmented``, ×min(1, 3/n).
+    - **포화**: 마스크 안 ≥ 250 비율이 반 넘으면 하이라이트를 잡은 것 → ``saturated``, ×(1 − sat/2).
+    - 면적 비율이 사슬 범위 밖이면 ``area-out`` (점수엔 이미 반영된 셈이라 감점 없음).
+    빈 마스크는 점수 0 + ``empty``."""
+    clipped = clip_box(box, image.shape)
+    if clipped is None:
+        return MaskConfidence(0.0, ("empty",), 0.0, 0.0, 0.0, 0, 0.0, 0.0)
+    x, y, bw, bh = clipped
+    gray = cv2.cvtColor(promote_to_bgr(image), cv2.COLOR_BGR2GRAY).astype(np.float32)
+    m = mask > 0
+    inner = m[y : y + bh, x : x + bw]
+    area = int(inner.sum())
+    if area == 0:
+        return MaskConfidence(0.0, ("empty",), 0.0, 0.0, 0.0, 0, 0.0, 0.0)
+    wx, wy, ww, wh = _window(clipped, gray.shape, margin)
+    win = gray[wy : wy + wh, wx : wx + ww]
+    ring = np.ones(win.shape, dtype=bool)
+    ring[y - wy : y - wy + bh, x - wx : x - wx + bw] = False
+    if not ring.any():  # 박스가 이미지 전체 — 박스 안 마스크 밖을 배경으로
+        ring = ~m[wy : wy + wh, wx : wx + ww]
+    bg = win[ring]
+    bg_mean = float(bg.mean()) if bg.size else float(win.mean())
+    bg_std = float(bg.std()) if bg.size else float(win.std())
+    box_gray = gray[y : y + bh, x : x + bw]
+    in_mean = float(box_gray[inner].mean())
+    contrast = in_mean - bg_mean
+    separation = abs(contrast) / (bg_std + 1.0)
+    s_sep = min(1.0, separation / SEPARATION_FULL)
+
+    edge = np.zeros(inner.shape, dtype=bool)
+    edge[0, :] = edge[-1, :] = edge[:, 0] = edge[:, -1] = True
+    touch = float((inner & edge).sum()) / float(edge.sum())
+
+    n, _ = cv2.connectedComponents(inner.astype(np.uint8), connectivity=8)
+    n_comp = int(n - 1)
+    saturated = float((box_gray[inner] >= SATURATED_GRAY).mean())
+    area_ratio = area / float(bw * bh)
+
+    flags: list[str] = []
+    if s_sep < 0.5:
+        flags.append("low-contrast")
+    if touch > 0.5:
+        flags.append("box-edge")
+    if n_comp > 4:
+        flags.append("fragmented")
+    if saturated > 0.5:
+        flags.append("saturated")
+    if not (AREA_RATIO_MIN <= area_ratio <= AREA_RATIO_MAX):
+        flags.append("area-out")
+    score = s_sep * (1.0 - touch / 2.0) * min(1.0, 3.0 / max(1, n_comp)) * (1.0 - saturated / 2.0)
+    return MaskConfidence(
+        score=round(float(score), 3),
+        flags=tuple(flags),
+        contrast=round(contrast, 2),
+        separation=round(separation, 3),
+        touch=round(touch, 3),
+        n_components=n_comp,
+        saturated=round(saturated, 3),
+        area_ratio=round(area_ratio, 3),
+    )
 
 
 def _area_ok(mask: np.ndarray, box: Box) -> bool:

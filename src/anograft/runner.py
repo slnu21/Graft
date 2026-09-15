@@ -130,6 +130,28 @@ def scale_warning(recipe: Recipe, bank: Bank) -> str | None:
     return None
 
 
+def confidence_warning(recipe: Recipe, bank: Bank) -> str | None:
+    """저신뢰 추정 마스크(``confidence < LOW_CONFIDENCE``)가 있으면 한 줄(KNOWN-ISSUES #3). 추정 마스크의 절반을 넘으면 "은행을
+    먼저 손보라"로 강화 — 헐거운 마스크는 결함이 아니라 소스 제품의 표면을 이식한다."""
+    if recipe.bankless or len(bank) == 0:
+        return None
+    low = bank.low_confidence()
+    if not low:
+        return None
+    est = sum(r.estimated for r in bank.summary())
+    ratio = len(low) / est if est else 0.0
+    head = (
+        f"추정 마스크 {est}개 중 저신뢰 {len(low)}개({ratio:.0%}) — 절반이 넘습니다. 이 은행으로 합성하면 결함이 아니라 "
+        f"원본 표면이 이식될 수 있으니 은행을 먼저 손보세요"
+        if ratio > 0.5
+        else f"저신뢰 추정 마스크 {len(low)}/{est}개"
+    )
+    return (
+        f"{head}: bank preview 로 확인, 라벨 탭 YOLO 초안으로 다듬기 또는 import-yolo --mask-from otsu "
+        f"(예: {', '.join(s.id for s in low[:3])})"
+    )
+
+
 def prepare(recipe: Recipe) -> Prepared:
     try:
         bank = (
@@ -144,9 +166,9 @@ def prepare(recipe: Recipe) -> Prepared:
         warnings += recipe.validate_against(bank)
     except ValueError as e:
         raise PrepareError(f"레시피가 은행과 맞지 않습니다: {e}") from e
-    scale_w = scale_warning(recipe, bank)
-    if scale_w:
-        warnings.append(scale_w)
+    for w in (scale_warning(recipe, bank), confidence_warning(recipe, bank)):
+        if w:
+            warnings.append(w)
     try:
         targets = list_targets(recipe.inputs.targets)
     except TargetsError as e:

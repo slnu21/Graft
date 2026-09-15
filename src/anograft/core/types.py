@@ -29,6 +29,10 @@ class DefectSource:
     tags: tuple[str, ...] = ()
     origin: str = ""  # 원본 파일 상대경로 (감사용)
     mask_origin: str = "png"  # png | yolo-polygon | yolo-box:<method>
+    confidence: float | None = (
+        None  # 추정 마스크 타당성 0..1 (bank.mask_from_box.mask_confidence) — 정확 마스크는 None
+    )
+    flags: tuple[str, ...] = ()  # low-contrast · box-edge · fragmented · saturated · area-out
 
 
 @dataclass(frozen=True)

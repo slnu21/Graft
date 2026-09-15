@@ -176,7 +176,14 @@ class StudioTab(QWidget):
                 head = f"은행 없음 — {ses.recipe.pipeline.source.method} (클래스 {ses.recipe.pipeline.source.cls})"
             else:
                 rows = ", ".join(
-                    f"{r.cls} {r.count}" + (f"(추정 {r.estimated})" if r.estimated else "")
+                    f"{r.cls} {r.count}"
+                    + (
+                        f"(추정 {r.estimated}"
+                        + (f" · 저신뢰 {r.low_conf}" if r.low_conf else "")
+                        + ")"
+                        if r.estimated
+                        else ""
+                    )
                     for r in b.summary()
                 )
                 head = f"은행 {b.name}: {len(b)}개 — {rows}"
