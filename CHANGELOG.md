@@ -21,6 +21,7 @@ v0.6 — **실데이터 보정**(`KNOWN-ISSUES.md`, 경면 금속 토크스 소�
 - **라벨 탭 ROI 모드**(KNOWN-ISSUES #4 임의 형상): "저장 대상 → ROI 마스크" 로 바꾸면 정상 이미지에 허용 영역을 칠해 `<mask_dir>/<stem>.png`(`placement.roi: mask_dir` 형식, 원본 크기·크롭 없음)로 저장하고, 이미지를 열 때 같은 이름의 ROI 를 불러온다. `LabelSession.save_roi_png`.
 - **GUI 시작 안내**(KNOWN-ISSUES #9): 레시피 인자 없이 켜면 최근 레시피(열기·저장 때 기억, `QSettings`)를 복원하고, 없으면 스튜디오 캔버스에 ko/en 4단계 안내(라벨 → 입력 → 프리셋 → 배치)와 상태바 문구.
 - **박스→마스크 타당성 점수**(KNOWN-ISSUES #3): `mask_from_box.mask_confidence` — 마스크 안 평균 vs 박스 바깥 링 평균의 분리도(링 σ 단위) · 박스 테두리 접촉 비율 · 성분 수 · 포화 비율 → `confidence` 0..1 + `flags`(low-contrast · box-edge · fragmented · saturated · area-out). 면적 비율만 보던 폴백 사슬을 보완하되 채택은 바꾸지 않는다(재현성). `import-yolo`·라벨 탭 초안 저장이 은행 메타 `confidence`/`flags` 에 기록, `bank ls` `lowconf` 열 + 참고 줄, `bank preview` 점수 표기 + 0.5 미만 **빨간 테두리**, `import-yolo` 요약에 저신뢰 수, `run`/스튜디오가 저신뢰 추정 마스크를 경고(추정의 절반을 넘으면 "은행을 먼저 손보세요"로 강화). 샘플 은행: ellipse 폴백 1건이 0.15 로 잡힘.
+- **프리셋 `dent-graft`**(KNOWN-ISSUES #5, 프리셋 9종): 조명 의존 결함(찍힘·덴트·눌림)용 — 회전 **±15°**·flip 끔·축척 0.9~1.1(3D 변형은 보이는 모양이 곧 조명 효과라 ±180° 회전은 음영/하이라이트를 뒤집는다) · `structure-aware`(위치 균등 `prefer: uniform`, 긴 축을 결·접선에 정렬, jitter 5°) · poisson NORMAL · 조화 0.2(음영 깊이 = 결함 신호). 기존 프리셋의 ±180 은 텍스처성 결함용이라 그대로(골든·게시 레시피 재현성). 골든 +2(18장).
 - 스튜디오 파이프라인 카드에 **fail-soft 경고 표시**(`⚠ <stage>: …`, ROI 경고는 배치 카드에) · 변형 카드의 잘린 사유는 툴팁에 원문 · 상태바에 "경고 n건 더".
 
 ## [0.5.0] - 2026-09-15
