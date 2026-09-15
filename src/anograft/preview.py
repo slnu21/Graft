@@ -11,12 +11,14 @@ from collections.abc import Sequence
 import cv2
 import numpy as np
 
+from anograft.bank.mask_from_box import LOW_CONFIDENCE
 from anograft.core.channels import promote_to_bgr
 from anograft.core.types import GraftResult, Instance
 
 GT_FILL = (60, 60, 230)  # BGR — 붉은 채움
 GT_EDGE = (40, 230, 40)  # 초록 윤곽·bbox
 EST_COLOR = (28, 132, 200)  # BGR amber — 추정 마스크 출처(bank preview)
+LOW_COLOR = (60, 60, 230)  # BGR red — 저신뢰 추정 마스크 테두리(bank preview)
 GAP_PX = 6
 LABEL_BG = (0, 0, 0)
 
@@ -121,10 +123,17 @@ def _fit_tile(image: np.ndarray, tile: int) -> tuple[np.ndarray, tuple[int, int,
 
 
 def source_tile(
-    image: np.ndarray, mask: np.ndarray, source_id: str, mask_origin: str, *, tile: int = 128
+    image: np.ndarray,
+    mask: np.ndarray,
+    source_id: str,
+    mask_origin: str,
+    *,
+    tile: int = 128,
+    confidence: float | None = None,
 ) -> np.ndarray:
     """``bank preview`` 타일 — 크롭 + 마스크 윤곽(초록) + 아래 두 줄(id · 마스크 출처). 추정 마스크(``yolo-box:*``)는
-    출처를 amber 로 찍어 한눈에 셀 수 있게 한다(폴백 ellipse = 박스 내접 타원 = 과라벨)."""
+    출처를 amber 로 찍어 한눈에 셀 수 있게 한다(폴백 ellipse = 박스 내접 타원 = 과라벨). ``confidence`` 가 있으면 출처 뒤에
+    점수를 찍고, ``LOW_CONFIDENCE`` 미만이면 **빨간 테두리**(KNOWN-ISSUES #3 — 면적은 정상인데 엉뚱한 곳을 잡은 마스크)."""
     canvas, (x0, y0, s) = _fit_tile(image, tile)
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     for c in contours:
@@ -134,9 +143,19 @@ def source_tile(
     origin = mask_origin.split(":", 1)[1] if estimated else mask_origin.replace("yolo-", "")
     max_chars = max(6, int(tile / 6.2))
     _label(canvas, source_id[-max_chars:], (2, tile - 14), 0.36)
+    low = confidence is not None and confidence < LOW_CONFIDENCE
+    text = origin[:max_chars]
+    if confidence is not None:
+        text = f"{origin[: max(3, max_chars - 4)]} {confidence:.2f}"
     _label(
-        canvas, origin[:max_chars], (2, tile - 3), 0.36, color=EST_COLOR if estimated else GT_EDGE
+        canvas,
+        text,
+        (2, tile - 3),
+        0.36,
+        color=LOW_COLOR if low else (EST_COLOR if estimated else GT_EDGE),
     )
+    if low:
+        cv2.rectangle(canvas, (0, 0), (tile - 1, tile - 1), LOW_COLOR, 2)
     return canvas
 
 

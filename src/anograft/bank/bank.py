@@ -6,7 +6,7 @@
       bank.yaml                 # name · classes(순서 = id) · um_per_px(기본값) · imports(임포트 이력)
       <class>/<id>.png          # bbox+margin 크롭, 원본 채널 유지(흑백은 1ch)
       <class>/<id>.mask.png     # 크롭과 같은 크기, 0/255
-      <class>/<id>.json         # origin · bbox_in_origin · box_in_origin · mask_origin · margin_px · um_per_px · area_px · tags
+      <class>/<id>.json         # origin · bbox_in_origin · box_in_origin · mask_origin · margin_px · um_per_px · area_px · tags · confidence · flags
 
 규칙:
 - ``classes`` 순서가 곧 class id. 은행에 없던 클래스는 임포트 때 끝에 붙는다(``importers/common``).
@@ -27,6 +27,7 @@ from typing import Any
 import numpy as np
 import yaml
 
+from anograft.bank.mask_from_box import LOW_CONFIDENCE
 from anograft.core.seeds import bank_fingerprint
 from anograft.core.types import DefectSource
 from anograft.io import imgio
@@ -56,6 +57,7 @@ class ClassSummary:
     origins: Mapping[str, int]
     no_pitch: int = 0  # um_per_px 미지정(은행 기본값도 없음) — 축척 정합에서 빠지는 소스
     tags: Mapping[str, int] = field(default_factory=dict)  # 태그별 소스 수
+    low_conf: int = 0  # confidence < LOW_CONFIDENCE (추정 마스크 중 확인이 필요한 것)
 
 
 class Bank:
@@ -133,6 +135,7 @@ class Bank:
                     origins=origins,
                     no_pitch=sum(1 for s in srcs if s.um_per_px is None),
                     tags=tags,
+                    low_conf=sum(1 for s in srcs if is_low_confidence(s)),
                 )
             )
         return out
@@ -140,6 +143,10 @@ class Bank:
     def no_pitch_count(self) -> int:
         """``um_per_px`` 가 없는 소스 수 — 이 소스들은 축척 정합(``physical_scale``)에서 factor 1.0 으로 빠진다."""
         return sum(1 for s in self.sources() if s.um_per_px is None)
+
+    def low_confidence(self) -> list[DefectSource]:
+        """``confidence < LOW_CONFIDENCE`` 인 소스(추정 마스크만 점수가 있다)."""
+        return [s for s in self.sources() if is_low_confidence(s)]
 
     def tag_counts(self) -> dict[str, int]:
         """은행 전체의 태그별 소스 수(정렬)."""
@@ -209,6 +216,10 @@ class Bank:
         return bank
 
 
+def is_low_confidence(s: DefectSource) -> bool:
+    return s.confidence is not None and s.confidence < LOW_CONFIDENCE
+
+
 def read_bank_meta(meta_path: Path) -> dict[str, Any]:
     data = yaml.safe_load(meta_path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
@@ -235,4 +246,6 @@ def load_source(
         tags=tuple(str(t) for t in meta.get("tags") or ()),
         origin=str(meta.get("origin") or ""),
         mask_origin=str(meta.get("mask_origin") or "png"),
+        confidence=(float(meta["confidence"]) if meta.get("confidence") is not None else None),
+        flags=tuple(str(f) for f in meta.get("flags") or ()),
     )

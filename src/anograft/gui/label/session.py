@@ -37,7 +37,7 @@ from anograft.bank.importers.yolo import (
     polygon_mask,
 )
 from anograft.bank.mask_from_box import METHODS as AUTO_METHODS
-from anograft.bank.mask_from_box import mask_from_box
+from anograft.bank.mask_from_box import MaskConfidence, mask_confidence, mask_from_box
 from anograft.core.channels import binarize
 from anograft.core.seeds import stable_seed
 from anograft.io import imgio
@@ -194,6 +194,9 @@ class LabelSession:
         self.auto_methods_used: set[str] = set()
         self.dirty = False
         self.draft: YoloDraft | None = None  # 현재 이미지 옆의 YOLO 라벨(있으면)
+        self.draft_confidence: list[
+            MaskConfidence
+        ] = []  # apply_draft 박스마다 — 손대지 않고 저장하면 메타로
 
     # ------------------------------------------------------------------ 로드
 
@@ -386,11 +389,17 @@ class LabelSession:
         self.mask[:] = 0
         self.tools_used.clear()
         self.auto_methods_used.clear()
+        self.draft_confidence = []
         used: list[str] = []
         for it in items:
             if it.kind == "box" and it.box is not None:
+                before = self.mask.copy()
                 used.append(self._estimate_box(it.box, method, margin=margin))
                 self.tools_used.add("draft-box")
+                assert self.image is not None
+                self.draft_confidence.append(
+                    mask_confidence(self.image, self.mask & ~before, it.box, margin=margin)
+                )
             else:
                 self.mask = np.maximum(self.mask, polygon_mask(it.coords, self.mask.shape))
                 self.tools_used.add("draft-polygon")
@@ -505,6 +514,13 @@ class LabelSession:
         if not np.any(self.mask):
             raise LabelError("마스크가 비어 있습니다")
         stem = id_hint or (self.path.stem if self.path else "label")
+        origin = self.mask_origin()
+        conf: float | None = None
+        flags: tuple[str, ...] = ()
+        if origin.startswith("yolo-box:") and self.draft_confidence:
+            # 손대지 않은 초안 = 임포터와 같은 추정 → 가장 낮은 박스 점수와 flags 합집합
+            conf = min(c.score for c in self.draft_confidence)
+            flags = tuple(sorted({f for c in self.draft_confidence for f in c.flags}))
         rec = ImportRecord(
             image=self.image,
             gray=self.gray,
@@ -512,9 +528,11 @@ class LabelSession:
             cls=cls,
             origin=self.path.as_posix() if self.path else stem,
             id_hint=stem,
-            mask_origin=self.mask_origin(),
+            mask_origin=origin,
             um_per_px=um_per_px,
             tags=tuple(t.strip() for t in tags if t.strip()),
+            confidence=conf,
+            flags=flags,
         )
         writer = BankWriter(root)
         added = writer.add(

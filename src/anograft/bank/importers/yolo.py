@@ -35,7 +35,13 @@ from anograft.bank.importers.common import (
     ImportStats,
     check_margin,
 )
-from anograft.bank.mask_from_box import METHODS, mask_from_box, stable_seed
+from anograft.bank.mask_from_box import (
+    LOW_CONFIDENCE,
+    METHODS,
+    mask_confidence,
+    mask_from_box,
+    stable_seed,
+)
 from anograft.core.types import BBox
 from anograft.io import imgio
 
@@ -168,6 +174,7 @@ class YoloImportResult:
     stats: ImportStats
     mask_methods: dict[str, int]
     warnings: list[str]
+    low_confidence: int = 0  # confidence < LOW_CONFIDENCE 인 박스 추정 수
 
 
 def _rel_for_list(path: Path, base: Path) -> str:
@@ -222,6 +229,7 @@ def import_yolo(
     warnings: list[str] = []
     normals: list[Path] = []
     methods_used: dict[str, int] = {}
+    low_confidence = 0
     pairs = find_pairs(images_dir, labels_dir)
 
     def warn(msg: str) -> None:
@@ -270,9 +278,16 @@ def import_yolo(
                 )
                 origin = f"yolo-box:{used}"
                 methods_used[used] = methods_used.get(used, 0) + 1
+                conf = mask_confidence(image, mask, box, margin=box_margin)
+                if conf.score < LOW_CONFIDENCE:
+                    low_confidence += 1
+                    log(
+                        f"{rel} {lab.line_no}행: 추정 마스크 저신뢰 {conf.score:.2f} ({', '.join(conf.flags) or '-'})"
+                    )
             else:
                 mask = polygon_mask(lab.coords, image.shape)
                 origin = "yolo-polygon"
+                conf = None
             rec = ImportRecord(
                 image=image,
                 gray=gray,
@@ -284,6 +299,8 @@ def import_yolo(
                 box_in_origin=box,
                 um_per_px=um_per_px,
                 tags=tuple(tags),
+                confidence=conf.score if conf is not None else None,
+                flags=conf.flags if conf is not None else (),
             )
             if not writer.add(rec, opts):
                 warn(f"{rel} {lab.line_no}행: 마스크 면적이 0이거나 min_area 미만 — 소스 없음")
@@ -297,6 +314,7 @@ def import_yolo(
         "n_images": len(pairs),
         "n_normals": len(normals),
         "mask_methods_used": methods_used,
+        "low_confidence": low_confidence,
     }
     writer.finish(entry)
     if list_normals is not None:
@@ -308,5 +326,6 @@ def import_yolo(
         normals=normals,
         stats=writer.stats,
         mask_methods=methods_used,
+        low_confidence=low_confidence,
         warnings=warnings + writer.stats.warnings,
     )

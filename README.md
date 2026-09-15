@@ -76,7 +76,7 @@ anograft-gui recipes/sample-poisson.yaml                                  # GUI 
 
 그다음은 `recipe init` → `inputs.bank`·`inputs.targets`(정상 이미지 폴더 또는 목록) 수정 → `run`. 출력 `images/`·`labels/`·`data.yaml`은 기존 YOLO 학습셋에 그대로 합쳐집니다(같은 `names` 순서). `python tools/train_smoke.py --synthetic out/sample --base <기존셋> --out train/merged`가 합쳐서 `ultralytics` 1 epoch을 돌립니다(ultralytics는 별도 설치, `--dry-run`은 합치기만).
 
-`bank ls`의 `est`·origins 열에서 `ellipse` 폴백 비율이 높으면(가늘고 희미한 스크래치) `--mask-from otsu`나 `--min-box`를 조정하세요 — 박스는 결함 경계가 아닙니다.
+`bank ls`의 `est`·origins 열에서 `ellipse` 폴백 비율이 높으면(가늘고 희미한 스크래치) `--mask-from otsu`나 `--min-box`를 조정하세요 — 박스는 결함 경계가 아닙니다. 박스 추정 마스크에는 **타당성 점수**(`confidence` 0..1 — 마스크 안/밖 대비·박스 테두리 접촉·조각 수·포화)가 붙고, 0.5 미만은 `bank ls` `lowconf` 열·`bank preview` **빨간 테두리**·`run` 경고로 드러납니다(경면 금속처럼 면적은 그럴듯한데 엉뚱한 곳을 잡는 경우). 저신뢰 소스는 라벨 탭에서 YOLO 초안으로 열어 다듬으세요.
 
 **여러 제품의 결함을 한 은행에** — 임포트마다 `--tags prodA,lot3` 로 표시해 두고, 레시피 `pipeline.source.tags: {include: [prodA, prodC], exclude: [old]}` 로 골라 씁니다(클래스는 그대로, 클래스 안의 풀만 줄어듦 · `run --dry-run` 이 필터 후 소스 수를 보여줌). **다른 카메라/배율의 결함**은 크기가 틀어지므로 임포트 `--um-per-px` 와 레시피 `inputs.um_per_px` 를 둘 다 지정하세요 — 한쪽이라도 없으면 축척 정합이 꺼진 채(`factor 1.0`) 돌아가고, `bank ls` 의 `no_um` 열과 `run`/GUI 상태바가 이를 경고합니다.
 
@@ -187,7 +187,7 @@ In the Studio, the **pipeline cards** on the right let you pick each stage's met
 
 Then `recipe init` → edit `inputs.bank` / `inputs.targets` (normal-image folder or list) → `run`. The output `images/`, `labels/`, `data.yaml` merge straight into an existing YOLO set (same `names` order). `python tools/train_smoke.py --synthetic out/sample --base <your set> --out train/merged` merges and runs one `ultralytics` epoch (install ultralytics separately; `--dry-run` only merges).
 
-If `bank ls` shows many `ellipse` fallbacks (thin, faint scratches), try `--mask-from otsu` or adjust `--min-box` — a box is not a defect boundary.
+If `bank ls` shows many `ellipse` fallbacks (thin, faint scratches), try `--mask-from otsu` or adjust `--min-box` — a box is not a defect boundary. Every box-estimated mask carries a **plausibility score** (`confidence` 0..1 — inside/outside contrast, box-edge contact, fragment count, saturation); below 0.5 it shows up in the `lowconf` column of `bank ls`, as a **red border** in `bank preview`, and as a `run` warning (mirror-like metal where a plausible-sized but wrong region gets picked). Refine such sources in the Label tab via the YOLO draft.
 
 **Several products in one bank** — tag each import (`--tags prodA,lot3`) and select in the recipe with `pipeline.source.tags: {include: [prodA, prodC], exclude: [old]}` (classes stay the same, only the pool inside each class shrinks; `run --dry-run` shows the filtered counts). **Defects shot with another camera/magnification** come out the wrong size unless both `--um-per-px` at import and `inputs.um_per_px` in the recipe are set — with either missing, physical scaling is silently off (`factor 1.0`); the `no_um` column of `bank ls` and the `run`/GUI status bar warn about it.
 
