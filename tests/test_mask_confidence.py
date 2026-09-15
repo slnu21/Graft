@@ -215,3 +215,23 @@ def test_label_session_draft_confidence_saved_only_when_untouched(tmp_path: Path
     s.save_to_bank(tmp_path / "bank2", "spot")
     src2 = Bank.load(tmp_path / "bank2").by_class("spot")[0]
     assert src2.mask_origin == "manual:mixed" and src2.confidence is None
+
+
+def test_source_tile_lighting_arrow() -> None:
+    """0.7.3 — ``lighting_deg`` 가 있으면 오른쪽 위에 밝은 쪽 화살표(노랑). 없으면 종전과 동일."""
+    from anograft.preview import LIGHT_ARROW, draw_lighting_arrow
+
+    s = line_defect(16, 4)
+    base = source_tile(s.image, s.mask, "scratch/a", "png", tile=96)
+    down = source_tile(s.image, s.mask, "scratch/a", "png", tile=96, lighting_deg=90.0)
+    right = source_tile(s.image, s.mask, "scratch/a", "png", tile=96, lighting_deg=0.0)
+    assert not np.array_equal(base, down) and not np.array_equal(down, right)
+    corner = down[:24, 96 - 24 :]
+    assert (corner == np.array(LIGHT_ARROW, dtype=np.uint8)).all(axis=2).any()  # 화살표 색이 구석에
+    assert not (base[:24, 96 - 24 :] == np.array(LIGHT_ARROW, dtype=np.uint8)).all(axis=2).any()
+    canvas = np.zeros((64, 64, 3), dtype=np.uint8)
+    draw_lighting_arrow(canvas, 90.0, 64)
+    ys, xs = np.nonzero((canvas == np.array(LIGHT_ARROW, dtype=np.uint8)).all(axis=2))
+    assert (
+        len(ys) and ys.max() > ys.min() and xs.max() - xs.min() <= 6
+    )  # 아래를 가리키는 세로 화살표

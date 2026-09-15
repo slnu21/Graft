@@ -25,7 +25,7 @@ from anograft.bank.mask_from_box import LOW_CONFIDENCE
 from anograft.bank.mask_from_box import METHODS as MASK_METHODS
 from anograft.core import recipe as R
 from anograft.core import registry
-from anograft.core.appearance import LIGHT_REAL_MIN
+from anograft.core.appearance import LIGHT_REAL_MIN, gray_of, mask_lighting
 from anograft.datasets import DatasetError, adapter_names, get_adapter, info_lines
 from anograft.io import imgio
 from anograft.io.targets import load_target
@@ -444,7 +444,17 @@ def cmd_bank_preview(args: argparse.Namespace) -> int:
         return EXIT_RECIPE_ERROR
     sources = sources[: args.limit] if args.limit else sources
     tiles = [
-        source_tile(s.image, s.mask, s.id, s.mask_origin, tile=args.tile, confidence=s.confidence)
+        source_tile(
+            s.image,
+            s.mask,
+            s.id,
+            s.mask_origin,
+            tile=args.tile,
+            confidence=s.confidence,
+            lighting_deg=mask_lighting(
+                gray_of(s.image), s.mask
+            ),  # 클래스 안에서 한 방향이면 조명 의존(KI #5)
+        )
         for s in sources
     ]
     imgio.write_image(Path(args.out), render_grid(tiles, cols=args.cols))

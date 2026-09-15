@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from anograft.core.appearance import gray_of, mask_lighting
 from anograft.core.channels import promote_to_bgr
 from anograft.gui.bank.session import SORT_KEYS, BankSession, BankSessionError, SourceRow
 from anograft.gui.qt_image import to_qpixmap
@@ -316,7 +317,13 @@ class BankTab(QWidget):
             s = self.session.source(row.id)
             pm = to_qpixmap(
                 source_tile(
-                    s.image, s.mask, s.id, s.mask_origin, tile=TILE, confidence=s.confidence
+                    s.image,
+                    s.mask,
+                    s.id,
+                    s.mask_origin,
+                    tile=TILE,
+                    confidence=s.confidence,
+                    lighting_deg=mask_lighting(gray_of(s.image), s.mask),
                 )
             )
             self._tiles[row.id] = pm

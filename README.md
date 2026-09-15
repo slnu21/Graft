@@ -47,7 +47,7 @@ anograft bank import-yolo --images samples/metal/images --labels samples/metal/l
     --names samples/metal/data.yaml --out bank/sample --list-normals samples/metal/normals.txt
 anograft bank ls bank/sample                                              # 클래스별 소스 수 · 마스크 출처(정확/추정) · 저신뢰 · µm/px (--json 스크립트용)
 anograft doctor                                                           # 환경 진단(버전·Qt·스레드·프리셋) — 문제 보고 첫 줄
-anograft bank preview bank/sample --out out/bank-preview.png              # 추정 마스크를 눈으로 (amber = 추정, ellipse = 과라벨)
+anograft bank preview bank/sample --out out/bank-preview.png              # 추정 마스크를 눈으로 (amber = 추정, ellipse = 과라벨, 화살표 = 밝은 쪽 — 한 방향이면 조명 의존)
 anograft run recipes/sample-poisson.yaml --workers 4                      # → out/sample/{images,masks,meta,labels,data.yaml,manifest.csv}
 anograft preview recipes/sample-poisson.yaml --index 0 --compare-methods blend --out out/compare.png
 anograft-gui recipes/sample-poisson.yaml                                  # GUI (zip: .\anograft-gui.exe · pip: python -m anograft.gui). 인자 없이 켜면 최근 레시피 복원, 없으면 시작 안내
