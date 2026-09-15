@@ -45,7 +45,8 @@ Graft는 알고리즘을 새로 만드는 도구가 아니라 그 사이를 메�
 anograft sample --out samples/metal                                       # 샘플 이미지 22장 + YOLO 박스 라벨
 anograft bank import-yolo --images samples/metal/images --labels samples/metal/labels `
     --names samples/metal/data.yaml --out bank/sample --list-normals samples/metal/normals.txt
-anograft bank ls bank/sample                                              # 클래스별 소스 수 · 마스크 출처(정확/추정)
+anograft bank ls bank/sample                                              # 클래스별 소스 수 · 마스크 출처(정확/추정) · 저신뢰 · µm/px (--json 스크립트용)
+anograft doctor                                                           # 환경 진단(버전·Qt·스레드·프리셋) — 문제 보고 첫 줄
 anograft bank preview bank/sample --out out/bank-preview.png              # 추정 마스크를 눈으로 (amber = 추정, ellipse = 과라벨)
 anograft run recipes/sample-poisson.yaml --workers 4                      # → out/sample/{images,masks,meta,labels,data.yaml,manifest.csv}
 anograft preview recipes/sample-poisson.yaml --index 0 --compare-methods blend --out out/compare.png
