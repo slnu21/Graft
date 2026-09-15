@@ -37,7 +37,13 @@ from anograft.io.prune import (
 from anograft.io.report import ReportData, skipped_reason_counts, write_report
 
 FILTERS: tuple[str, ...] = ("all", "unreviewed", "accept", "reject", "fallback", "skipped")
-DIST_KEYS: tuple[str, ...] = ("area", "length", "contrast")  # contrast 는 선형 구간(음수 가능)
+DIST_KEYS: tuple[str, ...] = ("area", "length", "contrast", "texture", "sharpness")
+IMAGE_KEYS: tuple[str, ...] = (
+    "contrast",
+    "texture",
+    "sharpness",
+)  # 이미지·마스크를 읽어 계산(지연·캐시)
+LINEAR_KEYS: tuple[str, ...] = IMAGE_KEYS  # 외형 지표는 0·음수가 정상값 → 선형 구간(면적·길이는 로그)
 RING_PX = 8
 
 
@@ -67,6 +73,9 @@ class ReviewItem:
     warnings: list[str] = field(default_factory=list)
     loaded: bool = False
     contrasts: list[float] | None = None  # 인스턴스별 대비(이미지·마스크를 읽어야 해서 지연)
+    appearance: dict[str, list[float]] = field(
+        default_factory=dict
+    )  # key → 인스턴스별 값(contrast·texture·sharpness)
 
 
 @dataclass(frozen=True)
@@ -116,6 +125,29 @@ def mask_contrast(gray: np.ndarray, mask: np.ndarray, *, ring_px: int = RING_PX)
         return None
     g = gray.astype(np.float32)
     return round(float(g[m].mean() - g[ring].mean()), 2)
+
+
+def mask_texture(gray: np.ndarray, mask: np.ndarray) -> float | None:
+    """마스크 안 Sobel 그래디언트 크기 평균(결함 내부의 질감·에지 에너지). 빈 마스크면 None."""
+    m = mask > 0
+    if not m.any():
+        return None
+    g = gray.astype(np.float32)
+    gx = cv2.Sobel(g, cv2.CV_32F, 1, 0, ksize=3)
+    gy = cv2.Sobel(g, cv2.CV_32F, 0, 1, ksize=3)
+    return round(float(np.sqrt(gx * gx + gy * gy)[m].mean()), 2)
+
+
+def mask_sharpness(gray: np.ndarray, mask: np.ndarray) -> float | None:
+    """마스크 안 라플라시안 분산(선명도 — 열화 블러가 결함을 뭉갰는지). 빈 마스크면 None."""
+    m = mask > 0
+    if not m.any():
+        return None
+    lap = cv2.Laplacian(gray.astype(np.float32), cv2.CV_32F, ksize=3)
+    return round(float(lap[m].var()), 2)
+
+
+APPEARANCE_FN = {"contrast": mask_contrast, "texture": mask_texture, "sharpness": mask_sharpness}
 
 
 def _split(s: str) -> tuple[str, ...]:
@@ -297,8 +329,8 @@ class ReviewSession:
             if it.status != "ok" or it.verdict == "reject":
                 continue
             self.item(it.index)
-            if key == "contrast":
-                vals += self._item_contrasts(it)
+            if key in IMAGE_KEYS:
+                vals += self._item_appearance(it, key)
                 continue
             for inst in it.instances:
                 if key == "area":
@@ -308,18 +340,20 @@ class ReviewSession:
                     vals.append(float(max(bb[2], bb[3])))
         return vals
 
-    def _item_contrasts(self, it: ReviewItem) -> list[float]:
-        """인스턴스 bbox 창 안에서 GT 마스크 vs 링 대비 — 이미지·마스크를 한 번 읽어 캐시."""
-        if it.contrasts is not None:
-            return it.contrasts
-        it.contrasts = []
+    def _item_appearance(self, it: ReviewItem, key: str) -> list[float]:
+        """인스턴스 bbox(±RING_PX) 창에서 외형 지표 — 이미지·마스크를 한 번 읽어 세 지표를 같이 캐시."""
+        if key in it.appearance:
+            return it.appearance[key]
+        for k in IMAGE_KEYS:
+            it.appearance[k] = []
+        it.contrasts = it.appearance["contrast"]
         if self.root is None or not it.image or not it.mask:
-            return it.contrasts
+            return it.appearance[key]
         try:
             image, _g = imgio.read_image(self.root / it.image)
             mask = imgio.read_mask(self.root / it.mask)
         except (OSError, imgio.ImageReadError):
-            return it.contrasts
+            return it.appearance[key]
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         h, w = gray.shape[:2]
         for inst in it.instances:
@@ -329,10 +363,12 @@ class ReviewSession:
             x, y, bw, bh = (int(v) for v in bb)
             x0, y0 = max(0, x - RING_PX), max(0, y - RING_PX)
             x1, y1 = min(w, x + bw + RING_PX), min(h, y + bh + RING_PX)
-            c = mask_contrast(gray[y0:y1, x0:x1], mask[y0:y1, x0:x1])
-            if c is not None:
-                it.contrasts.append(c)
-        return it.contrasts
+            g_win, m_win = gray[y0:y1, x0:x1], mask[y0:y1, x0:x1]
+            for k, fn in APPEARANCE_FN.items():
+                v = fn(g_win, m_win)
+                if v is not None:
+                    it.appearance[k].append(v)
+        return it.appearance[key]
 
     def real_values(self, key: str = "area") -> list[float]:
         if key not in DIST_KEYS:
@@ -343,8 +379,8 @@ class ReviewSession:
         for s in self.bank.sources():
             if key == "area":
                 vals.append(float(np.count_nonzero(s.mask)))
-            elif key == "contrast":
-                c = mask_contrast(cv2.cvtColor(s.image, cv2.COLOR_BGR2GRAY), s.mask)
+            elif key in IMAGE_KEYS:
+                c = APPEARANCE_FN[key](cv2.cvtColor(s.image, cv2.COLOR_BGR2GRAY), s.mask)
                 if c is not None:
                     vals.append(c)
             else:
@@ -356,7 +392,10 @@ class ReviewSession:
 
     def distribution(self, key: str = "area", *, bins: int = 12) -> Histogram:
         return histogram(
-            self.synthetic_values(key), self.real_values(key), bins=bins, log=key != "contrast"
+            self.synthetic_values(key),
+            self.real_values(key),
+            bins=bins,
+            log=key not in LINEAR_KEYS,
         )
 
     # ------------------------------------------------------------------ 리포트

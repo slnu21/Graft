@@ -195,6 +195,8 @@ class ReviewTab(QWidget):
         self.dist_key.addItem("면적 area (px)", "area")
         self.dist_key.addItem("긴 변 length (px)", "length")
         self.dist_key.addItem("대비 contrast (gray)", "contrast")
+        self.dist_key.addItem("질감 texture (∇ 평균)", "texture")
+        self.dist_key.addItem("선명도 sharpness (∇² 분산)", "sharpness")
         v.addWidget(self.dist_key)
         self.hist = HistogramWidget()
         v.addWidget(self.hist, 1)
@@ -406,6 +408,8 @@ class ReviewTab(QWidget):
             "area": "면적 px (로그 구간)",
             "length": "긴 변 px (로그 구간)",
             "contrast": "대비 gray (마스크 − 링, 선형)",
+            "texture": "질감 — 마스크 안 그래디언트 평균 (선형)",
+            "sharpness": "선명도 — 마스크 안 라플라시안 분산 (선형)",
         }.get(key, key)
         if self.session.bank is None:
             title += " — 은행 없음"

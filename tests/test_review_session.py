@@ -273,3 +273,34 @@ def test_contrast_distribution_synthetic_vs_real(output_root: Path) -> None:
         if s.write_report()
         else True
     )
+
+
+def test_texture_and_sharpness_distributions(output_root: Path) -> None:
+    import numpy as np
+
+    from anograft.gui.review.session import IMAGE_KEYS, mask_sharpness, mask_texture
+
+    assert IMAGE_KEYS == ("contrast", "texture", "sharpness")
+    flat = np.full((32, 32), 100, dtype=np.uint8)
+    m = np.zeros((32, 32), dtype=np.uint8)
+    m[8:24, 8:24] = 255
+    assert mask_texture(flat, m) == 0.0 and mask_sharpness(flat, m) == 0.0
+    edgy = flat.copy()
+    edgy[:, 16:] = 200
+    assert mask_texture(edgy, m) > 0 and mask_sharpness(edgy, m) > 0
+    assert (
+        mask_texture(flat, np.zeros_like(m)) is None
+        and mask_sharpness(flat, np.zeros_like(m)) is None
+    )
+    s = ReviewSession()
+    items = s.load(output_root)
+    ok = [it for it in items if it.status == "ok"]
+    n_inst = sum(len(s.item(x.index).instances) for x in ok)
+    tex, sharp = s.synthetic_values("texture"), s.synthetic_values("sharpness")
+    assert len(tex) == len(sharp) == n_inst and all(v >= 0 for v in tex + sharp)
+    assert (
+        set(ok[0].appearance) == set(IMAGE_KEYS) and ok[0].contrasts is ok[0].appearance["contrast"]
+    )
+    assert len(s.real_values("texture")) == 5 and len(s.real_values("sharpness")) == 5
+    h = s.distribution("texture")
+    assert not h.log and sum(h.b) == 5  # 0 도 정상값이라 선형 구간
