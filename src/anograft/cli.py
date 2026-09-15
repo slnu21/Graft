@@ -94,7 +94,31 @@ def cmd_methods(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def auto_dent_classes(bank_path: str | Path) -> list[str]:
+    """``recipe init --auto-dent`` — 은행이 있으면 조명 일관성 R ≥ LIGHT_REAL_MIN 인 클래스(n ≥ 3). 은행이 없거나 깨졌으면 빈 목록."""
+    p = Path(bank_path)
+    if not (p / "bank.yaml").is_file():
+        return []
+    try:
+        bank = Bank.load(p)
+    except BankError:
+        return []
+    return [r.cls for r in bank.summary() if r.light_r is not None and r.light_r >= LIGHT_REAL_MIN]
+
+
 def cmd_recipe_init(args: argparse.Namespace) -> int:
+    dent: list[str] = list(args.dent_class or [])
+    if args.auto_dent:
+        found = auto_dent_classes(args.bank)
+        if found:
+            _err(
+                f"참고: 은행 {args.bank} 의 조명 의존 클래스 {found} → geometry.per_class 에 ±15°·flip 끔"
+            )
+        else:
+            _err(
+                f"참고: 은행 {args.bank} 에서 조명 의존 클래스를 찾지 못했습니다(은행 없음 또는 lightR < {LIGHT_REAL_MIN})"
+            )
+        dent += [c for c in found if c not in dent]
     try:
         data = R.init_recipe_dict(
             args.preset,
@@ -106,6 +130,7 @@ def cmd_recipe_init(args: argparse.Namespace) -> int:
             count=args.count,
             roi=args.roi,
             um_per_px=args.um_per_px,
+            dent_classes=dent,
         )
     except KeyError as e:
         print(str(e.args[0]), file=sys.stderr)
@@ -114,6 +139,7 @@ def cmd_recipe_init(args: argparse.Namespace) -> int:
     header = (
         f"# anograft {__version__} — recipe init --preset {args.preset}"
         + (f" --roi {args.roi}" if args.roi else "")
+        + (f" --dent-class {' '.join(dent)}" if dent else "")
         + "\n"
         "# 모든 손잡이가 펼쳐져 있습니다. 스테이지의 method를 바꾸면 그 스테이지 키는 해당 method의 것만 남기세요.\n"
     )
@@ -771,6 +797,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pi.add_argument(
         "--um-per-px", type=float, default=None, help="대상 µm/px (inputs.um_per_px — 축척 정합)"
+    )
+    pi.add_argument(
+        "--dent-class",
+        action="append",
+        metavar="CLASS",
+        help="조명 의존 클래스 — geometry.per_class 에 ±15°·flip 끔(반복 가능). 스크래치·찍힘이 섞인 은행용",
+    )
+    pi.add_argument(
+        "--auto-dent",
+        action="store_true",
+        help="--bank 은행의 lightR ≥ 0.5 클래스를 --dent-class 로 자동 추가(은행이 있어야 함)",
     )
     pi.add_argument("--write", default=None, help="파일로 쓰기 (기본은 stdout)")
     pi.set_defaults(func=cmd_recipe_init)

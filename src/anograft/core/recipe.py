@@ -998,8 +998,10 @@ def init_recipe_dict(
     count: int = 100,
     roi: str | None = None,
     um_per_px: float | None = None,
+    dent_classes: Sequence[str] = (),
 ) -> dict[str, Any]:
     """``recipe init``용 — 프리셋을 완전히 펼친 레시피 딕셔너리(사용자가 모든 손잡이를 본다).
+    ``dent_classes`` 는 조명 의존 클래스 — ``geometry.per_class`` 에 ``DENT_OVERRIDE``(±15°, flip 끔)를 넣는다(프리셋은 그대로).
     ``roi`` 는 프리셋의 ROI method 만 갈아 끼운다(예: dent-graft + annulus — 원형 부품의 찍힘). 그 method 의
     기본값으로 펼쳐지므로 반경 비율 등은 파일에서 조정. ``um_per_px`` 는 대상 피치(축척 정합)."""
     data: dict[str, Any] = {
@@ -1025,4 +1027,13 @@ def init_recipe_dict(
         if roi not in ROI_METHODS:
             raise KeyError(f"ROI method 가 없습니다: {roi!r} (선택: {', '.join(ROI_METHODS)})")
         set_method_in_dict(data, "roi", roi)
+    if dent_classes:
+        geo = data["pipeline"].setdefault("geometry", {"method": "affine"})
+        geo.setdefault("per_class", {}).update({c: dict(DENT_OVERRIDE) for c in dent_classes})
     return Recipe.from_dict(data).to_dict()
+
+
+DENT_OVERRIDE: dict[str, Any] = {
+    "rotate": [-15.0, 15.0],
+    "flip": False,
+}  # 조명 의존 클래스의 기하(dent-graft 와 같음)
