@@ -139,6 +139,7 @@ class MainWindow(QMainWindow):
         self.bank.status.connect(self.status_bar.showMessage)
         self.review.status.connect(self.status_bar.showMessage)
         self.batch.run_finished.connect(self._on_batch_finished)
+        self.batch.review_requested.connect(self._on_review_requested)
         self.bank.bank_changed.connect(self._on_bank_saved)
         self.bank.edit_requested.connect(self._on_bank_edit_requested)
         self.label.source_updated.connect(self._on_source_updated)
@@ -205,6 +206,11 @@ class MainWindow(QMainWindow):
         """배치가 끝나면 검수 탭이 그 출력 폴더를 가리킨다(자동으로 열지는 않는다 — 큰 출력은 썸네일 로드가 걸린다)."""
         if summary is not None and getattr(summary, "writer", None) is not None:
             self.review.root_edit.setText(Path(summary.writer.root).as_posix())
+
+    def _on_review_requested(self, root: str) -> None:
+        """배치 탭 '검수 탭에서 열기' → 검수 탭이 그 출력을 열고 탭 전환."""
+        if self.review.open_root(root):
+            self.tabs.setCurrentWidget(self.review)
 
     def _on_bank_saved(self, root: str) -> None:
         """라벨 탭이 은행에 소스를 더했다(또는 은행 탭이 지우거나 고쳤다) — 스튜디오가 그 은행을 쓰면 다시 준비."""

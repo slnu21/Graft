@@ -37,6 +37,7 @@ from anograft.gui.studio.panels import h4
 class BatchTab(QWidget):
     status = Signal(str)
     run_finished = Signal(object)  # runner.RunSummary | None(실패)
+    review_requested = Signal(str)  # 출력 루트(posix) — 검수 탭에서 열기
 
     def __init__(self, session: BatchSession | None = None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -146,8 +147,13 @@ class BatchTab(QWidget):
         row = QHBoxLayout()
         self.btn_open_out = QPushButton("출력 폴더 열기")
         self.btn_open_out.setEnabled(False)
+        self.btn_review = QPushButton("검수 탭에서 열기 Review")
+        self.btn_review.setObjectName("Primary")
+        self.btn_review.setEnabled(False)
+        self.btn_review.setToolTip("방금 만든 출력을 검수 탭에서 열어 채택/반려 (v0.7)")
         row.addStretch(1)
         row.addWidget(self.btn_open_out)
+        row.addWidget(self.btn_review)
         v.addLayout(row)
         return card
 
@@ -157,6 +163,7 @@ class BatchTab(QWidget):
         self.btn_run.clicked.connect(self.start)
         self.btn_stop.clicked.connect(self.stop)
         self.btn_open_out.clicked.connect(self.open_output)
+        self.btn_review.clicked.connect(self.request_review)
         self.writer.currentTextChanged.connect(lambda f: self.category.setEnabled(f == "mvtec"))
 
     # ------------------------------------------------------------------ 레시피
@@ -243,6 +250,7 @@ class BatchTab(QWidget):
         self.btn_run.setEnabled(False)
         self.btn_stop.setEnabled(True)
         self.btn_open_out.setEnabled(False)
+        self.btn_review.setEnabled(False)
         w = BatchWorker(rec, self.session.workers, self)
         w.progress.connect(self._on_progress)
         w.warning.connect(lambda m: self._append(f"경고: {m}"))
@@ -279,10 +287,17 @@ class BatchTab(QWidget):
             self._append(f"경고: {w}")
         self.progress_label.setText("취소됨" if summary.cancelled else "완료")
         self.btn_open_out.setEnabled(True)
+        self.btn_review.setEnabled(summary.writer.n_ok > 0)
         self.status.emit(
             f"배치 {'취소' if summary.cancelled else '완료'}: ok {summary.writer.n_ok} · skipped {summary.writer.n_skipped} → {summary.writer.root.as_posix()}"
         )
         self.run_finished.emit(summary)
+
+    def request_review(self) -> None:
+        """마지막 출력 루트를 검수 탭으로(메인 창이 탭 전환 + 열기)."""
+        if self.last_summary is None:
+            return
+        self.review_requested.emit(self.last_summary.writer.root.as_posix())
 
     def _on_failed(self, msg: str) -> None:
         self._append(f"실패: {msg}")

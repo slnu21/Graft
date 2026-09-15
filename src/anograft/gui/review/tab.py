@@ -234,6 +234,11 @@ class ReviewTab(QWidget):
         self.cb_next = QCheckBox("판정 후 다음으로")
         self.cb_next.setChecked(True)
         bl.addWidget(self.cb_next)
+        self.btn_next_unreviewed = QPushButton("다음 미검수 (N)")
+        self.btn_next_unreviewed.setToolTip(
+            "현재 위치 다음의 미검수 합성 결과로 이동(끝이면 처음부터)"
+        )
+        bl.addWidget(self.btn_next_unreviewed)
         bl.addStretch(1)
         ml.addWidget(bar)
         return mid
@@ -298,6 +303,8 @@ class ReviewTab(QWidget):
         QShortcut(QKeySequence("A"), self.grid, activated=lambda: self.verdict("accept"))
         QShortcut(QKeySequence("R"), self.grid, activated=lambda: self.verdict("reject"))
         QShortcut(QKeySequence("U"), self.grid, activated=lambda: self.verdict(""))
+        QShortcut(QKeySequence("N"), self.grid, activated=self.next_unreviewed)
+        self.btn_next_unreviewed.clicked.connect(self.next_unreviewed)
 
     # ------------------------------------------------------------------ 열기
 
@@ -490,6 +497,22 @@ class ReviewTab(QWidget):
         if n:
             self._after_change(ids[-1] if len(ids) == 1 else None)
         return n
+
+    def next_unreviewed(self) -> str | None:
+        """현재 행 다음의 미검수 합성 결과를 선택(끝이면 처음부터 다시). 없으면 None."""
+        n = self.grid.count()
+        if n == 0:
+            return None
+        start = self.grid.currentRow() + 1 if self.grid.currentRow() >= 0 else 0
+        for step in range(n):
+            it = self.grid.item((start + step) % n)
+            idx = str(it.data(Qt.ItemDataRole.UserRole))
+            row = next((x for x in self._rows if x.index == idx), None)
+            if row is not None and row.status == "ok" and row.verdict == "":
+                self.select_index(idx)
+                return idx
+        self.status.emit("미검수가 없습니다 — 전부 판정됨")
+        return None
 
     def _on_note(self) -> None:
         idx = self.current_index()
