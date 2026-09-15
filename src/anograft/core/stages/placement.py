@@ -373,9 +373,17 @@ class StructureAwarePlacement(_PlacementBase):
             )  # 정렬 여부와 무관하게 항상 소비
             theta_g, coh = S.window_orientation(field.gray, cx, cy, half)
             aligned = can_align and coh >= cfg.min_coherence
+            capped = False
             if aligned:
                 target = S.wrap_180(theta_g + 90.0) if cfg.align == "along" else theta_g
-                angle = S.align_rotation(phi, target) + jitter
+                rot = S.align_rotation(phi, target)
+                if cfg.max_align_deg is not None and abs(rot) > cfg.max_align_deg:
+                    aligned, capped = (
+                        False,
+                        True,
+                    )  # 조명 의존: 큰 회전이 필요하면 정렬을 포기(rng 소비는 위에서 이미)
+            if aligned:
+                angle = rot + jitter
                 p2, m2 = warp_affine(patch, mask, 1.0, angle)
             else:
                 angle, p2, m2 = 0.0, patch, mask
@@ -393,5 +401,7 @@ class StructureAwarePlacement(_PlacementBase):
                         "coherence": round(coh, 3),
                     }
                 )
+                if capped:
+                    log["align_capped"] = round(rot, 2)  # 정렬했다면 이만큼 돌려야 했다
                 return tries, (p2, m2, (x0, y0, mw, mh), (mx, my))
         return tries, None

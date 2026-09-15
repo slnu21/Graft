@@ -36,7 +36,7 @@ def test_dent_graft_preset_values_and_others_unchanged() -> None:
     g, p = d.pipeline.geometry, d.pipeline.placement
     assert g.rotate == (-15.0, 15.0) and g.flip is False and g.scale == (0.9, 1.1)
     assert p.method == "structure-aware" and p.prefer == "uniform" and p.align == "along"
-    assert p.jitter_deg == 5
+    assert p.jitter_deg == 5 and p.max_align_deg == 30.0
     assert d.pipeline.blend.method == "poisson" and d.pipeline.blend.poisson_mode == "normal"
     assert d.pipeline.harmonize.strength == 0.2
     # 기존 프리셋은 ±180 · flip 유지 (재현성)
@@ -64,6 +64,9 @@ def test_dent_graft_runs_and_rotation_stays_in_range() -> None:
         if pl["aligned"]:
             diff = abs(((pl["angle_deg"] - pl["orientation_deg"]) + 90) % 180 - 90)
             assert diff <= 5.0 + 1e-6
+            assert abs(pl["angle_deg"]) <= 30.0 + 5.0 + 1e-6  # max_align_deg 30 + jitter 5
+        else:
+            assert pl["angle_deg"] == 0.0 and abs(pl.get("align_capped", 0.0)) <= 90.0
 
 
 def test_dent_graft_is_deterministic() -> None:

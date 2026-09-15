@@ -35,6 +35,7 @@ ON_DEFAULTS: dict[str, Any] = {
     "texture_dir": "",
     "center": [0.0, 0.0],  # annulus — 고정 중심(px). 켠 뒤 대상 좌표로 고친다
     "radius": 100.0,  # annulus — 고정 기준 반경(px)
+    "max_align_deg": 30.0,  # structure-aware — 정렬 회전 상한(dent-graft 값)
 }
 
 _BIG = 1_000_000_000

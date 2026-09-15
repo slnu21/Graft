@@ -263,3 +263,28 @@ def test_preset_pipeline_end_to_end_on_disk_target() -> None:
         assert d["placement"]["method"] == "structure-aware" and "aligned" in d["placement"]
     r2 = p.run_one(disk_target(128), 0)
     assert np.array_equal(r.image, r2.image)
+
+
+def test_max_align_deg_caps_alignment_and_keeps_rng_budget() -> None:
+    """0.7.3 ``max_align_deg`` — 필요한 정렬 회전이 상한을 넘으면 정렬하지 않고(angle 0, ``align_capped`` 에 필요했던 각),
+    상한 안이면 종전처럼 정렬. rng 소비(자리·지터 2회/시도)는 같아서 채택 자리도 같다."""
+    t = striped_target(angle=70.0)  # 가로 막대(주축 0°)를 70° 줄에 맞추려면 70° 회전
+    patch, mask = _bar_patch()
+    free = _stage(jitter_deg=0.0, prefer="uniform").apply(_ctx(t, patch, mask, 3))
+    capped = _stage(jitter_deg=0.0, prefer="uniform", max_align_deg=30.0).apply(
+        _ctx(t, patch, mask, 3)
+    )
+    wide = _stage(jitter_deg=0.0, prefer="uniform", max_align_deg=80.0).apply(
+        _ctx(t, patch, mask, 3)
+    )
+    assert free.placement is not None and free.log["placement"]["aligned"] is True
+    lf, lc, lw = free.log["placement"], capped.log["placement"], wide.log["placement"]
+    assert lc["aligned"] is False and lc["angle_deg"] == 0.0 and abs(lc["align_capped"]) > 30.0
+    assert capped.patch_mask is mask  # 회전 없음
+    assert lw["aligned"] is True and "align_capped" not in lw and lw["angle_deg"] == lf["angle_deg"]
+    # 같은 시드 → 같은 자리 중심(rng 예산 동일)
+    assert capped.placement is not None and wide.placement is not None
+    assert capped.placement.center == wide.placement.center == free.placement.center
+    with pytest.raises(ValidationError):
+        R.StructureAwarePlacementConfig(max_align_deg=120.0)
+    assert R.StructureAwarePlacementConfig().max_align_deg is None

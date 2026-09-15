@@ -37,6 +37,7 @@ pipeline:
     min_coherence: 0.2
     min_anisotropy: 0.1
     jitter_deg: 5
+    max_align_deg: 30         # 정렬 회전 상한 — 결·접선에 맞추려 30° 넘게 돌려야 하는 자리는 정렬 안 함(하이라이트 방향 우선, 0.7.3)
     margin_px: 8
     max_tries: 50
     shrink_on_fail: { factor: 0.8, rounds: 3 }
