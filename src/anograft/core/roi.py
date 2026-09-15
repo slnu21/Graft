@@ -1,7 +1,8 @@
 """배치 허용 영역(ROI) 추출 — 순수 배열 함수 (설계 §6 roi). 파일 IO 없음.
 
 배경에 붙은 결함은 학습에 해롭다 — ROI 제약은 옵션이 아니라 기본값이다. v0.1은 ``otsu``·``none``·``mask_dir``,
-나중에 ``grabcut``·``sam``이 같은 반환 규약(``HxW bool``)으로 붙는다.
+v0.4 ``grabcut``, v0.6 ``annulus``(원형 부품 링 면 — 물체 vs 배경이 아니라 **물체 안에서** 검사 면을 고른다,
+KNOWN-ISSUES #2). 나중에 ``sam``이 같은 반환 규약(``HxW bool``)으로 붙는다.
 
 테두리 ``margin_px``는 여기서 빼지 않는다 — ROI 방법과 무관하게 ``placement``가 공통으로 적용한다
 (``margin_px``는 placement 설정이라 ROI 스테이지가 볼 수 없다).
@@ -188,6 +189,120 @@ def roi_grabcut(
         init_used=init_used,
         inverted=inverted,
         work_scale=scale,
+        area_before_erode=area_before,
+        fallback=fallback,
+    )
+
+
+# ---------------------------------------------------------------------------
+# annulus (v0.6) — 파라메트릭 ROI: 원형 부품의 링 면 (KNOWN-ISSUES #2 #4)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DiskFit:
+    """Otsu 전경의 가장 큰 연결 성분에 씌운 최소외접원 — 원형 부품의 중심·바깥 반경 추정."""
+
+    center: tuple[float, float]  # (cx, cy) px
+    radius: float  # px
+    inverted: bool  # Otsu 극성 (roi_otsu 와 같은 규칙)
+    area_px: int  # 그 성분의 면적
+
+
+def detect_disk(image: np.ndarray, invert: Invert = "auto") -> DiskFit | None:
+    """부품 중심·반경 자동 검출. 전경이 없으면 None. 잡음 성분에 흔들리지 않게 **가장 큰 성분 하나**만 쓴다 —
+    중앙에 홈(어두운 리세스)이 있어 전경이 링 모양이어도 최소외접원은 바깥 원을 준다."""
+    fg = roi_otsu(image, invert, 0)
+    mask = fg.roi.astype(np.uint8)
+    if not mask.any():
+        return None
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    if n <= 1:
+        return None
+    largest = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+    comp = (labels == largest).astype(np.uint8)
+    contours, _ = cv2.findContours(comp, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return None
+    (cx, cy), r = cv2.minEnclosingCircle(max(contours, key=cv2.contourArea))
+    return DiskFit((float(cx), float(cy)), float(r), fg.inverted, int(comp.sum()))
+
+
+def annulus_mask(
+    shape: tuple[int, int], center: tuple[float, float], r_inner: float, r_outer: float
+) -> np.ndarray:
+    """``r_inner ≤ 거리 < r_outer`` 인 픽셀 (HxW bool). ``r_inner=0`` 이면 원판."""
+    h, w = int(shape[0]), int(shape[1])
+    cx, cy = center
+    yy, xx = np.ogrid[:h, :w]
+    d2 = (xx - cx) ** 2 + (yy - cy) ** 2
+    return (d2 >= r_inner * r_inner) & (d2 < r_outer * r_outer)
+
+
+@dataclass(frozen=True)
+class AnnulusRoi:
+    roi: np.ndarray  # HxW bool
+    center: tuple[float, float]
+    radius: float  # 비율의 기준 반경(px) — units: px 면 참고값
+    r_inner_px: float
+    r_outer_px: float
+    center_source: str  # "auto" | "fixed" | "auto→image-center"
+    radius_source: str  # "auto" | "fixed" | "auto→half-min-side" | "unused"
+    area_before_erode: int
+    fallback: str | None = None  # 자동 검출 실패 사유 (있으면 경고)
+
+
+def roi_annulus(
+    image: np.ndarray,
+    *,
+    center: tuple[float, float] | None = None,
+    radius: float | None = None,
+    r_inner: float,
+    r_outer: float,
+    units: Literal["ratio", "px"] = "ratio",
+    invert: Invert = "auto",
+    erode_px: int = 0,
+) -> AnnulusRoi:
+    """링(annulus) ROI. ``center``/``radius`` 가 None 이면 ``detect_disk`` 로 자동 — 촬영마다 부품이 수십 px 움직여도
+    링이 따라간다(KNOWN-ISSUES #4). ``units: ratio`` 면 ``r_inner``·``r_outer`` 는 기준 반경의 배율, ``px`` 면 그대로.
+    자동 검출이 실패하면 이미지 중심·짧은 변의 절반으로 대체하고 ``fallback`` 에 사유."""
+    h, w = image.shape[:2]
+    need_fit = center is None or (units == "ratio" and radius is None)
+    fit = detect_disk(image, invert) if need_fit else None
+    fallback: str | None = None
+    if center is not None:
+        c = (float(center[0]), float(center[1]))
+        center_source = "fixed"
+    elif fit is not None:
+        c, center_source = fit.center, "auto"
+    else:
+        c, center_source = ((w - 1) / 2.0, (h - 1) / 2.0), "auto→image-center"
+        fallback = "Otsu 전경 없음 — 이미지 중심으로 대체"
+    if units == "px":
+        base, radius_source = (
+            (float(radius) if radius is not None else 0.0),
+            ("fixed" if radius is not None else "unused"),
+        )
+        r_in, r_out = float(r_inner), float(r_outer)
+    else:
+        if radius is not None:
+            base, radius_source = float(radius), "fixed"
+        elif fit is not None:
+            base, radius_source = fit.radius, "auto"
+        else:
+            base, radius_source = min(h, w) / 2.0, "auto→half-min-side"
+            fallback = fallback or "Otsu 전경 없음 — 반경을 짧은 변의 절반으로 대체"
+        r_in, r_out = float(r_inner) * base, float(r_outer) * base
+    mask = annulus_mask((h, w), c, r_in, r_out)
+    area_before = int(mask.sum())
+    return AnnulusRoi(
+        roi=erode_bool(mask, erode_px),
+        center=c,
+        radius=base,
+        r_inner_px=r_in,
+        r_outer_px=r_out,
+        center_source=center_source,
+        radius_source=radius_source,
         area_before_erode=area_before,
         fallback=fallback,
     )

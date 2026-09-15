@@ -103,6 +103,30 @@ def fits_at(
     return not (existing is not None and existing[y0 : y0 + mh, x0 : x0 + mw][crop].any())
 
 
+def fit_diagnostic(
+    allowed: np.ndarray,
+    original_mask: np.ndarray | None,
+    last_mask: np.ndarray,
+    log: dict[str, Any],
+) -> str:
+    """배치 실패 사유에 덧붙일 한 줄: 허용 영역의 최대 폭(내접원 지름)과 패치 bbox(원본 → 마지막 축소).
+    짧은 변조차 폭을 넘으면 어디에도 들어갈 수 없다 — 그때는 조치(scale·shrink_on_fail·ROI)를 힌트로."""
+    if not allowed.any():
+        return ""
+    width = float(distance_to_edge(allowed).max()) * 2.0
+    _, _, ow, oh = cv2.boundingRect(original_mask) if original_mask is not None else (0, 0, 0, 0)
+    _, _, lw, lh = cv2.boundingRect(last_mask)
+    log["roi_max_width_px"] = round(width, 1)
+    log["patch_bbox_px"] = [int(ow), int(oh)]
+    log["patch_bbox_last_px"] = [int(lw), int(lh)]
+    text = f" · ROI 최대 폭 {width:.0f}px vs 패치 {ow}×{oh}px"
+    if (lw, lh) != (ow, oh):
+        text += f"(축소 후 {lw}×{lh})"
+    if min(lw, lh) > width:
+        text += " — 패치가 ROI 폭보다 큽니다: geometry.scale 을 낮추거나 shrink_on_fail 을 늘리거나 ROI 를 넓히세요"
+    return text
+
+
 class _PlacementBase:
     """두 method 의 공통 뼈대 — 후보 준비·축소 루프·채택·실패 로그. 서브클래스는 ``_prepare``(결함당 1회 준비물)와
     ``_try_round``(한 축소 라운드의 ``max_tries`` 시도)만 구현한다."""
@@ -189,6 +213,9 @@ class _PlacementBase:
             if hit is not None:
                 p2, m2, bbox, origin = hit
                 return self._accept(ctx, log, p2, m2, bbox, origin, tries, round_)
+        # 실패 진단(KNOWN-ISSUES 부록): 좁은 ROI(링 등)에 패치가 안 들어가는 경우를 사용자가 알아볼 수 있게
+        # "ROI 최대 폭(내접원 지름) vs 패치 bbox" 를 사유·로그에 붙인다. 실패 경로에서만 계산(distanceTransform 1회).
+        reason += fit_diagnostic(allowed, ctx.patch_mask, mask, log)
         return self._fail(ctx, log, reason, tries, round_)
 
     def _accept(
