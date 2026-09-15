@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -62,6 +63,8 @@ def quickstart(
     root = Path(root)
     generate(root, n_normal=n_normal, n_defect=n_defect, size=size, seed=seed, shape=shape)
     bank, normals = root / "bank", root / "normals.txt"
+    if bank.is_dir():  # 두 번 누르면 은행이 두 배(같은 소스가 -dup 로 쌓여 조명 R 까지 왜곡) — 퀵스타트 은행은 늘 새로
+        shutil.rmtree(bank)
     res = import_yolo(
         root / "images", root / "labels", root / "data.yaml", bank, list_normals=normals
     )
