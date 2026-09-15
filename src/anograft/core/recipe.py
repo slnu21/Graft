@@ -110,6 +110,9 @@ class CocoWriterConfig(_Strict):
     format: Literal["coco"] = "coco"
     description: str = "anograft synthetic defects"
     supercategory: str = "defect"
+    segmentation: Literal["polygon", "rle"] = (
+        "polygon"  # rle = 비압축 RLE(열 우선 run 길이, iscrowd 0) — 조각난 마스크도 무손실
+    )
 
 
 WriterConfig = Annotated[

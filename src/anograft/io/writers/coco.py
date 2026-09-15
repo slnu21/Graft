@@ -52,10 +52,43 @@ def instance_polygons(mask: np.ndarray) -> list[list[float]]:
     return polys
 
 
+def mask_to_rle(mask: np.ndarray) -> dict[str, Any]:
+    """COCO **비압축 RLE** — ``{"counts": [...], "size": [h, w]}``. 열 우선(Fortran) 순서로 0 run 부터 번갈아 세는 pycocotools 규약.
+    무손실이라 조각난 마스크·구멍도 그대로 간다(폴리곤은 외곽 윤곽만)."""
+    m = (mask > 0).ravel(order="F")
+    counts: list[int] = []
+    cur = 0
+    run = 0
+    for v in m:
+        if v == cur:
+            run += 1
+        else:
+            counts.append(run)
+            cur = 1 - cur
+            run = 1
+    counts.append(run)
+    h, w = mask.shape[:2]
+    return {"counts": counts, "size": [int(h), int(w)]}
+
+
+def rle_to_mask(rle: dict[str, Any]) -> np.ndarray:
+    """``mask_to_rle`` 의 역(검증·테스트용). 0/255 uint8."""
+    h, w = rle["size"]
+    flat = np.zeros(h * w, dtype=np.uint8)
+    pos = 0
+    val = 0
+    for run in rle["counts"]:
+        if val:
+            flat[pos : pos + run] = 255
+        pos += run
+        val = 1 - val
+    return flat.reshape((w, h)).T.copy()
+
+
 def annotations_for(
-    instances: Sequence[Instance], image_id: int, next_id: int
+    instances: Sequence[Instance], image_id: int, next_id: int, *, segmentation: str = "polygon"
 ) -> tuple[list[dict[str, Any]], list[str]]:
-    """인스턴스 → annotation dict 목록(+경고). id 는 ``next_id`` 부터 연속."""
+    """인스턴스 → annotation dict 목록(+경고). id 는 ``next_id`` 부터 연속. ``segmentation`` = polygon | rle."""
     out: list[dict[str, Any]] = []
     warnings: list[str] = []
     aid = next_id
@@ -63,17 +96,22 @@ def annotations_for(
         if inst.area_px <= 0 or not np.any(inst.mask):
             warnings.append(f"coco: 인스턴스 {k}({inst.cls}) 면적 0 — annotation 없음")
             continue
-        polys = instance_polygons(inst.mask)
-        if not polys:
-            warnings.append(f"coco: 인스턴스 {k}({inst.cls}) 폴리곤 점 < 3 — annotation 없음")
-            continue
+        seg: Any
+        if segmentation == "rle":
+            seg = mask_to_rle(inst.mask)
+        else:
+            polys = instance_polygons(inst.mask)
+            if not polys:
+                warnings.append(f"coco: 인스턴스 {k}({inst.cls}) 폴리곤 점 < 3 — annotation 없음")
+                continue
+            seg = polys
         x, y, w, h = inst.bbox
         out.append(
             {
                 "id": aid,
                 "image_id": image_id,
                 "category_id": int(inst.class_id) + 1,
-                "segmentation": polys,
+                "segmentation": seg,
                 "area": int(inst.area_px),
                 "bbox": [int(x), int(y), int(w), int(h)],
                 "iscrowd": 0,
@@ -132,7 +170,12 @@ class CocoWriter(PairsWriter):
         name = index_name(result.index)
         h, w = result.image.shape[:2]
         image_id = self._add_image(f"{name}.png", h, w)
-        anns, warns = annotations_for(result.instances, image_id, len(self.annotations) + 1)
+        anns, warns = annotations_for(
+            result.instances,
+            image_id,
+            len(self.annotations) + 1,
+            segmentation=self.cfg.segmentation,
+        )
         self.annotations.extend(anns)
         self._pending[result.index] = (image_id, [a["id"] for a in anns])
         if warns:

@@ -186,3 +186,44 @@ def test_cli_run_with_coco_writer(tmp_path: Path, capsys: pytest.CaptureFixture[
     assert "annotations: annotations.json" in out
     doc = json.loads((tmp_path / "out" / "annotations.json").read_text(encoding="utf-8"))
     assert [c["name"] for c in doc["categories"]] == ["spot", "crack"] and doc["images"]
+
+
+def test_rle_roundtrip_and_writer_segmentation_rle(tmp_path: Path) -> None:
+    """0.7.6+ ``segmentation: rle`` — 비압축 RLE(열 우선, 0 run 부터)는 무손실(조각·구멍 포함); 폴리곤은 기본."""
+    from anograft.io.writers.coco import mask_to_rle, rle_to_mask
+
+    m = np.zeros((6, 5), dtype=np.uint8)
+    m[1:3, 1:4] = 255
+    m[4, 0] = 255  # 조각 하나 더
+    rle = mask_to_rle(m)
+    assert (
+        rle["size"] == [6, 5] and sum(rle["counts"]) == 30 and rle["counts"][0] == 4
+    )  # 열 우선: 첫 열 0~3 이 0
+    assert np.array_equal(rle_to_mask(rle), m)
+    empty = mask_to_rle(np.zeros((3, 3), dtype=np.uint8))
+    assert empty["counts"] == [9] and not rle_to_mask(empty).any()
+    full = mask_to_rle(np.full((2, 2), 255, dtype=np.uint8))
+    assert full["counts"] == [0, 4] and rle_to_mask(full).all()
+    # 구멍이 있는 마스크: 폴리곤은 외곽만이라 면적이 커지지만 RLE 는 정확
+    ring = np.zeros((20, 20), dtype=np.uint8)
+    cv2.circle(ring, (10, 10), 8, 255, -1)
+    cv2.circle(ring, (10, 10), 3, 0, -1)
+    assert np.array_equal(rle_to_mask(mask_to_rle(ring)), ring)
+    inst = Instance("a", 0, ring, (2, 2, 17, 17), int(np.count_nonzero(ring)))
+    anns, _ = annotations_for([inst], 1, 1, segmentation="rle")
+    assert anns[0]["segmentation"]["size"] == [20, 20] and anns[0]["iscrowd"] == 0
+    polys, _ = annotations_for([inst], 1, 1)
+    assert isinstance(polys[0]["segmentation"], list)
+    # writer 설정으로
+    root, _rec, results, _summary, _w = _write(tmp_path, segmentation="rle")
+    doc = json.loads((root / "annotations.json").read_text(encoding="utf-8"))
+    n_inst = sum(len(r.instances) for r in results)
+    assert len(doc["annotations"]) == n_inst
+    for a in doc["annotations"]:
+        seg = a["segmentation"]
+        assert (
+            set(seg) == {"counts", "size"} and sum(seg["counts"]) == seg["size"][0] * seg["size"][1]
+        )
+        assert sum(seg["counts"][1::2]) == a["area"]  # 1 run 의 합 = GT 픽셀 수
+    with pytest.raises(ValidationError):
+        R.CocoWriterConfig(segmentation="mask")
