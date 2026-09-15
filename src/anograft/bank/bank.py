@@ -28,7 +28,7 @@ import numpy as np
 import yaml
 
 from anograft.bank.mask_from_box import LOW_CONFIDENCE
-from anograft.core.appearance import is_directional, lighting_of_sources
+from anograft.core.appearance import is_directional, lighting_stats
 from anograft.core.seeds import bank_fingerprint
 from anograft.core.types import DefectSource
 from anograft.io import imgio
@@ -66,6 +66,7 @@ class ClassSummary:
     directional: bool = (
         False  # is_directional(light_r, light_n) — R 임계 + Rayleigh 유의성(소표본 오판 방지)
     )
+    light_dir: float | None = None  # 실제 소스들의 평균 조명 방향(°) — directional 일 때만 의미
 
 
 class Bank:
@@ -140,7 +141,7 @@ class Bank:
                 for t in s.tags:
                     tags[t] = tags.get(t, 0) + 1
             est = sum(n for o, n in origins.items() if o.startswith(ESTIMATED_PREFIX))
-            light_r, light_n = lighting_of_sources([(s.image, s.mask) for s in srcs])
+            light_r, light_n, light_dir = lighting_stats([(s.image, s.mask) for s in srcs])
             out.append(
                 ClassSummary(
                     cls=c,
@@ -156,9 +157,16 @@ class Bank:
                     light_r=light_r,
                     light_n=light_n,
                     directional=is_directional(light_r, light_n),
+                    light_dir=light_dir,
                 )
             )
         return out
+
+    def real_lighting_direction(self) -> dict[str, float]:
+        """조명 방향이 유의한 클래스 → 실제 평균 방향(°). 합성 인스턴스의 뒤집힘 판정 기준."""
+        return {
+            r.cls: r.light_dir for r in self.summary() if r.directional and r.light_dir is not None
+        }
 
     def no_pitch_count(self) -> int:
         """``um_per_px`` 가 없는 소스 수 — 이 소스들은 축척 정합(``physical_scale``)에서 factor 1.0 으로 빠진다."""

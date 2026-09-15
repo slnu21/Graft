@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 import cv2
 import numpy as np
@@ -129,7 +129,35 @@ def gray_of(image: np.ndarray) -> np.ndarray:
 
 def lighting_of_sources(pairs: Sequence[tuple[np.ndarray, np.ndarray]]) -> tuple[float | None, int]:
     """(image, mask) 쌍들의 조명 일관성 — ``(R, n)``. n < LIGHT_MIN_N 이면 R 은 None(판단 보류)."""
+    r, n, _ = lighting_stats(pairs)
+    return r, n
+
+
+def lighting_stats(
+    pairs: Sequence[tuple[np.ndarray, np.ndarray]],
+) -> tuple[float | None, int, float | None]:
+    """``(R, n, 평균 방향°)`` — 평균 방향은 n ≥ 1 이면 준다(판정은 ``is_directional(R, n)`` 으로)."""
     angles = [v for img, m in pairs if (v := mask_lighting(gray_of(img), m)) is not None]
+    mean = circular_mean(angles)
     if len(angles) < LIGHT_MIN_N:
-        return None, len(angles)
-    return circular_concentration(angles), len(angles)
+        return None, len(angles), mean
+    return circular_concentration(angles), len(angles), mean
+
+
+def flipped_instances(
+    gray: np.ndarray,
+    instances: Sequence[tuple[str, np.ndarray]],
+    real_dir: Mapping[str, float],
+    *,
+    max_deg: float = 90.0,
+) -> list[int]:
+    """합성 이미지의 (클래스, 마스크) 인스턴스 중 조명 방향이 그 클래스의 실제 평균 방향에서 ``max_deg`` 넘게 벗어난 것의
+    인덱스. ``real_dir`` 에 없는 클래스(방향 없는 클래스)는 건너뛴다. 검수 탭 '조명 뒤집힘 의심'과 같은 규칙."""
+    out: list[int] = []
+    for i, (cls, mask) in enumerate(instances):
+        if cls not in real_dir:
+            continue
+        v = mask_lighting(gray, mask)
+        if v is not None and angle_diff(v, real_dir[cls]) > max_deg:
+            out.append(i)
+    return out

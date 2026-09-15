@@ -4,6 +4,9 @@
 
 ## [Unreleased]
 
+### Added
+- 스튜디오 변형 카드에 **↯ 조명 뒤집힘 의심** — 은행에서 방향이 유의한 클래스(`Bank.real_lighting_direction`, `ClassSummary.light_dir`)의 실제 평균 방향과 90° 넘게 벗어난 인스턴스가 있으면 캡션 ↯ + 툴팁(인스턴스·조치). 검수 탭 필터를 미리보기에서 미리. `core.appearance.lighting_stats/flipped_instances`.
+
 ## [0.7.5] - 2026-09-16
 
 v0.7.4 의 조명 의존 판정 수정(소표본 오판). 다른 변경 없음.

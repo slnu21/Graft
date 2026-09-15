@@ -466,3 +466,64 @@ def test_placement_card_warns_when_patch_cannot_fit(
         win.worker.stop()
         win.close()
         qapp.processEvents()
+
+
+def test_variant_card_marks_flipped_lighting(
+    qapp: QApplication, bank_and_normals: tuple[Path, Path], tmp_path: Path
+) -> None:
+    """0.7.5+ — 방향성 pit 은행 + 회전 [170, 190](항상 뒤집힘) → 변형 캡션 ↯ + 툴팁; per_class 로 ±15 로 묶으면 사라진다."""
+    from anograft.bank.importers.common import BankWriter, ImportOptions, ImportRecord
+    from tests.test_lighting_warning import _dent
+
+    _bank, normals = bank_and_normals
+    bank = tmp_path / "dents"
+    w = BankWriter(bank, name="dents")
+    w.ensure_classes(["pit"])
+    for i in range(4):
+        s = _dent("down", k=i)
+        w.add(
+            ImportRecord(
+                image=s.image, gray=False, mask=s.mask, cls="pit", origin="t", id_hint=f"{i:03d}"
+            ),
+            ImportOptions(margin=8),
+        )
+    w.finish({"importer": "test"})
+    ses = StudioSession(default_recipe(bank=bank.as_posix(), targets=normals.as_posix()))
+    ses.set_method(
+        "gtmask", "source"
+    )  # GT = 소스 마스크 → 링이 림 바로 밖(poisson 은 mask_dilate 로 림을 함께 붙인다)
+    ses.set_stage_field("geometry", "rotate", (170.0, 190.0))
+    ses.set_stage_field("geometry", "flip", False)
+    ses.set_stage_field("geometry", "scale", (1.0, 1.0))
+    ses.set_stage_field("placement", "margin_px", 4)
+    ses.set_stage_field("roi", "erode_px", 2)
+    ses.set_field(("pipeline", "source", "min_sources_warn"), 1)
+    ses.set_n_variants(2)
+    ses.set_long_side(0)  # 축소 없이(각도 근사 오차 제거)
+    win = MainWindow(ses)
+    try:
+        win.show()
+        tab = win.studio
+        tab.open_inputs(bank.as_posix(), normals.as_posix())
+        assert _pump(qapp, lambda: ses.prepared is not None)
+        assert _pump(qapp, lambda: len(tab._results) >= 2)
+        ok = [k for k, r in tab._results.items() if r.result.status == "ok"]
+        assert ok
+        flipped = [k for k in ok if tab._flipped_instances(tab._results[k].result)]
+        assert flipped, "180° 회전이면 하이라이트가 반대쪽이어야 한다"
+        item = tab.variants.list.item(flipped[0])
+        assert "↯" in item.text() and "조명 뒤집힘" in item.toolTip()
+        # per_class 로 회전을 묶으면(reprepare + 새 미리보기) 뒤집힘이 사라진다
+        ses.set_stage_field("geometry", "per_class", {"pit": {"rotate": [-15, 15], "flip": False}})
+        tab.request_previews()
+        assert _pump(
+            qapp,
+            lambda: (
+                len(tab._results) >= 2
+                and all(not tab._flipped_instances(r.result) for r in tab._results.values())
+            ),
+        )
+    finally:
+        win.worker.stop()
+        win.close()
+        qapp.processEvents()
