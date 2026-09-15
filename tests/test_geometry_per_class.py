@@ -107,3 +107,58 @@ def test_lighting_warning_and_patch_sides_respect_override() -> None:
     prep = runner.Prepared(R.Recipe.from_dict(d), bank, [], None, "h", {"class_probs": {}}, [])  # type: ignore[arg-type]
     sides = runner.patch_sides(prep)
     assert sides["pit"] == pytest.approx(sides["stain"] * 0.5 / 1.25 * (12 / 10), rel=0.2)
+
+
+def test_recipe_init_dent_class_and_auto_dent(tmp_path, capsys) -> None:
+    """``recipe init --dent-class pit`` 은 per_class 에 ±15·flip 끔, ``--auto-dent`` 는 은행 lightR ≥ 0.5 클래스를 찾는다."""
+    import yaml
+
+    from anograft.bank.importers.common import BankWriter, ImportOptions, ImportRecord
+    from anograft.cli import EXIT_OK, auto_dent_classes, main
+
+    d = R.init_recipe_dict("poisson-graft", dent_classes=["pit", "dent"])
+    assert d["pipeline"]["geometry"]["per_class"]["pit"] == {
+        "scale": None,
+        "rotate": [-15.0, 15.0],
+        "flip": False,
+    }
+    assert set(d["pipeline"]["geometry"]["per_class"]) == {"pit", "dent"}
+    assert R.init_recipe_dict("poisson-graft")["pipeline"]["geometry"]["per_class"] == {}
+    # 은행: pit 3(아래 림) + stain 3(균일)
+    w = BankWriter(tmp_path / "b", name="b")
+    w.ensure_classes(["pit", "stain"])
+    for s in [_dent("down", k=i) for i in range(3)] + [_flat(k=i) for i in range(3)]:
+        rec = ImportRecord(
+            image=s.image, gray=False, mask=s.mask, cls=s.cls, origin="t", id_hint=s.id[-3:]
+        )
+        w.add(rec, ImportOptions(margin=8))
+    w.finish({"importer": "test"})
+    assert (
+        auto_dent_classes(tmp_path / "b") == ["pit"] and auto_dent_classes(tmp_path / "nope") == []
+    )
+    target = tmp_path / "r.yaml"
+    assert (
+        main(
+            [
+                "recipe",
+                "init",
+                "--bank",
+                str(tmp_path / "b"),
+                "--auto-dent",
+                "--dent-class",
+                "stain",
+                "--write",
+                str(target),
+            ]
+        )
+        == EXIT_OK
+    )
+    cap = capsys.readouterr()
+    assert "['pit']" in cap.err
+    text = target.read_text(encoding="utf-8")
+    data = yaml.safe_load(text)
+    assert set(data["pipeline"]["geometry"]["per_class"]) == {"pit", "stain"}
+    assert "--dent-class stain pit" in text.splitlines()[0]
+    # 은행 없으면 안내만
+    assert main(["recipe", "init", "--bank", str(tmp_path / "nope"), "--auto-dent"]) == EXIT_OK
+    assert "찾지 못했습니다" in capsys.readouterr().err
