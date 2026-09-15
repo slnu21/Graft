@@ -107,6 +107,8 @@ def test_lighting_warning_and_patch_sides_respect_override() -> None:
     d["pipeline"]["geometry"]["per_class"] = {"pit": {"scale": [0.5, 0.5]}}
     d["pipeline"]["source"] = {"method": "bank", "min_sources_warn": 1}
     prep = runner.Prepared(R.Recipe.from_dict(d), bank, [], None, "h", {"class_probs": {}}, [])  # type: ignore[arg-type]
+    rows = dict(runner.dry_run_table(prep))
+    assert rows["per_class pit"] == "scale 0.5~0.5" and "flip both" in rows["geometry"]
     sides = runner.patch_sides(prep)
     assert sides["pit"] == pytest.approx(sides["stain"] * 0.5 / 1.25 * (12 / 10), rel=0.2)
 

@@ -567,6 +567,22 @@ def dry_run_table(prep: Prepared, *, fit: FitDiagnostic | None = None) -> list[t
     ]
     if tags is not None and tags.active:
         rows.append(("source.tags", tags.describe()))
+    geo = r.pipeline.geometry
+    rows.append(
+        (
+            "geometry",
+            f"scale {geo.scale[0]:g}~{geo.scale[1]:g} · rotate {geo.rotate[0]:g}~{geo.rotate[1]:g}° · flip {geo.flip}",
+        )
+    )
+    for c, o in geo.per_class.items():  # 클래스별 오버라이드 — 준 필드만
+        bits = []
+        if o.scale is not None:
+            bits.append(f"scale {o.scale[0]:g}~{o.scale[1]:g}")
+        if o.rotate is not None:
+            bits.append(f"rotate {o.rotate[0]:g}~{o.rotate[1]:g}°")
+        if o.flip is not None:
+            bits.append(f"flip {o.flip}")
+        rows.append((f"per_class {c}", " · ".join(bits) or "(변경 없음)"))
     for c, p in probs.items():
         expected = p * r.output.count * sum(r.output.defects_per_image) / 2.0
         rows.append(

@@ -713,6 +713,7 @@ def bank_ls_json(bank: Bank, path: str) -> dict:
                 "light_r": r.light_r,
                 "light_n": r.light_n,
                 "directional": r.directional,
+                "light_dir": r.light_dir,
                 "origins": dict(r.origins),
                 "tags": dict(r.tags),
             }
