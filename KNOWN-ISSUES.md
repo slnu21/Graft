@@ -263,3 +263,24 @@ python tools/train_smoke.py --synthetic out/torx-pruned --base <기존 YOLO 셋>
 | 10 | `recipe init --write recipes/x.yaml` | 폴더 자동 생성 |
 
 **결정 대기 항목(결과로 확정)**: `gtmask.diff_threshold` 12 · 박스→마스크 기본 `grabcut` vs `otsu` · YOLO 박스 GT `dilate_px` · `structure-aware prefer` edges/uniform · `grabcut work_px` 1024→512 · 저신뢰 경고 강화 임계 50 % · `dent-graft` 조화 0.2. 뒤집히는 게 있으면 0.7.3(프리셋 기본값 변경은 골든 갱신 + 데브로그 사유).
+
+### 2차 결과 (채울 것 — 다른 PC 에서 돌린 뒤 이 절을 PR 로)
+
+> 아래 표의 빈칸을 채우고, 뒤집힌 결정은 "결정" 절에 한 줄씩. 숫자는 명령 출력을 그대로(`bank ls --json` · `run --dry-run` · `review-report.html`).
+
+| 항목 | 결과 | 근거(명령·파일) |
+|---|---|---|
+| 환경 | `anograft doctor` 버전/OpenCV/Qt: | `doctor.json` |
+| 은행 | 소스 n · 저신뢰 n/est · lightR(클래스별): | `bank-ls.json` |
+| 1 mask_dir ROI(1024 축소) | ✅/❌ — | 스튜디오 캡처 |
+| 2 · 4 annulus | 배치 중심 반경 min~max / 링 r_inner~r_outer: | 사이드카 `placement.center` |
+| 3 저신뢰 | 저신뢰 n 중 실제 실패 마스크 n(정밀도 n/n): | `bank preview` 눈 확인 |
+| 5 조명 | 실제 R(클래스) / 합성 R(poisson-graft · dent-graft) / 뒤집힘 의심 n/N: | `review-report.html` 조명 줄 |
+| 6 축척 | 피치 지정 후 경고 사라짐 ✅/❌: | `run` stderr |
+| 7 tags | dry-run `source.tags` 행: | `run --dry-run` |
+| 8 · 9 GUI | 초안 로드 ✅/❌ · 최근 레시피 ✅/❌: | GUI |
+| 10 init | 폴더 자동 생성 ✅/❌: | `recipe init --write` |
+| 배치 가능성 | `roi width` / `fit <class>`(가능·빠듯·불가) vs 실제 skipped n: | `run --dry-run` · manifest |
+| 검수 | 채택/반려/미검수 · 반려 사유 상위 3: | `review.csv` |
+
+**결정** (뒤집힌 것만): `diff_threshold` 12 → ? · grabcut/otsu → ? · `dilate_px` → ? · `prefer` → ? · `work_px` → ? · 저신뢰 임계 50 % → ? · `dent-graft` 조화 0.2 → ? · `max_align_deg` 30 → ? · 조명 임계 0.5/0.3 → ?
