@@ -503,6 +503,30 @@ def cmd_dataset_info(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_bank_merge(args: argparse.Namespace) -> int:
+    from anograft.bank.merge import MergeError, merge_banks, parse_rename
+
+    try:
+        s = merge_banks(
+            args.banks,
+            args.out,
+            tags=_split_csv(args.tags),
+            rename=parse_rename(args.rename or []),
+            log=(lambda m: _err(f"  {m}")) if args.verbose else None,
+        )
+    except (MergeError, OSError, ValueError) as e:
+        _err(f"병합 실패: {e}")
+        return EXIT_RECIPE_ERROR
+    print(
+        f"병합 완료 → {s.out.as_posix()}: 은행 {s.banks}개 · 소스 {s.copied}개 복사 · id 충돌 {s.duplicates} · "
+        f"클래스 이름 변경 {s.renamed}"
+    )
+    print(f"  classes(id 순): {s.classes}")
+    if s.warnings and not args.verbose:
+        _err(f"경고 {len(s.warnings)}건 (--verbose 로 전부 보기). 첫 줄: {s.warnings[0]}")
+    return EXIT_OK
+
+
 def cmd_bank_ls(args: argparse.Namespace) -> int:
     try:
         bank = Bank.load(args.bank)
@@ -678,6 +702,21 @@ def build_parser() -> argparse.ArgumentParser:
     bd.add_argument("--verbose", action="store_true")
     bd.set_defaults(func=cmd_bank_import_dataset)
 
+    bm = bsub.add_parser(
+        "merge", help="여러 은행을 하나로(세 파일 복사, 클래스 이름 병합, id 충돌 -dup, 태그 추가)"
+    )
+    bm.add_argument("banks", nargs="+", help="소스 은행 폴더들")
+    bm.add_argument("--out", required=True, help="대상 은행(있으면 이어 씀, 소스와 달라야 함)")
+    bm.add_argument("--tags", default=None, help="모든 소스에 더할 태그 a,b")
+    bm.add_argument(
+        "--rename",
+        action="append",
+        default=None,
+        metavar="OLD=NEW",
+        help="클래스 이름 바꾸기(여러 번)",
+    )
+    bm.add_argument("--verbose", action="store_true")
+    bm.set_defaults(func=cmd_bank_merge)
     bl = bsub.add_parser("ls", help="클래스 | 소스 수 | 면적 중앙값 | 마스크 출처(정확/추정)")
     bl.add_argument("bank")
     bl.set_defaults(func=cmd_bank_ls)
