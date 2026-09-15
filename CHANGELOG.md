@@ -4,6 +4,9 @@
 
 ## [Unreleased]
 
+### Added
+- `run --dry-run` 에 `geometry` 요약 행(scale·rotate·flip)과 `per_class <cls>` 행 · `bank ls --json` 에 `light_dir`.
+
 ## [0.7.6] - 2026-09-16
 
 v0.7.5 후속 — flip 모드(none/horizontal/vertical/both, 호환) · per_class 편집 표 · 변형 카드 ↯ · 안전한 flip 자동 선택 · train_smoke 다중 출력. 기존 레시피·골든 불변.

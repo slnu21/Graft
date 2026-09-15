@@ -250,6 +250,7 @@ def test_run_dry_run_writes_nothing(
     assert (
         "roi width" in out and "fit spot" in out and "fit crack" in out
     )  # 배치 가능성 진단(0.7.3)
+    assert "geometry: scale" in out and "flip both" in out  # 기하 요약(0.7.6+)
     assert not (workspace["root"] / "out").exists()
 
 
