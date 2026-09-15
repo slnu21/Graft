@@ -122,3 +122,26 @@ def test_cli_bank_merge(
     assert (
         main(["bank", "merge", str(a), "--out", str(tmp_path / "n"), "--rename", "bad"]) != EXIT_OK
     )
+
+
+def test_merge_dedupe_by_content(
+    two_banks: tuple[Path, Path], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """0.7.6+ ``dedupe`` — 같은 클래스에서 이미지·마스크 바이트가 같은 소스는 한 번만. a+a 는 절반, a+b(마스크 방법이 달라 내용 다름)는 그대로."""
+    a, b = two_banks
+    s = merge_banks([a, a], tmp_path / "aa", dedupe=True)
+    assert s.copied == 5 and s.skipped_same == 5 and s.duplicates == 0
+    assert len(Bank.load(tmp_path / "aa")) == 5
+    s2 = merge_banks([a, a], tmp_path / "aa2")  # dedupe 없으면 -dup 로 둘 다
+    assert s2.copied == 10 and s2.skipped_same == 0 and s2.duplicates == 5
+    s3 = merge_banks([a, b], tmp_path / "ab", dedupe=True)  # 내용이 다르면 id 가 같아도 둘 다
+    assert (
+        s3.copied + s3.skipped_same == 10 and s3.copied >= 9
+    )  # rect/ellipse 가 우연히 같은 작은 박스 하나까지
+    from anograft.cli import EXIT_OK, main
+
+    assert (
+        main(["bank", "merge", str(a), str(a), "--out", str(tmp_path / "cli"), "--dedupe"])
+        == EXIT_OK
+    )
+    assert "내용 중복 건너뜀 5" in capsys.readouterr().out

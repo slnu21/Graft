@@ -5,6 +5,7 @@
 ## [Unreleased]
 
 ### Added
+- `bank merge --dedupe` — 같은 클래스에서 이미지·마스크 내용(sha256)이 같은 소스는 한 번만(같은 원본을 두 은행에 임포트한 경우). 내용이 다르면 id 가 같아도 종전처럼 `-dup`.
 - COCO writer `segmentation: rle` — 비압축 RLE(열 우선, pycocotools 규약, iscrowd 0). 폴리곤은 외곽 윤곽만이라 조각·구멍이 있는 마스크는 RLE 가 무손실. `mask_to_rle/rle_to_mask`.
 - `run --dry-run` 에 `geometry` 요약 행(scale·rotate·flip)과 `per_class <cls>` 행 · `bank ls --json` 에 `light_dir`.
 
