@@ -62,6 +62,12 @@ anograft-gui recipes/sample-poisson.yaml                                  # GUI 
 
 ![GUI 배치 탭](assets/gui-batch.png)
 
+**은행 탭**(v0.7)에서 소스를 신뢰도순으로 보고 저신뢰(빨간 테두리)를 골라 다듬거나 지웁니다. **검수 탭**(v0.7)에서 합성 결과를 A/R 로 판정하고, 왼쪽 히스토그램으로 합성(teal) vs 실제(amber) 결함 크기 분포를 비교한 뒤 반려를 뺀 정리본을 내보냅니다.
+
+![GUI 은행 탭](assets/gui-bank.png)
+
+![GUI 검수 탭](assets/gui-review.png)
+
 ## 보유 데이터로
 
 | 가진 것 | 명령 |
