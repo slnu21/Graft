@@ -4,6 +4,9 @@
 
 ## [Unreleased]
 
+### Added
+- **`anograft bank merge <a> <b> … --out <c> [--rename old=new] [--tags a,b]`** — 여러 은행을 하나로. 세 파일을 그대로 복사(크롭·마스크·추정 점수 보존), 클래스 이름 기준 병합(대상 순서 유지), id 충돌 `-dup<n>`, 은행 기본 `um_per_px` 를 소스 메타에 실체화, `merged_from` 기록. 대상이 은행이면 이어 쓴다.
+
 ### Changed
 - **레시피 상대경로**(KNOWN-ISSUES #9 보완): `inputs.bank`·`inputs.targets`·`source.texture_dir`·`roi.path` 가 상대경로면 **cwd 우선, 없으면 레시피 파일 기준**으로 해석한다(`resolve_recipe_paths`, 하위 호환 — repo 루트에서 `recipes/x.yaml` 을 돌리는 방식은 그대로). CLI 는 `경로: …` 로, 스튜디오는 상태바로 알린다. GUI 최근 레시피 복원·검수 탭 실제 분포가 다른 폴더에서 열어도 동작. `output.root` 는 여전히 cwd 기준.
 - **ROI 캐시**(대상당 ROI 1회): 스튜디오 변형 k 개·카드 파라미터 편집·CLI `run` 의 대상 재추첨에서 같은 대상의 ROI(grabcut 은 1400² 에서 수 초~수십 초)를 다시 풀지 않는다 — `Pipeline.roi_cache`(LRU 16, 키 = 대상 경로·크기·ROI 설정), `runner.prepare` 가 켜고 `reprepare` 가 이어 받는다. 결과 바이트·사이드카 불변(ROI 스테이지는 rng 를 쓰지 않는다). 1400² grabcut 변형 2.74 s → 0.20 s.
