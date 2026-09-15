@@ -6,6 +6,7 @@
 
 ### Added
 - **`geometry.per_class`** — 클래스별 기하 오버라이드(`{cls: {scale?, rotate?, flip?}}`, 준 필드만 덮어씀). 한 은행에 스크래치(±180)와 찍힘(±15·flip 끔)이 섞여 있을 때 레시피 하나로. 오버라이드 없는 클래스는 바이트 동일 · 사이드카 `geometry.per_class: true` · 은행에 없는 클래스는 `validate_against` 경고 · `lighting_warning`/배치 진단이 클래스별 범위로 판단(경고문이 문법을 안내). 카드 편집기엔 안 나옴(YAML).
+- 퀵스타트(GUI '샘플 데이터' · `sample --quickstart`)가 은행의 조명 의존 클래스(샘플 pit)를 `geometry.per_class` 로 써 준다 — 처음 만든 레시피부터 조명 경고 없음. 검수 히스토그램 제목에 '실제 = <클래스>'.
 - 검수 '실제' 분포는 **레시피가 뽑은 클래스만**(`source.classes` → `class_ratio` 키 → 전부) — pit 만 합성한 출력을 은행의 스크래치와 비교하지 않는다(`ReviewSession.real_classes/real_sources`).
 - `dataset prune --drop-flipped` — 조명 뒤집힘 의심(검수 탭 필터와 같은 집합, 은행 필요)도 제외. `prune_dataset(drop_indices=)`.
 - 빈 상태 안내 ⓪ "데이터가 하나도 없으면 상단 '샘플 데이터'".
