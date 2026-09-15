@@ -487,6 +487,31 @@ def cmd_dataset_textures(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_dataset_report(args: argparse.Namespace) -> int:
+    """검수 리포트 HTML(의존성 0) — 검수 탭 '리포트' 와 같은 내용."""
+    from anograft.gui.review.session import ReviewError, ReviewSession
+
+    s = ReviewSession()
+    try:
+        s.load(args.root, load_bank=not args.no_bank)
+        out = s.write_report(args.out)
+    except ReviewError as e:
+        _err(f"리포트 실패: {e}")
+        return EXIT_RECIPE_ERROR
+    c = s.counts()
+    print(
+        f"리포트 → {out.as_posix()}: 합성 {c['ok']} · 채택 {c['accept']} · 반려 {c['reject']} · 미검수 {c['unreviewed']}"
+        + (
+            f" · 실제(은행) {len(s.real_values())}"
+            if s.bank is not None
+            else " · 은행 없음(실제 분포 없음)"
+        )
+    )
+    for w in s.warnings:
+        _err(f"경고: {w}")
+    return EXIT_OK
+
+
 def cmd_dataset_info(args: argparse.Namespace) -> int:
     names = adapter_names()
     if not args.name:
@@ -749,6 +774,13 @@ def build_parser() -> argparse.ArgumentParser:
     dt.add_argument("--limit", type=int, default=None, help="최대 장수 (seed 로 결정적 추출)")
     dt.add_argument("--seed", type=int, default=0)
     dt.set_defaults(func=cmd_dataset_textures)
+    dr = dsub.add_parser(
+        "report", help="검수 리포트 HTML 한 장(채택/반려·클래스별·합성 vs 실제 분포·반려 목록)"
+    )
+    dr.add_argument("root", help="anograft run 출력 폴더 (manifest.csv, review.csv)")
+    dr.add_argument("--out", default=None, help="HTML 경로 (기본 <root>/review-report.html)")
+    dr.add_argument("--no-bank", action="store_true", help="은행을 열지 않는다(실제 분포 생략)")
+    dr.set_defaults(func=cmd_dataset_report)
     dp = dsub.add_parser(
         "prune",
         help="검수 review.csv 에서 반려된 합성 이미지를 뺀 정리본 사본 (v0.7 검수 탭과 같은 동작)",

@@ -114,3 +114,13 @@ def test_main_window_has_review_tab(qapp: QApplication) -> None:
     finally:
         win.close()
         qapp.processEvents()
+
+
+def test_review_tab_report_button(qapp: QApplication, output_root: Path) -> None:  # noqa: F811
+    t = ReviewTab()
+    t.open_report_in_browser = False
+    assert t.write_report() is None  # 열기 전
+    t.open_root(output_root)
+    p = t.write_report()
+    assert p is not None and p.is_file() and "리포트" in t.result.text()
+    t.close()
