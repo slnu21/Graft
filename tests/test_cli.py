@@ -558,3 +558,46 @@ def test_bank_ls_json_and_doctor(
         and "gui" in info
         and info["methods_unusable"] == []
     )
+
+
+def test_recipe_init_roi_and_um_per_px(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """0.7.3 — ``--roi`` 는 프리셋의 ROI method 만 갈아 끼우고(그 method 기본값으로 펼침) ``--um-per-px`` 는 inputs 로."""
+    target = tmp_path / "d.yaml"
+    assert (
+        main(
+            [
+                "recipe",
+                "init",
+                "--preset",
+                "dent-graft",
+                "--roi",
+                "annulus",
+                "--um-per-px",
+                "3.5",
+                "--write",
+                str(target),
+            ]
+        )
+        == EXIT_OK
+    )
+    text = target.read_text(encoding="utf-8")
+    data = yaml.safe_load(text)
+    roi = data["pipeline"]["placement"]["roi"]
+    assert roi["method"] == "annulus" and roi["r_inner"] == 0.55 and roi["units"] == "ratio"
+    assert (
+        data["pipeline"]["placement"]["method"] == "structure-aware"
+    )  # 나머지 배치 설정은 프리셋 그대로
+    assert data["pipeline"]["placement"]["max_align_deg"] == 30.0
+    assert data["pipeline"]["geometry"]["rotate"] == [-15.0, 15.0]
+    assert data["inputs"]["um_per_px"] == 3.5 and "--roi annulus" in text.splitlines()[0]
+    capsys.readouterr()
+    assert main(["recipe", "check", str(target)]) == EXIT_OK
+    capsys.readouterr()
+    # 없는 ROI 는 argparse 가 막는다
+    with pytest.raises(SystemExit):
+        main(["recipe", "init", "--roi", "nope"])
+    from anograft.core import recipe as R
+
+    with pytest.raises(KeyError):
+        R.init_recipe_dict("poisson-graft", roi="nope")
+    assert R.init_recipe_dict("poisson-graft")["inputs"]["um_per_px"] is None
