@@ -58,6 +58,7 @@ SETTINGS_ORG, SETTINGS_APP = "slnu21", "Graft"
 RECENT_RECIPE_KEY = "recent_recipe"
 EMPTY_STATE = (
     "레시피가 열려 있지 않습니다 · No recipe loaded\n\n"
+    "⓪  데이터가 하나도 없으면 상단 '샘플 데이터'   No data at all? Click 'Sample…' at the top\n"
     "①  라벨 탭에서 결함 사진 → 마스크 → 은행에 저장   Label tab: defect photo → mask → save to bank\n"
     "②  왼쪽 '입력'에 은행 폴더와 정상 이미지 폴더 → 열기   Inputs (left): bank + normal-image folder → Open\n"
     "③  프리셋을 고르고 대상을 클릭 → 미리보기   Pick a preset, click a target → preview\n"
