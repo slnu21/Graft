@@ -91,3 +91,22 @@ def test_main_dry_run_and_missing_ultralytics(
     assert "pip install ultralytics" in capsys.readouterr().err
     # 잘못된 입력 → 1
     assert main(["--synthetic", str(tmp_path / "nope"), "--out", str(tmp_path / "m3")]) == 1
+
+
+def test_merge_multiple_synthetic_roots(tmp_path: Path) -> None:
+    """0.7.5+ — 출력 여러 개(다른 프리셋·시드)를 한 학습셋으로: 접두어 syn<k>_, 클래스가 다르면 오류, 각각 20% val."""
+    a = _yolo_set(tmp_path / "a", ["a", "b"], ["000", "001", "002", "003", "004"], labeled={"000"})
+    b = _yolo_set(tmp_path / "b", ["a", "b"], ["000", "001", "002", "003", "004"], labeled={"001"})
+    s = merge_yolo_sets([a, b], tmp_path / "m")
+    assert (s.n_train, s.n_val) == (10, 2)
+    train = sorted(p.name for p in (tmp_path / "m" / "images" / "train").iterdir())
+    assert train[:2] == ["syn0_000.png", "syn0_001.png"] and "syn1_004.png" in train
+    assert len(train) == 10  # 같은 stem 이라도 접두어로 충돌 없음
+    c = _yolo_set(tmp_path / "c", ["b", "a"], ["000"], labeled={"000"})
+    with pytest.raises(ValueError):
+        merge_yolo_sets([a, c], tmp_path / "m2")
+    with pytest.raises(ValueError):
+        merge_yolo_sets([], tmp_path / "m3")
+    # 하나만 주면 종전과 같은 접두어 syn_
+    s1 = merge_yolo_sets([a], tmp_path / "m4")
+    assert s1.n_train == 5 and (tmp_path / "m4" / "images" / "train" / "syn_000.png").exists()

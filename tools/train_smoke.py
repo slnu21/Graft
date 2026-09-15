@@ -72,11 +72,26 @@ def _copy_pair(
 
 
 def merge_yolo_sets(
-    synthetic: Path, out: Path, *, base: Path | None = None, val_ratio: float = 0.2
+    synthetic: Path | list[Path] | tuple[Path, ...],
+    out: Path,
+    *,
+    base: Path | None = None,
+    val_ratio: float = 0.2,
 ) -> MergeSummary:
-    """anograft 출력 + (선택) 기존 셋 → ultralytics 가 바로 읽는 ``<out>/data.yaml``."""
-    synthetic, out = Path(synthetic), Path(out)
-    names = read_names(synthetic / "data.yaml")
+    """anograft 출력(하나 또는 여러 개 — 다른 프리셋·시드로 돌린 셋을 한 학습셋으로) + (선택) 기존 셋 →
+    ultralytics 가 바로 읽는 ``<out>/data.yaml``. 여러 출력은 클래스 이름·순서가 같아야 하고 접두어 ``syn<k>_`` 로 stem 충돌을 피한다."""
+    roots = [Path(p) for p in (synthetic if isinstance(synthetic, (list, tuple)) else [synthetic])]
+    if not roots:
+        raise ValueError("합성 출력 폴더를 하나 이상 주세요")
+    out = Path(out)
+    names = read_names(roots[0] / "data.yaml")
+    for r in roots[1:]:
+        other = read_names(r / "data.yaml")
+        if other != names:
+            raise ValueError(
+                f"클래스 이름/순서가 다릅니다 — {roots[0]} {names} vs {r} {other}. "
+                "같은 은행(또는 같은 names_from)으로 돌린 출력끼리만 합칩니다"
+            )
     if base is not None:
         base = Path(base)
         base_names = read_names(base / "data.yaml")
@@ -88,9 +103,10 @@ def merge_yolo_sets(
     for sub in ("images/train", "images/val", "labels/train", "labels/val"):
         (out / sub).mkdir(parents=True, exist_ok=True)
     n_train = n_val = n_empty = 0
-    syn_images = list_images(synthetic / "images")
-    if not syn_images:
-        raise ValueError(f"합성 이미지가 없습니다: {synthetic / 'images'}")
+    per_root = [(r, list_images(r / "images")) for r in roots]
+    for r, imgs in per_root:
+        if not imgs:
+            raise ValueError(f"합성 이미지가 없습니다: {r / 'images'}")
     if base is not None:
         for img in list_images(base / "images"):
             n_empty += _copy_pair(
@@ -99,18 +115,20 @@ def merge_yolo_sets(
             n_train += 1
             _copy_pair(img, base / "labels", "base_", out / "images/val", out / "labels/val")
             n_val += 1
+    for k, (r, imgs) in enumerate(per_root):
+        prefix = "syn_" if len(per_root) == 1 else f"syn{k}_"
         val_syn: set[Path] = set()
-    else:
-        k = max(1, round(len(syn_images) * val_ratio))
-        val_syn = set(syn_images[:k])
-    for img in syn_images:
-        n_empty += _copy_pair(
-            img, synthetic / "labels", "syn_", out / "images/train", out / "labels/train"
-        )
-        n_train += 1
-        if img in val_syn:
-            _copy_pair(img, synthetic / "labels", "syn_", out / "images/val", out / "labels/val")
-            n_val += 1
+        if base is None:
+            n_v = max(1, round(len(imgs) * val_ratio))
+            val_syn = set(imgs[:n_v])
+        for img in imgs:
+            n_empty += _copy_pair(
+                img, r / "labels", prefix, out / "images/train", out / "labels/train"
+            )
+            n_train += 1
+            if img in val_syn:
+                _copy_pair(img, r / "labels", prefix, out / "images/val", out / "labels/val")
+                n_val += 1
     (out / "data.yaml").write_text(
         yaml.safe_dump(
             {
@@ -157,7 +175,12 @@ def train(data_yaml: Path, *, model: str, epochs: int, imgsz: int, project: Path
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])  # type: ignore[union-attr]
-    ap.add_argument("--synthetic", required=True, help="anograft run 출력 루트")
+    ap.add_argument(
+        "--synthetic",
+        required=True,
+        action="append",
+        help="anograft run 출력 루트 (반복 가능 — 다른 프리셋·시드 출력을 한 셋으로)",
+    )
     ap.add_argument("--base", default=None, help="기존 YOLO 학습셋(images/·labels/·data.yaml)")
     ap.add_argument("--out", required=True, help="합친 셋 출력 폴더")
     ap.add_argument("--dry-run", action="store_true", help="합치기만 하고 학습은 생략")
@@ -175,7 +198,9 @@ def main(argv: list[str] | None = None) -> int:
                 reconfigure(errors="replace")
     try:
         summary = merge_yolo_sets(
-            Path(args.synthetic), Path(args.out), base=Path(args.base) if args.base else None
+            [Path(x) for x in args.synthetic],
+            Path(args.out),
+            base=Path(args.base) if args.base else None,
         )
     except (ValueError, OSError) as e:  # 잘못된 인자·없는 폴더/파일
         print(f"합치기 실패: {e}", file=sys.stderr)
