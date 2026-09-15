@@ -389,6 +389,7 @@ RoiConfig = Annotated[
     OtsuRoiConfig | NoneRoiConfig | MaskDirRoiConfig | GrabCutRoiConfig | AnnulusRoiConfig,
     Field(discriminator="method"),
 ]
+ROI_METHODS: tuple[str, ...] = ("otsu", "none", "mask_dir", "grabcut", "annulus")  # union 순서
 
 
 class ShrinkConfig(_Strict):
@@ -939,13 +940,17 @@ def init_recipe_dict(
     out: str = "./out/run-01",
     seed: int = 20260913,
     count: int = 100,
+    roi: str | None = None,
+    um_per_px: float | None = None,
 ) -> dict[str, Any]:
-    """``recipe init``용 — 프리셋을 완전히 펼친 레시피 딕셔너리(사용자가 모든 손잡이를 본다)."""
-    data = {
+    """``recipe init``용 — 프리셋을 완전히 펼친 레시피 딕셔너리(사용자가 모든 손잡이를 본다).
+    ``roi`` 는 프리셋의 ROI method 만 갈아 끼운다(예: dent-graft + annulus — 원형 부품의 찍힘). 그 method 의
+    기본값으로 펼쳐지므로 반경 비율 등은 파일에서 조정. ``um_per_px`` 는 대상 피치(축척 정합)."""
+    data: dict[str, Any] = {
         "version": 1,
         "name": name or preset,
         "seed": seed,
-        "inputs": {"bank": bank, "targets": targets, "um_per_px": None},
+        "inputs": {"bank": bank, "targets": targets, "um_per_px": um_per_px},
         "output": {
             "root": out,
             "count": count,
@@ -960,4 +965,8 @@ def init_recipe_dict(
     pipe = apply_preset(dict(data))["pipeline"]
     if str(pipe.get("source", {}).get("method", "bank")) in BANKLESS_SOURCES:
         data["inputs"]["bank"] = None  # 은행 없이 동작하는 프리셋
+    if roi is not None:
+        if roi not in ROI_METHODS:
+            raise KeyError(f"ROI method 가 없습니다: {roi!r} (선택: {', '.join(ROI_METHODS)})")
+        set_method_in_dict(data, "roi", roi)
     return Recipe.from_dict(data).to_dict()

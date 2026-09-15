@@ -53,7 +53,7 @@ anograft preview recipes/sample-poisson.yaml --index 0 --compare-methods blend -
 anograft-gui recipes/sample-poisson.yaml                                  # GUI (zip: .\anograft-gui.exe · pip: python -m anograft.gui). 인자 없이 켜면 최근 레시피 복원, 없으면 시작 안내
 ```
 
-`anograft methods`가 스테이지별 선택지와 가용 여부를, `anograft recipe init --preset <이름> --write my.yaml`이 프리셋을 펼친 레시피를 줍니다. 레시피 상대경로는 **현재 폴더 기준**입니다.
+`anograft methods`가 스테이지별 선택지와 가용 여부를, `anograft recipe init --preset <이름> --write my.yaml`이 프리셋을 펼친 레시피를 줍니다(`--roi annulus` 로 ROI 만 바꾸고 `--um-per-px` 로 대상 피치를 — 예: `--preset dent-graft --roi annulus` 는 원형 부품의 찍힘). 레시피 상대경로는 **현재 폴더 기준**입니다.
 
 ![GUI 스튜디오](assets/gui-studio.png)
 
@@ -180,7 +180,7 @@ anograft preview recipes/sample-poisson.yaml --index 0 --compare-methods blend -
 anograft-gui recipes/sample-poisson.yaml                                  # GUI (zip: .\anograft-gui.exe · pip: python -m anograft.gui)
 ```
 
-`anograft methods` lists per-stage choices and availability; `anograft recipe init --preset <name> --write my.yaml` expands a preset. Relative paths in recipes resolve against the **current directory**.
+`anograft methods` lists per-stage choices and availability; `anograft recipe init --preset <name> --write my.yaml` expands a preset (`--roi annulus` swaps only the ROI, `--um-per-px` sets the target pitch — e.g. `--preset dent-graft --roi annulus` for dents on a round part). Relative paths in recipes resolve against the **current directory**.
 
 In the Studio, the **pipeline cards** on the right let you pick each stage's method and **edit every parameter in place** (generated from the recipe schema — ranges, on/off, choices, paths; `null` = unchecked). Invalid values are rejected with a red line on that card, and edits go straight into the saved recipe (v0.6).
 

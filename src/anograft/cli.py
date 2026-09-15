@@ -104,13 +104,17 @@ def cmd_recipe_init(args: argparse.Namespace) -> int:
             out=args.out,
             seed=args.seed,
             count=args.count,
+            roi=args.roi,
+            um_per_px=args.um_per_px,
         )
     except KeyError as e:
         print(str(e.args[0]), file=sys.stderr)
         return EXIT_RECIPE_ERROR
     text = yaml.safe_dump(data, sort_keys=False, allow_unicode=True, default_flow_style=None)
     header = (
-        f"# anograft {__version__} — recipe init --preset {args.preset}\n"
+        f"# anograft {__version__} — recipe init --preset {args.preset}"
+        + (f" --roi {args.roi}" if args.roi else "")
+        + "\n"
         "# 모든 손잡이가 펼쳐져 있습니다. 스테이지의 method를 바꾸면 그 스테이지 키는 해당 method의 것만 남기세요.\n"
     )
     if args.write:
@@ -728,6 +732,15 @@ def build_parser() -> argparse.ArgumentParser:
     pi.add_argument("--out", default="./out/run-01")
     pi.add_argument("--seed", type=int, default=20260913)
     pi.add_argument("--count", type=int, default=100)
+    pi.add_argument(
+        "--roi",
+        default=None,
+        choices=list(R.ROI_METHODS),
+        help="프리셋의 ROI method 만 교체 (예: --preset dent-graft --roi annulus — 원형 부품의 찍힘)",
+    )
+    pi.add_argument(
+        "--um-per-px", type=float, default=None, help="대상 µm/px (inputs.um_per_px — 축척 정합)"
+    )
     pi.add_argument("--write", default=None, help="파일로 쓰기 (기본은 stdout)")
     pi.set_defaults(func=cmd_recipe_init)
 

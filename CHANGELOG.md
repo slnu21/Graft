@@ -10,6 +10,7 @@
 - **조명 의존 클래스를 은행에서 미리 잡는다** — `bank ls` 에 `lightR` 열(클래스별 실제 소스의 조명 일관성 R, n ≥ 3)·`--json` `light_r/light_n`, `run`/스튜디오 `prepare` 경고 `lighting_warning`(R ≥ 0.5 클래스를 rotate 폭 > 90° 또는 flip 으로 합성하면 "하이라이트 방향이 뒤집힙니다 → dent-graft"). 외형 지표 4종은 `core/appearance.py` 로(검수 탭·은행·runner 가 같은 정의).
 - 스튜디오: prepare 경고 중 스테이지 접두가 있는 것(`geometry:` 조명 경고)은 **해당 카드 ⚠** 로 — 변형을 바꿔도 남고, 회전을 조이거나 flip 을 끄면 사라진다. `reprepare`(카드 편집)도 축척·저신뢰·조명 경고를 다시 계산(전엔 카드 편집 뒤 상태바에서 사라졌음).
 - 은행 탭 요약 한 줄에 **조명 의존 클래스**(`lightR` ≥ 0.5) 와 dent-graft 안내.
+- `anograft recipe init --roi <method> --um-per-px <피치>` — 프리셋의 ROI 만 교체(예: `--preset dent-graft --roi annulus`)·대상 피치. 헤더 주석에 남는다.
 - `anograft recipe check` 가 `run`/GUI 와 같은 prepare 경고(대조·축척·저신뢰·조명)를 낸다(`runner.prepare_warnings` 공용).
 - `structure-aware` 배치 옵션 **`max_align_deg`**(null = 종전) — 결·접선 정렬에 이보다 큰 회전이 필요한 자리는 정렬하지 않는다(사이드카 `align_capped` 에 필요했던 각). rng 소비 동일.
 
