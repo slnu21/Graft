@@ -238,7 +238,7 @@ anograft recipe init --preset annulus-graft --bank bank/torx --targets ok/ --out
 #    찍힘이면 dent-graft 도 (#5, 0.7.3): --preset dent-graft --roi annulus  (피치를 알면 --um-per-px <피치>)
 #    (데이터 없이 이 단계를 먼저 연습: anograft sample --out samples/ring --shape ring → import → 위 init)
 anograft run recipes/torx-annulus.yaml --dry-run            # roi width(링 폭) vs fit <class>(패치 폭) — 불가/빠듯이면 geometry.scale·erode_px 먼저
-anograft run recipes/torx-annulus.yaml --workers 4          # stderr 경고: 축척 정합 · 저신뢰 · skipped 사유(ROI 폭 vs 패치)
+anograft run recipes/torx-annulus.yaml --workers 4 --report # stderr 경고: 축척 정합 · 저신뢰 · skipped 사유(ROI 폭 vs 패치) · --report 는 리포트 HTML 까지
 
 # 4. 검수 (GUI 검수 탭 또는) — 반려하고 정리본 + 리포트
 anograft dataset report out/torx-annulus                    # 합성 vs 실제 면적·긴 변·대비 히스토그램
