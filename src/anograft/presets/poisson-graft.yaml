@@ -11,7 +11,7 @@ pipeline:
     method: affine
     scale: [0.8, 1.25]
     rotate: [-180, 180]
-    flip: true
+    flip: both                 # none · horizontal · vertical · both (true/false 도 됨)
     elastic: { alpha: 0, sigma: 4 }
   placement:
     method: sampled

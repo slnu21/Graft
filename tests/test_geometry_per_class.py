@@ -23,9 +23,11 @@ def _cfg(**kw) -> R.AffineGeometryConfig:
 def test_schema_partial_override_and_validation() -> None:
     g = _cfg(per_class={"pit": {"rotate": [-15, 15], "flip": False}})
     e = g.for_class("pit")
-    assert e.rotate == (-15.0, 15.0) and e.flip is False and e.scale == (0.8, 1.25) and e.overridden
+    assert (
+        e.rotate == (-15.0, 15.0) and e.flip == "none" and e.scale == (0.8, 1.25) and e.overridden
+    )
     d = g.for_class("scratch")
-    assert d.rotate == (-180.0, 180.0) and d.flip is True and not d.overridden
+    assert d.rotate == (-180.0, 180.0) and d.flip == "both" and not d.overridden
     assert not g.for_class(None).overridden
     with pytest.raises(ValidationError):
         _cfg(per_class={"pit": {"rotate": [-400, 0]}})
@@ -95,7 +97,7 @@ def test_lighting_warning_and_patch_sides_respect_override() -> None:
         "pit": {"rotate": [-15, 15]}
     }  # flip 은 그대로 → 여전히 경고
     w = runner.lighting_warning(R.Recipe.from_dict(d), bank)
-    assert w and "flip" in w and "rotate" not in w.split("로 합성하면")[0].split(" 을 ")[1]
+    assert w and "flip both" in w and "rotate" not in w.split("로 합성하면")[0].split(" 을 ")[1]
     assert "per_class" in w
     # 은행에 없는 클래스는 validate_against 경고
     d["pipeline"]["geometry"]["per_class"] = {"nope": {"flip": False}}
@@ -120,7 +122,7 @@ def test_recipe_init_dent_class_and_auto_dent(tmp_path, capsys) -> None:
     assert d["pipeline"]["geometry"]["per_class"]["pit"] == {
         "scale": None,
         "rotate": [-15.0, 15.0],
-        "flip": False,
+        "flip": "none",
     }
     assert set(d["pipeline"]["geometry"]["per_class"]) == {"pit", "dent"}
     assert R.init_recipe_dict("poisson-graft")["pipeline"]["geometry"]["per_class"] == {}
@@ -162,3 +164,56 @@ def test_recipe_init_dent_class_and_auto_dent(tmp_path, capsys) -> None:
     # 은행 없으면 안내만
     assert main(["recipe", "init", "--bank", str(tmp_path / "nope"), "--auto-dent"]) == EXIT_OK
     assert "찾지 못했습니다" in capsys.readouterr().err
+
+
+def test_flip_modes_compat_rng_and_lighting() -> None:
+    """0.7.5+ ``flip``: none/horizontal/vertical/both — YAML true/false 호환(both/none), rng 소비(both 2·h/v 1·none 0),
+    조명 경고는 방향에 따라(위/아래 조명이면 horizontal 안전)."""
+    from anograft.core.appearance import flip_breaks_lighting
+    from anograft.core.stages.geometry import AffineGeometry
+    from tests.fixtures import context, line_defect
+
+    assert _cfg(flip=True).flip == "both" and _cfg(flip=False).flip == "none"
+    assert _cfg(flip="horizontal").flip == "horizontal"
+    with pytest.raises(ValidationError):
+        _cfg(flip="sideways")
+    assert (
+        R.GeometryOverride(flip=True).flip == "both"
+        and R.GeometryOverride(flip="vertical").flip == "vertical"
+    )
+    e = _cfg(flip="horizontal").for_class(None)
+    assert e.flip_h and not e.flip_v
+    # rng 소비: 같은 시드에서 both 는 h·v 두 번, horizontal 은 h 한 번 → 뒤따르는 난수가 달라진다(결정성은 유지)
+    src = line_defect(18, 4)
+    outs = {
+        m: AffineGeometry(_cfg(rotate=(0.0, 0.0), scale=(1.0, 1.0), flip=m), {}).apply(
+            context(source=src, seed=9)
+        )
+        for m in ("none", "horizontal", "vertical", "both")
+    }
+    assert outs["none"].log["geometry"]["flip"] == [False, False]
+    assert outs["horizontal"].log["geometry"]["flip"][1] is False
+    assert outs["vertical"].log["geometry"]["flip"][0] is False
+    for m in ("none", "horizontal", "vertical", "both"):
+        again = AffineGeometry(_cfg(rotate=(0.0, 0.0), scale=(1.0, 1.0), flip=m), {}).apply(
+            context(source=src, seed=9)
+        )
+        assert again.log["geometry"]["flip"] == outs[m].log["geometry"]["flip"]
+    # 조명 방향 vs flip
+    assert not flip_breaks_lighting("none", 90.0) and flip_breaks_lighting("both", 90.0)
+    assert not flip_breaks_lighting("horizontal", 90.0) and flip_breaks_lighting(
+        "vertical", 90.0
+    )  # 아래 조명
+    assert flip_breaks_lighting("horizontal", 0.0) and not flip_breaks_lighting(
+        "vertical", 0.0
+    )  # 옆 조명
+    assert flip_breaks_lighting("horizontal", None) and flip_breaks_lighting("vertical", None)
+    # 경고: 아래 조명 pit + horizontal → 없음, vertical → 있음
+    bank = Bank.from_sources([_dent("down", k=i) for i in range(3)], classes=["pit"])
+    assert (
+        runner.lighting_warning(_recipe("poisson-graft", rotate=[-15, 15], flip="horizontal"), bank)
+        is None
+    )
+    w = runner.lighting_warning(_recipe("poisson-graft", rotate=[-15, 15], flip="vertical"), bank)
+    assert w and "flip vertical" in w
+    assert R.DENT_OVERRIDE["flip"] == "none"

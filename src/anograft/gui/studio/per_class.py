@@ -24,7 +24,13 @@ from PySide6.QtWidgets import (
 from anograft.core import recipe as R
 
 DEBOUNCE_MS = 350
-FLIP_CHOICES = ("기본", "켬", "끔")  # None / True / False
+FLIP_CHOICES: tuple[tuple[str, str], ...] = (  # (라벨, 값) — "" = 기본(전체 설정)
+    ("기본", ""),
+    ("없음 none", "none"),
+    ("좌우 horizontal", "horizontal"),
+    ("상하 vertical", "vertical"),
+    ("둘 다 both", "both"),
+)
 
 
 class _Row(QWidget):
@@ -51,9 +57,12 @@ class _Row(QWidget):
             sp.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
             sp.setMinimumWidth(64)
         self.flip = QComboBox()
-        self.flip.addItems(list(FLIP_CHOICES))
-        self.flip.setCurrentIndex(2)  # 조명 의존 클래스의 기본 = 끔
-        self.flip.setToolTip("flip — 기본(전체 설정) / 켬 / 끔")
+        for label, val in FLIP_CHOICES:
+            self.flip.addItem(label, val)
+        self.flip.setCurrentIndex(self.flip.findData("none"))  # 조명 의존 클래스의 기본 = 없음
+        self.flip.setToolTip(
+            "flip — 기본(전체 설정) / 없음 / 좌우 / 상하 / 둘 다. 조명이 위·아래에서 오면 좌우는 안전"
+        )
         h.addWidget(self.use, 1)
         h.addWidget(QLabel("회전"))
         h.addWidget(self.lo)
@@ -80,7 +89,7 @@ class _Row(QWidget):
             if o.rotate is not None:
                 self.lo.setValue(float(o.rotate[0]))
                 self.hi.setValue(float(o.rotate[1]))
-            self.flip.setCurrentIndex(0 if o.flip is None else (1 if o.flip else 2))
+            self.flip.setCurrentIndex(self.flip.findData("" if o.flip is None else o.flip))
         self._sync_enabled(o is not None)
         del blockers
 
@@ -89,8 +98,8 @@ class _Row(QWidget):
         if not self.use.isChecked():
             return None
         d: dict[str, Any] = {"rotate": [self.lo.value(), self.hi.value()]}
-        idx = self.flip.currentIndex()
-        d["flip"] = None if idx == 0 else idx == 1
+        fv = self.flip.currentData()
+        d["flip"] = None if fv in ("", None) else fv
         if keep is not None and keep.scale is not None:
             d["scale"] = list(keep.scale)
         return d
@@ -106,7 +115,7 @@ class PerClassEditor(QWidget):
         v = QVBoxLayout(self)
         v.setContentsMargins(0, 4, 0, 0)
         v.setSpacing(3)
-        self.title = QLabel("클래스별 per_class — 회전·flip 만 (scale 은 YAML)")
+        self.title = QLabel("클래스별 per_class — 회전·flip (scale 은 YAML)")
         self.title.setObjectName("Muted")
         self.title.setWordWrap(True)
         v.addWidget(self.title)

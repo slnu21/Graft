@@ -251,7 +251,7 @@ def test_quickstart_builds_bank_normals_recipe(
     # 은행의 조명 의존 클래스(샘플 pit, 3장 이상이면)는 per_class 로 — 없으면 빈 dict
     per = data["pipeline"]["geometry"]["per_class"]
     assert set(per) == set(q.dent_classes) and all(
-        per[c] == {"scale": None, "rotate": [-15.0, 15.0], "flip": False} for c in per
+        per[c] == {"scale": None, "rotate": [-15.0, 15.0], "flip": "none"} for c in per
     )
     assert ("per_class" in q.line()) == bool(q.dent_classes)
     assert data["inputs"]["bank"] == q.bank.as_posix() and data["output"]["root"].endswith("/out")

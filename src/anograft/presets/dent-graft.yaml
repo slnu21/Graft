@@ -25,7 +25,7 @@ pipeline:
     method: affine
     scale: [0.9, 1.1]          # 찍힘 크기는 공구·힘에 묶여 있어 분포가 좁다
     rotate: [-15, 15]          # 조명 의존 — ±180 금지 (위 주석)
-    flip: false                # 조명 반전 금지
+    flip: none                 # 조명 반전 금지 — 조명이 위/아래에서 오면 horizontal 은 안전(run 경고가 방향으로 판단)
     elastic: { alpha: 0, sigma: 4 }
   placement:
     method: structure-aware

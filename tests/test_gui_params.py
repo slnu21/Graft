@@ -34,7 +34,14 @@ def test_field_specs_cover_every_kind_from_schema() -> None:
         "elastic.sigma",
     ]  # 선언 순서 · 중첩 평탄화
     assert geo["scale"].kind == "range" and geo["scale"].value == [0.8, 1.25]
-    assert geo["flip"].kind == "bool" and geo["flip"].value is True
+    assert (
+        geo["flip"].kind == "choice" and geo["flip"].value == "both"
+    )  # 0.7.5+: none/horizontal/vertical/both
+    assert set(geo["flip"].choices) == {"none", "horizontal", "vertical", "both"}
+    per = _by_name(field_specs(R.PerlinSourceConfig()))
+    assert (
+        per["augment"].kind == "bool" and per["augment"].value is True
+    )  # bool 종류는 여전히 체크박스
     assert geo["elastic.alpha"].kind == "float" and geo["elastic.alpha"].lo == 0.0
     assert (
         geo["elastic.sigma"].lo == 0.0 and geo["elastic.sigma"].lo_open is True

@@ -122,9 +122,12 @@ class AffineGeometry:
         phys = physical_scale(src.um_per_px, ctx.target.um_per_px)
         scale = phys.factor * float(rng.uniform(eff.scale[0], eff.scale[1]))
         angle = float(rng.uniform(eff.rotate[0], eff.rotate[1]))
-        flip_h = flip_v = False
-        if eff.flip:
+        flip_h = flip_v = (
+            False  # rng 소비: both 2회(종전 true) · horizontal/vertical 1회 · none 0회(종전 false)
+        )
+        if eff.flip_h:
             flip_h = bool(rng.random() < 0.5)
+        if eff.flip_v:
             flip_v = bool(rng.random() < 0.5)
 
         patch, mask = warp_affine(src.image, src.mask, scale, angle, flip_h, flip_v)

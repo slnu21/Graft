@@ -178,7 +178,7 @@ def test_params_text_and_stage_thumbnail(qapp: QApplication) -> None:
 
     rec = default_recipe()
     text = params_text(rec.pipeline.geometry)
-    assert "scale 0.8–1.25" in text and "method" not in text and "flip True" in text
+    assert "scale 0.8–1.25" in text and "method" not in text and "flip both" in text
     assert params_text(rec.pipeline.blend).startswith("poisson_mode normal")
     bank = memory_bank([line_defect(14, 3)])
     ses = StudioSession(rec)
@@ -246,8 +246,11 @@ def test_stage_param_form_edits_recipe_and_shows_errors_inline(
         assert row.editors[0].value() == -15.0 and row.editors[0].property("error") is True
         assert ses.recipe.pipeline.geometry.rotate == (-15.0, 15.0)
         # 3) 다음 정상 편집이 오류를 지운다 (체크박스는 즉시)
-        geo.form.rows["flip"].editors[0].setChecked(False)
-        assert _pump(qapp, lambda: ses.recipe.pipeline.geometry.flip is False, 5.0)
+        flip = geo.form.rows["flip"].editors[
+            0
+        ]  # 0.7.5+: flip 은 choice(none/horizontal/vertical/both) — 콤보는 즉시 커밋
+        flip.setCurrentIndex(flip.findData("none"))
+        assert _pump(qapp, lambda: ses.recipe.pipeline.geometry.flip == "none", 5.0)
         assert geo.error.isHidden() and row.editors[0].property("error") is False
         # 4) 중첩 필드(점 경로)
         geo.form.rows["elastic.alpha"].editors[0].setValue(2.5)
@@ -277,7 +280,7 @@ def test_stage_param_form_edits_recipe_and_shows_errors_inline(
         sc = geo.form.rows["scale"]
         sc.editors[0].setValue(0.5)
         sc.editors[1].setValue(2.0)
-        geo.form.rows["flip"].editors[0].setChecked(True)  # 즉시 커밋 → 폼 sync
+        flip.setCurrentIndex(flip.findData("both"))  # 즉시 커밋 → 폼 sync
         assert sc.editors[0].value() == 0.5  # 되돌아가지 않았다
         assert _pump(qapp, lambda: ses.recipe.pipeline.geometry.scale == (0.5, 2.0), 5.0)
         # 8) 저장에 반영
@@ -393,7 +396,7 @@ def test_geometry_card_shows_lighting_warning(
         card.fix.click()
         per = ses.recipe.pipeline.geometry.per_class
         assert (
-            set(per) == {"pit"} and per["pit"].rotate == (-15.0, 15.0) and per["pit"].flip is False
+            set(per) == {"pit"} and per["pit"].rotate == (-15.0, 15.0) and per["pit"].flip == "none"
         )
         assert not any(
             w.startswith("geometry:") for w in ses.warnings
@@ -402,7 +405,7 @@ def test_geometry_card_shows_lighting_warning(
         ed = card.per_class
         assert ed is not None and ed.isVisible() and "pit" in ed.rows and not card.info.isVisible()
         assert not card.fix.isVisible() and ed.rows["pit"].use.isChecked()
-        assert ed.rows["pit"].lo.value() == -15.0 and ed.rows["pit"].flip.currentIndex() == 2
+        assert ed.rows["pit"].lo.value() == -15.0 and ed.rows["pit"].flip.currentData() == "none"
         tab.request_previews()
         assert _pump(qapp, lambda: "geometry" not in tab.pipe.stage_warnings())
         # 표에서 pit 을 끄면(디바운스 → flush) per_class 가 비고 경고·버튼이 돌아온다
@@ -416,12 +419,12 @@ def test_geometry_card_shows_lighting_warning(
         ed.rows["pit"].hi.setValue(10.0)
         ed.flush()
         per = ses.recipe.pipeline.geometry.per_class
-        assert per["pit"].rotate == (-10.0, 10.0) and per["pit"].flip is False
+        assert per["pit"].rotate == (-10.0, 10.0) and per["pit"].flip == "none"
         assert not card.fix.isVisible()
         # 전체 회전을 조여도(다른 길) 마찬가지
         ses.set_stage_field("geometry", "per_class", {})
         ses.set_stage_field("geometry", "rotate", (-15.0, 15.0))
-        ses.set_stage_field("geometry", "flip", False)
+        ses.set_stage_field("geometry", "flip", "none")
         tab.sync_widgets()
         assert not card.fix.isVisible() and not ed.rows["pit"].use.isChecked()
     finally:
@@ -510,7 +513,7 @@ def test_variant_card_marks_flipped_lighting(
         "gtmask", "source"
     )  # GT = 소스 마스크 → 링이 림 바로 밖(poisson 은 mask_dilate 로 림을 함께 붙인다)
     ses.set_stage_field("geometry", "rotate", (170.0, 190.0))
-    ses.set_stage_field("geometry", "flip", False)
+    ses.set_stage_field("geometry", "flip", "none")
     ses.set_stage_field("geometry", "scale", (1.0, 1.0))
     ses.set_stage_field("placement", "margin_px", 4)
     ses.set_stage_field("roi", "erode_px", 2)
@@ -531,7 +534,7 @@ def test_variant_card_marks_flipped_lighting(
         item = tab.variants.list.item(flipped[0])
         assert "↯" in item.text() and "조명 뒤집힘" in item.toolTip()
         # per_class 로 회전을 묶으면(reprepare + 새 미리보기) 뒤집힘이 사라진다
-        ses.set_stage_field("geometry", "per_class", {"pit": {"rotate": [-15, 15], "flip": False}})
+        ses.set_stage_field("geometry", "per_class", {"pit": {"rotate": [-15, 15], "flip": "none"}})
         tab.request_previews()
         assert _pump(
             qapp,
@@ -558,22 +561,23 @@ def test_per_class_editor_roundtrip(qapp: QApplication) -> None:
     ed.show()
     ed.set_classes(["scratch", "pit"])
     assert list(ed.rows) == ["scratch", "pit"] and ed.value() == {}
-    ed.set_value({"pit": R.GeometryOverride(rotate=(-15, 15), flip=False, scale=(0.9, 1.1))})
+    ed.set_value({"pit": R.GeometryOverride(rotate=(-15, 15), flip="none", scale=(0.9, 1.1))})
     r = ed.rows["pit"]
-    assert r.use.isChecked() and r.lo.value() == -15.0 and r.flip.currentIndex() == 2
+    assert r.use.isChecked() and r.lo.value() == -15.0 and r.flip.currentData() == "none"
     assert not ed.rows["scratch"].use.isChecked()
-    assert ed.value() == {"pit": {"rotate": [-15.0, 15.0], "flip": False, "scale": [0.9, 1.1]}}
+    assert ed.value() == {"pit": {"rotate": [-15.0, 15.0], "flip": "none", "scale": [0.9, 1.1]}}
     # 편집 → 디바운스 → flush 로 emit
     r.hi.setValue(20.0)
-    r.flip.setCurrentIndex(0)  # 기본
+    r.flip.setCurrentIndex(r.flip.findData(""))  # 기본(전체 설정)
     assert ed._timer.isActive() and not got
     ed.set_value(
-        {"pit": R.GeometryOverride(rotate=(-15, 15), flip=False, scale=(0.9, 1.1))}
+        {"pit": R.GeometryOverride(rotate=(-15, 15), flip="none", scale=(0.9, 1.1))}
     )  # 대기 중 — 위젯을 덮어쓰지 않음(세션 값은 갱신)
     assert r.hi.value() == 20.0
     ed.flush()
     assert got and got[-1] == {"pit": {"rotate": [-15.0, 20.0], "flip": None, "scale": [0.9, 1.1]}}
     # 레시피에만 있는 클래스도 행이 생긴다
-    ed.set_value({"dent": R.GeometryOverride(flip=False)})
+    ed.set_value({"dent": R.GeometryOverride(flip="horizontal")})
+    assert ed.rows["dent"].flip.currentData() == "horizontal"
     assert "dent" in ed.rows and ed.rows["dent"].use.isChecked()
     ed.close()
