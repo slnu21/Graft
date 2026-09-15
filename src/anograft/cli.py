@@ -480,10 +480,10 @@ def doctor_info() -> dict:
 
         ok, reason = qt_available()
         info["gui"] = "ok" if ok else f"불가 — {reason}"
-        if ok:
-            import PySide6
+        if ok:  # Qt 는 gui/ 안에서만 import(레이어 규약) — 버전은 메타데이터로
+            from importlib.metadata import version
 
-            info["pyside6"] = PySide6.__version__
+            info["pyside6"] = version("PySide6")
     except Exception as e:  # GUI 진단이 CLI 를 죽이면 안 된다
         info["gui"] = f"진단 실패 — {e}"
     return info
