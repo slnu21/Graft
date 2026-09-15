@@ -144,3 +144,23 @@ def test_replace_mask_overwrites_same_id_and_clears_score(bank_root: Path) -> No
         s.replace_mask(row.id, np.zeros(src.mask.shape, dtype=np.uint8))
     with pytest.raises(BankSessionError):
         s.replace_mask("spot/zzz", new)
+
+
+def test_summary_text_names_directional_classes(tmp_path: Path) -> None:
+    """0.7.2+ — 조명 의존 클래스(lightR ≥ 0.5, n ≥ 3)는 요약 한 줄에 dent-graft 안내와 함께."""
+    from anograft.bank.importers.common import BankWriter, ImportOptions, ImportRecord
+    from tests.test_lighting_warning import _dent, _flat
+
+    w = BankWriter(tmp_path / "b", name="b")
+    w.ensure_classes(["pit", "stain"])
+    for s in [_dent("down", k=i) for i in range(3)] + [_flat(k=i) for i in range(3)]:
+        rec = ImportRecord(
+            image=s.image, gray=False, mask=s.mask, cls=s.cls, origin="t", id_hint=s.id[-3:]
+        )
+        w.add(rec, ImportOptions(margin=8))
+    w.finish({"importer": "test"})
+    s = BankSession()
+    assert s.directional_classes() == []
+    s.load(tmp_path / "b")
+    assert s.directional_classes() == [("pit", 1.0)]
+    assert "조명 의존(lightR) pit 1.00 → dent-graft" in s.summary_text()
