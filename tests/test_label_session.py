@@ -256,7 +256,7 @@ def test_stats_lighting_direction() -> None:
     s.set_mask(m)
     st = s.stats()
     assert st.lighting_deg is not None and abs(st.lighting_deg - 90.0) < 5
-    from anograft.gui.label.tab import lighting_word
+    from anograft.gui.label.session import lighting_word  # Qt 없는 모듈(CI ubuntu 는 PySide6 없음)
 
     assert lighting_word(90) == "아래" and lighting_word(0) == "오른" and lighting_word(-90) == "위"
     assert (
