@@ -36,6 +36,7 @@ from anograft.gui.review.session import FILTERS, Histogram, ReviewError, ReviewI
 from anograft.gui.studio.panels import flat_icon, h4
 from anograft.gui.theme import COLORS, REAL_COLOR, SYNTH_COLOR  # 검수 계열색 고정(색각 검증)
 from anograft.io import imgio
+from anograft.io.report import lighting_broken_classes
 from anograft.preview import GT_EDGE
 
 THUMB = 176
@@ -197,6 +198,7 @@ class ReviewTab(QWidget):
         self.dist_key.addItem("대비 contrast (gray)", "contrast")
         self.dist_key.addItem("질감 texture (∇ 평균)", "texture")
         self.dist_key.addItem("선명도 sharpness (∇² 분산)", "sharpness")
+        self.dist_key.addItem("조명 방향 lighting (°)", "lighting")
         v.addWidget(self.dist_key)
         self.hist = HistogramWidget()
         v.addWidget(self.hist, 1)
@@ -410,7 +412,16 @@ class ReviewTab(QWidget):
             "contrast": "대비 gray (마스크 − 링, 선형)",
             "texture": "질감 — 마스크 안 그래디언트 평균 (선형)",
             "sharpness": "선명도 — 마스크 안 라플라시안 분산 (선형)",
+            "lighting": "조명 방향 ° (0 = →, 90 = ↓; 링에서 밝은 쪽)",
         }.get(key, key)
+        if key == "lighting":
+            rs, rr = self.session.lighting_concentration()
+            fmt = lambda v: "–" if v is None else f"{v:.2f}"  # noqa: E731
+            title += f" · 일관성 R 합성 {fmt(rs)} / 실제 {fmt(rr)}"
+            per_class = self.session.lighting_concentration_by_class()
+            broken = lighting_broken_classes(per_class)
+            if broken:
+                title += f" · ⚠ {', '.join(broken)} 회전이 조명을 뒤집음 → dent-graft"
         if self.session.bank is None:
             title += " — 은행 없음"
         self.hist.set_histogram(h, title)

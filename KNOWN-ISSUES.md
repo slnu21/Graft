@@ -117,6 +117,8 @@ AREA_RATIO_MAX = 0.95
 ## 5. 회전 기본값 ±180° 가 조명 의존 결함에 물리적으로 맞지 않는다
 
 > **해결(v0.6, 2026-09-15 `preset-rotate`)** — 프리셋 **`dent-graft`** 신설: 회전 ±15° · flip 끔 · 축척 0.9~1.1 · `structure-aware`(위치 균등, 긴 축을 결·접선에 정렬 — 아래 세 번째 보완 방향) · poisson NORMAL · 조화 0.2. 기존 프리셋 기본값은 텍스처성 결함(스크래치·얼룩)용이라 유지(사용자 결정 — 골든·게시 레시피 재현성). "조명 방향 고정" 옵션(회전 시 음영 보정)은 만들지 않았다 — 복사·붙여넣기로는 원리적으로 불가, v1.0 확산 인페인팅의 몫.
+>
+> **근거(0.7.2 뒤, `review-lighting`)** — 검수 탭 분포 **조명 방향**(둘레 2 px 링에서 밝은 쪽 각도) + **조명 일관성 R**(클래스별). 샘플 pit 98 인스턴스(`tools/make_sample_yolo.py` 은행, 시드 11): 실제 소스 R **0.99** · `poisson-graft`(±180°) **0.12**(무작위) · `dent-graft`(±15°, 정렬 끔) **0.51**. 두 조건 다 성립하면(실제 ≥ 0.5 · 합성 < 0.3) 리포트가 클래스 이름과 함께 dent-graft 를 권한다. dent-graft 가 1.0 이 못 되는 건 GT `union`+`dilate_px 2` 가 하이라이트 림을 마스크 안으로 삼켜 링이 림 바깥을 재기 때문 — 실데이터에선 같은 지표로 실제 vs 합성을 보면 된다.
 
 **증상** — 합성 결과가 부자연스럽다. 음영과 하이라이트의 관계가 주변과 어긋난다.
 
@@ -251,7 +253,7 @@ python tools/train_smoke.py --synthetic out/torx-pruned --base <기존 YOLO 셋>
 | 1 | 스튜디오 1024 축소에서 `mask_dir` ROI 가 동작 | 스튜디오 배치 카드 ⚠ 없음, ROI 오버레이 |
 | 2 · 4 | annulus 링 안에만 배치(중심 반경 319~510) | 사이드카 `placement.center` 반경 · `roi.center_source: detected` |
 | 3 | 저신뢰 비율이 실제 실패 마스크와 맞는가 | `bank ls --json` `low_confidence_ids` vs `bank preview` 눈 확인 |
-| 5 | dent-graft 가 자연스러운가(음영 방향) | 스튜디오 변형 6개 vs poisson-graft |
+| 5 | dent-graft 가 자연스러운가(음영 방향) | 스튜디오 변형 6개 vs poisson-graft · 검수 탭 분포 **조명 방향** 의 클래스별 R(합성 vs 실제) — `dataset report` 의 조명 일관성 줄 |
 | 6 | 축척 경고가 사라지는가(피치 넣은 뒤) | `run` stderr · 상태바 |
 | 7 | `source.tags` 로 제품 필터 | `run --dry-run` `source.tags` 행 |
 | 8 · 9 | 라벨 탭 초안 · 최근 레시피 복원 | GUI |

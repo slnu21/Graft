@@ -36,8 +36,54 @@ class ReportData:
     hist_area: Any = None  # Histogram(edges, a, b, log)
     hist_length: Any = None
     hist_contrast: Any = None  # 선형 구간(음수 가능)
+    hist_lighting: Any = None  # 조명 방향 각도(−180..180)
+    lighting_r: tuple[float | None, float | None] = (None, None)  # 조명 일관성 R(합성, 실제)
+    lighting_r_class: Mapping[str, tuple[float | None, float | None]] = field(default_factory=dict)
     bank_name: str = ""
     warnings: Sequence[str] = ()
+
+
+LIGHT_REAL_MIN = 0.5  # 실제 소스의 R 이 이 이상이면 '조명 방향이 있는 클래스'
+LIGHT_SYNTH_MAX = 0.3  # 그 클래스의 합성 R 이 이 미만이면 회전이 방향을 뒤집고 있다
+
+
+def lighting_broken_classes(
+    per_class: Mapping[str, tuple[float | None, float | None]],
+) -> list[str]:
+    """실제는 한 방향(R ≥ LIGHT_REAL_MIN)인데 합성은 무작위(R < LIGHT_SYNTH_MAX)인 클래스."""
+    return [
+        c
+        for c, (rs, rr) in per_class.items()
+        if rs is not None and rr is not None and rr >= LIGHT_REAL_MIN and rs < LIGHT_SYNTH_MAX
+    ]
+
+
+def lighting_line(
+    r: tuple[float | None, float | None],
+    per_class: Mapping[str, tuple[float | None, float | None]] | None = None,
+) -> str:
+    """조명 일관성 R 한 줄(전체 + 클래스별) — 어느 클래스든 실제는 한 방향인데 합성이 무작위면 dent-graft 안내."""
+    rs, rr = r
+    if rs is None and rr is None:
+        return ""
+
+    def f(v: float | None) -> str:
+        return "–" if v is None else f"{v:.2f}"
+
+    per_class = per_class or {}
+    cls_part = " · ".join(f"{html.escape(c)} {f(a)}/{f(b)}" for c, (a, b) in per_class.items())
+    broken = lighting_broken_classes(per_class)
+    hint = ""
+    if broken:
+        hint = (
+            f" — <b>{html.escape(', '.join(broken))}</b>: 실제는 한 방향인데 합성은 무작위 → 회전 범위가 조명 방향을 "
+            "뒤집고 있다. 프리셋 <code>dent-graft</code>(±15°, flip 끔)"
+        )
+    return (
+        f'<p class="muted">조명 일관성 R — 합성 {f(rs)} · 실제 {f(rr)}'
+        f"{(' · 클래스별(합성/실제): ' + cls_part) if cls_part else ''} "
+        f"(1 = 하이라이트가 모두 같은 방향, 0 = 무작위){hint}</p>"
+    )
 
 
 def _fmt(v: float) -> str:
@@ -123,7 +169,8 @@ code{{background:#f4f6f8;padding:1px 4px;border-radius:4px}}
 <div class="tile"><b>{c.get("fallback", 0)}</b>폴백 fallback</div>
 </div>
 <h2>분포 Distribution <span class="muted">— 합성(반려 제외) vs 실제(은행 소스), 로그 구간</span></h2>
-<div class="grid">{svg_histogram(d.hist_area, "면적 area (px)")}{svg_histogram(d.hist_length, "긴 변 length (px)")}{svg_histogram(d.hist_contrast, "대비 contrast (gray, 마스크 − 링)")}</div>
+<div class="grid">{svg_histogram(d.hist_area, "면적 area (px)")}{svg_histogram(d.hist_length, "긴 변 length (px)")}{svg_histogram(d.hist_contrast, "대비 contrast (gray, 마스크 − 링)")}{svg_histogram(d.hist_lighting, "조명 방향 lighting (°, 0 = →, 90 = ↓)")}</div>
+{lighting_line(d.lighting_r, d.lighting_r_class)}
 <h2>클래스별 인스턴스 <span class="muted">(채택 + 미검수)</span></h2>
 <table><tr><th>클래스</th><th>인스턴스</th></tr>{per_class or '<tr><td colspan="2" class="muted">없음</td></tr>'}</table>
 <h2>반려 Rejected ({len(d.rejected)})</h2>

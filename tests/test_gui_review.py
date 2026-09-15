@@ -123,6 +123,11 @@ def test_review_tab_report_button(qapp: QApplication, output_root: Path) -> None
     t.open_root(output_root)
     p = t.write_report()
     assert p is not None and p.is_file() and "리포트" in t.result.text()
+    # 분포 키에 조명 방향 — 제목에 일관성 R
+    i = t.dist_key.findData("lighting")
+    assert i >= 0
+    t.dist_key.setCurrentIndex(i)
+    assert "조명 방향" in t.hist.title and "일관성 R" in t.hist.title
     t.close()
 
 
