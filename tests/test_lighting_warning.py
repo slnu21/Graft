@@ -186,3 +186,26 @@ def test_is_directional_requires_significance() -> None:
             r = float(np.hypot(np.cos(th).mean(), np.sin(th).mean()))
             false_pos += is_directional(r, n)
         assert false_pos <= 20, (n, false_pos)  # ≤ 10 % (p ≈ 0.05 근사)
+
+
+def test_lighting_stats_direction_and_flipped_instances() -> None:
+    """``lighting_stats`` 는 평균 방향까지, ``Bank.real_lighting_direction`` 은 유의한 클래스만, ``flipped_instances`` 는
+    실제 방향과 > 90° 인 인스턴스 인덱스(방향 없는 클래스는 건너뜀)."""
+    from anograft.core.appearance import flipped_instances, gray_of, lighting_stats
+
+    down = [_dent("down", k=i) for i in range(3)]
+    r, n, mean = lighting_stats([(s.image, s.mask) for s in down])
+    assert n == 3 and r > 0.99 and abs(mean - 90.0) < 5
+    assert lighting_stats([]) == (None, 0, None)
+    bank = Bank.from_sources(down + [_flat(k=i) for i in range(3)], classes=["pit", "stain"])
+    real = bank.real_lighting_direction()
+    assert set(real) == {"pit"} and abs(real["pit"] - 90.0) < 5
+    # 합성 이미지: pit 하나는 아래가 밝고(정상) 하나는 위가 밝다(뒤집힘); stain 은 방향 없는 클래스 → 무시
+    ok, bad = _dent("down"), _dent("up")
+    gray = gray_of(ok.image)
+    assert flipped_instances(gray, [("pit", ok.mask)], real) == []
+    assert flipped_instances(
+        gray_of(bad.image), [("pit", bad.mask), ("stain", bad.mask)], real
+    ) == [0]
+    assert flipped_instances(gray_of(bad.image), [("pit", bad.mask)], real, max_deg=180.0) == []
+    assert flipped_instances(gray, [("pit", ok.mask)], {}) == []

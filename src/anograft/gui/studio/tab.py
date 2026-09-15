@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import cv2
 import numpy as np
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QGuiApplication
@@ -29,6 +30,7 @@ from PySide6.QtWidgets import (
 
 from anograft import runner
 from anograft.core import recipe as R
+from anograft.core.appearance import flipped_instances
 from anograft.core.channels import promote_to_bgr
 from anograft.gui.studio.canvas import CompareCanvas
 from anograft.gui.studio.jobs import (
@@ -454,11 +456,19 @@ class StudioTab(QWidget):
         if r.status == "ok":
             caption = ", ".join(sorted({i.cls for i in r.instances})) or "ok"
             low = self._low_confidence_sources(r)
+            flipped = self._flipped_instances(r)
             tooltip = "소스: " + ", ".join(self._source_ids(r))
             if low:
                 caption += " ⚠"
                 tooltip += (
                     "\n⚠ 저신뢰 추정 마스크 소스: " + ", ".join(low) + " — 은행 탭에서 다듬기"
+                )
+            if flipped:
+                caption += " ↯"
+                tooltip += (
+                    "\n↯ 조명 뒤집힘 의심: "
+                    + ", ".join(f"{r.instances[i].cls}#{i + 1}" for i in flipped)
+                    + " — 하이라이트가 실제 소스와 반대쪽(기하 카드 ▶ 또는 dent-graft)"
                 )
             self.variants.set_result(k, promote_to_bgr(r.image), caption, tooltip)
         else:
@@ -473,6 +483,18 @@ class StudioTab(QWidget):
             for d in r.sidecar.get("defects", [])
             if "gt" in d
         ]
+
+    def _flipped_instances(self, r) -> list[int]:
+        """이 변형의 인스턴스 중 조명이 실제 클래스 방향과 반대(> 90°)인 것 — 검수 탭 '조명 뒤집힘 의심'을 미리보기에서.
+        은행에 방향이 유의한 클래스가 없으면 빈 목록(1024 축소본이라 각도는 근사)."""
+        prep = self.session.prepared
+        if prep is None or prep.recipe.bankless or r.status != "ok" or not r.instances:
+            return []
+        real = prep.bank.real_lighting_direction()
+        if not real:
+            return []
+        gray = cv2.cvtColor(promote_to_bgr(r.image), cv2.COLOR_BGR2GRAY)
+        return flipped_instances(gray, [(i.cls, i.mask) for i in r.instances], real)
 
     def _low_confidence_sources(self, r) -> list[str]:
         """이 변형에 쓰인 소스 중 confidence < 0.5(KNOWN-ISSUES #3) — 미리보기가 그럴듯해도 마스크가 헐거울 수 있다."""
