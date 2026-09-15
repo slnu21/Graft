@@ -62,6 +62,13 @@ jobs:
           anograft dataset report out --no-bank
           anograft dataset prune out --out out-pruned
           python ../tools/train_smoke.py --synthetic out --out train --dry-run
+          # 0.7.3+ 한 줄 경로: ring 퀵스타트(은행·레시피 dent-graft+annulus·auto-dent) → dry-run 진단 → run --report → prune --drop-flipped
+          anograft sample --out ring --shape ring --quickstart --n-normal 2 --n-defect 4 --size 320 320
+          anograft recipe check ring/recipe.yaml
+          anograft run ring/recipe.yaml --dry-run
+          anograft run ring/recipe.yaml --count 2 --workers 0 --report
+          anograft dataset prune ring/out --out ring/pruned --drop-flipped
+          anograft doctor > /dev/null
       - uses: actions/upload-artifact@v4
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
         with:
