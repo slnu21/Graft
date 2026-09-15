@@ -38,6 +38,7 @@ from anograft.bank.importers.yolo import (
 )
 from anograft.bank.mask_from_box import METHODS as AUTO_METHODS
 from anograft.bank.mask_from_box import MaskConfidence, mask_confidence, mask_from_box
+from anograft.core.appearance import mask_lighting
 from anograft.core.channels import binarize
 from anograft.core.seeds import stable_seed
 from anograft.io import imgio
@@ -60,6 +61,9 @@ class LabelStats:
     length_px: float  # 최소 외접 사각형의 긴 변 (전체 마스크)
     length_um: float | None  # um_per_px 가 있을 때
     contrast: float | None  # 마스크 안 평균 그레이 − 링(8px) 평균 그레이
+    lighting_deg: float | None = (
+        None  # 둘레 2 px 링에서 밝은 쪽 각도(0 = →, 90 = ↓) — 검수 탭·bank ls lightR 와 같은 정의
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -483,6 +487,7 @@ class LabelSession:
         ring = cv2.dilate(self.mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (17, 17))) > 0
         ring &= ~m
         contrast = float(gray[m].mean() - gray[ring].mean()) if ring.any() else None
+        lighting = mask_lighting(gray, self.mask)
         return LabelStats(
             area_px=area,
             area_ratio=area / float(h * w),
@@ -491,6 +496,7 @@ class LabelSession:
             length_px=length,
             length_um=(length * um_per_px) if um_per_px else None,
             contrast=contrast,
+            lighting_deg=lighting,
         )
 
     # ------------------------------------------------------------------ 은행 저장

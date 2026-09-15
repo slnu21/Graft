@@ -6,6 +6,7 @@
 
 ### Added
 - 검수 탭 필터 **조명 뒤집힘 의심 flipped lighting** — 실제 클래스 방향이 뚜렷할 때(R ≥ 0.5, n ≥ 3) 그 평균 방향에서 90° 넘게 벗어난 인스턴스가 있는 이미지. 리포트에 목록 한 줄. `core/appearance.circular_mean/angle_diff`.
+- 라벨 탭 통계에 **조명 방향**(각도 + 8방향 낱말) — 라벨링하면서 이 결함이 조명 의존인지(어느 쪽 림이 밝은지) 바로 본다.
 
 ### Changed
 - `Bank.summary()` 캐시(조명 R 계산이 들어가 카드 편집마다 `reprepare` → `lighting_warning` 이 다시 재던 것) — Bank 는 로드 뒤 불변.
