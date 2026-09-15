@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-09-16
+
+v0.7.3 후속 — 클래스별 기하(`geometry.per_class`) · 검수 정밀화(조명 뒤집힘 의심 필터 · 실제 분포 클래스 필터) · 조명 지표를 은행·라벨·검수 어디서나. 레시피 스키마는 옵션 추가만.
+
 ### Added
 - **`geometry.per_class`** — 클래스별 기하 오버라이드(`{cls: {scale?, rotate?, flip?}}`, 준 필드만 덮어씀). 한 은행에 스크래치(±180)와 찍힘(±15·flip 끔)이 섞여 있을 때 레시피 하나로. 오버라이드 없는 클래스는 바이트 동일 · 사이드카 `geometry.per_class: true` · 은행에 없는 클래스는 `validate_against` 경고 · `lighting_warning`/배치 진단이 클래스별 범위로 판단(경고문이 문법을 안내). 카드 편집기엔 안 나옴(YAML).
 - 퀵스타트(GUI '샘플 데이터' · `sample --quickstart`)가 은행의 조명 의존 클래스(샘플 pit)를 `geometry.per_class` 로 써 준다 — 처음 만든 레시피부터 조명 경고 없음. 검수 히스토그램 제목에 '실제 = <클래스>'.
@@ -19,6 +23,10 @@
 
 ### Changed
 - `Bank.summary()` 캐시(조명 R 계산이 들어가 카드 편집마다 `reprepare` → `lighting_warning` 이 다시 재던 것) — Bank 는 로드 뒤 불변.
+- README 검수 탭 스크린샷 교체(조명 방향 히스토그램 · 뒤집힘 의심 필터 33/40).
+
+### Fixed
+- CI ubuntu(PySide6 없음)에서 깨지던 테스트 — Qt 없는 테스트 파일이 탭을 import(16-41). 릴리스 zip 과 무관.
 
 ## [0.7.3] - 2026-09-16
 
@@ -158,7 +166,8 @@ v0.4 — CPU 알고리즘 확장. **여전히 샘플 데이터로만 검증**(�
 - GUI는 스튜디오 탭만. 재현은 같은 OS·OpenCV 부버전 범위(`seamlessClone` 솔버).
 - `release.yml`의 Windows zip 잡은 첫 push 전이라 CI에서 미검증(로컬 `tools/build_zip.ps1`와 같은 절차).
 
-[Unreleased]: https://github.com/slnu21/Graft/compare/v0.7.3...HEAD
+[Unreleased]: https://github.com/slnu21/Graft/compare/v0.7.4...HEAD
+[0.7.4]: https://github.com/slnu21/Graft/compare/v0.7.3...v0.7.4
 [0.7.3]: https://github.com/slnu21/Graft/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/slnu21/Graft/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/slnu21/Graft/compare/v0.7.0...v0.7.1
