@@ -243,7 +243,7 @@ anograft run recipes/torx-annulus.yaml --workers 4 --report # stderr 경고: 축
 
 # 4. 검수 (GUI 검수 탭 또는) — 반려하고 정리본 + 리포트
 anograft dataset report out/torx-annulus                    # 합성 vs 실제 면적·긴 변·대비 히스토그램
-anograft dataset prune out/torx-annulus --out out/torx-pruned
+anograft dataset prune out/torx-annulus --out out/torx-pruned [--drop-flipped]   # 조명 뒤집힘 의심도 빼려면
 
 # 5. 학습(선택, ultralytics 별도 설치) — 합성 유/무 mAP
 python tools/train_smoke.py --synthetic out/torx-pruned --base <기존 YOLO 셋> --out train/merged

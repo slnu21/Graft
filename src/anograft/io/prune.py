@@ -13,6 +13,7 @@ from __future__ import annotations
 import csv
 import json
 import shutil
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -84,8 +85,11 @@ def prune_dataset(
     review: dict[str, tuple[str, str]] | None = None,
     *,
     drop_unreviewed: bool = False,
+    drop_indices: Iterable[str] = (),
 ) -> PruneSummary:
-    """반려를 뺀 정리본. ``review`` 가 None 이면 ``<root>/review.csv``."""
+    """반려를 뺀 정리본. ``review`` 가 None 이면 ``<root>/review.csv``. ``drop_indices`` 는 판정과 무관하게 뺄 index
+    (예: 검수 세션의 조명 뒤집힘 의심 — ``dataset prune --drop-flipped``)."""
+    drop_set = {str(i) for i in drop_indices}
     root, out = Path(root), Path(out)
     if not (root / MANIFEST_FILE).is_file():
         raise PruneError(f"manifest.csv 가 없습니다: {root}")
@@ -105,7 +109,7 @@ def prune_dataset(
             continue  # 파일이 없는 행 — 정리본 manifest 에도 남기지 않는다
         if status == "ok":
             verdict = review.get(idx, ("", ""))[0]
-            if verdict == "reject" or (drop_unreviewed and verdict != "accept"):
+            if verdict == "reject" or (drop_unreviewed and verdict != "accept") or idx in drop_set:
                 summary.dropped += 1
                 continue
             summary.kept += 1

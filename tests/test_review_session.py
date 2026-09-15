@@ -418,3 +418,58 @@ def test_flipped_lighting_filter(output_root: Path, monkeypatch: pytest.MonkeyPa
     assert s.report_data().flipped == [ok[0].index]
     with pytest.raises(ReviewError):
         s.filtered("bogus")
+
+
+def test_real_distribution_follows_recipe_classes(output_root: Path, tmp_path: Path) -> None:
+    """0.7.3+ — '실제' 분포는 레시피가 뽑은 클래스만(source.classes → class_ratio → 전부). pit 만 합성한 출력과
+    은행의 스크래치까지 비교하면 분포가 어긋난다."""
+    s = ReviewSession()
+    s.load(output_root)
+    assert s.real_classes() is None and len(s.real_sources()) == 5  # 레시피가 전부 뽑음
+    n_all = len(s.real_values("area"))
+    # 출력의 resolved 레시피를 spot 만 뽑은 것처럼 바꿔 다시 읽는다
+    resolved = output_root / "recipe.resolved.yaml"
+    data = yaml.safe_load(resolved.read_text(encoding="utf-8"))
+    data["pipeline"]["source"]["classes"] = ["spot"]
+    resolved.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    s2 = ReviewSession()
+    s2.load(output_root)
+    assert s2.real_classes() == ["spot"]
+    assert all(src.cls == "spot" for src in s2.real_sources()) and 0 < len(s2.real_sources()) < 5
+    assert 0 < len(s2.real_values("area")) < n_all
+    assert set(s2.real_by_class("contrast")) <= {"spot"}
+    # class_ratio 키도 같은 규칙
+    data["pipeline"]["source"]["classes"] = None
+    data["output"]["class_ratio"] = {"crack": 1.0}
+    resolved.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    s3 = ReviewSession()
+    s3.load(output_root)
+    assert s3.real_classes() == ["crack"] and all(src.cls == "crack" for src in s3.real_sources())
+    # 은행 없이 열면 비어 있다
+    s4 = ReviewSession()
+    s4.load(output_root, load_bank=False)
+    assert s4.real_sources() == [] and s4.real_values("area") == []
+
+
+def test_prune_drop_indices_and_cli_drop_flipped(
+    output_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``prune_dataset(drop_indices=)`` 는 판정과 무관하게 뺀다 · CLI ``--drop-flipped`` 는 검수 세션의 뒤집힘 집합(여기선 0건)."""
+    s = ReviewSession()
+    items = s.load(output_root, load_bank=False)
+    ok = [it for it in items if it.status == "ok"]
+    summary = prune_dataset(output_root, tmp_path / "p1", {}, drop_indices=[ok[0].index, "nope"])
+    assert summary.dropped == 1 and summary.kept == len(ok) - 1
+    kept = {r["index"] for r in read_manifest(tmp_path / "p1" / "manifest.csv")}
+    assert ok[0].index not in kept and ok[1].index in kept
+    assert (
+        main(
+            ["dataset", "prune", str(output_root), "--out", str(tmp_path / "p2"), "--drop-flipped"]
+        )
+        == EXIT_OK
+    )
+    cap = capsys.readouterr()
+    assert "조명 뒤집힘 의심 없음" in cap.err and "정리본" in cap.out  # 평탄 합성물 — 뒤집힘 없음
+    assert len(read_manifest(tmp_path / "p2" / "manifest.csv")) == len(
+        [r for r in read_manifest(output_root / "manifest.csv") if r["status"] != "skipped"]
+    )
