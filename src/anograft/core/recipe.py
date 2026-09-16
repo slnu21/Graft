@@ -196,6 +196,7 @@ class BankSourceConfig(_Strict):
     redraw_on_empty: int = Field(
         default=2, ge=0, le=10
     )  # geometry 결과 마스크가 비면(< 4 px) 소스를 다시 뽑는 횟수 — 실패했을 때만 rng 를 더 쓴다(골든 불변)
+    single_class_per_image: bool = False  # 한 이미지의 결함은 첫 결함이 뽑은 클래스로(mvtec writer 의 이미지당 단일 클래스용). 켜면 2번째부터 클래스 추첨 rng 0회
 
     @field_validator("tags", mode="before")
     @classmethod

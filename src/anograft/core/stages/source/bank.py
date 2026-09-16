@@ -79,12 +79,24 @@ class BankSource:
                 for c in self.classes
             }
 
+    def _image_class(self, ctx: Context) -> str | None:
+        """``single_class_per_image``: 이 이미지에서 이미 뽑힌(봉인된 첫 결함 로그의) 클래스. 없으면 None → 추첨."""
+        if not getattr(self.cfg, "single_class_per_image", False):
+            return None
+        for d in ctx.defect_logs:
+            c = (d.get("source") or {}).get("class")
+            if isinstance(c, str) and c in self.classes:
+                return c
+        return None
+
     def apply(self, ctx: Context) -> Context:
         if self.bank is None:
             return _skip(ctx, "deps['bank'] 이 없습니다")
         if not self.classes or float(self.probs.sum()) <= 0:
             return _skip(ctx, "뽑을 클래스가 없습니다")
-        cls = self.classes[int(ctx.rng.choice(len(self.classes), p=self.probs))]
+        cls = self._image_class(ctx)
+        if cls is None:
+            cls = self.classes[int(ctx.rng.choice(len(self.classes), p=self.probs))]
         if self.pool is not None:
             sources = self.pool.get(cls, [])
             if not sources:
