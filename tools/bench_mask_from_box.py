@@ -31,7 +31,13 @@ from anograft.bank.mask_from_box import LOW_CONFIDENCE, mask_confidence, mask_fr
 from anograft.core.seeds import stable_seed  # noqa: E402
 from anograft.io import imgio  # noqa: E402
 
-METHODS = ("grabcut", "otsu", "ellipse", "rect")
+METHODS = (
+    "grabcut",
+    "otsu",
+    "ellipse",
+    "rect",
+    "hybrid",
+)  # hybrid = 사슬 저신뢰면 ellipse(v0.8 옵션)
 FAIL_IOU = 0.3
 
 
@@ -169,8 +175,12 @@ def summarize(records: list[Record]) -> list[dict]:
 
 def to_markdown(rows: list[dict], *, box_pad: float) -> str:
     head = (
-        f"| 데이터셋 | 클래스 | n | grabcut | otsu | ellipse | rect | 사슬 실제 방법 | 사슬 IoU | 실패율(<{FAIL_IOU}) | 저신뢰율(<{LOW_CONFIDENCE}) | 저신뢰→실패 정밀도/재현율 |\n"
-        "|---|---|---|---|---|---|---|---|---|---|---|---|\n"
+        "| 데이터셋 | 클래스 | n | "
+        + " | ".join(METHODS)
+        + f" | 사슬 실제 방법 | 사슬 IoU | 실패율(<{FAIL_IOU}) | 저신뢰율(<{LOW_CONFIDENCE}) | 저신뢰→실패 정밀도/재현율 |\n"
+        + "|---|---|---|"
+        + "---|" * len(METHODS)
+        + "---|---|---|---|---|\n"
     )
     body = ""
     for r in rows:
@@ -179,9 +189,10 @@ def to_markdown(rows: list[dict], *, box_pad: float) -> str:
         )
         pr = "—" if r["lowconf_precision"] is None else f"{r['lowconf_precision']:.2f}"
         rc = "—" if r["lowconf_recall"] is None else f"{r['lowconf_recall']:.2f}"
+        ious = " | ".join(f"{r[f'iou_{m}']:.3f}" for m in METHODS)
         body += (
-            f"| {r['dataset']} | {r['class']} | {r['n']} | {r['iou_grabcut']:.3f} | {r['iou_otsu']:.3f} | {r['iou_ellipse']:.3f} | "
-            f"{r['iou_rect']:.3f} | {used} | {r['iou_chain']:.3f} | {r['fail_rate']:.2f} | {r['lowconf_rate']:.2f} | {pr} / {rc} |\n"
+            f"| {r['dataset']} | {r['class']} | {r['n']} | {ious} | "
+            f"{used} | {r['iou_chain']:.3f} | {r['fail_rate']:.2f} | {r['lowconf_rate']:.2f} | {pr} / {rc} |\n"
         )
     note = (
         f"\n박스 = GT 성분 bbox 를 각 변 {box_pad:.0%} 느슨하게. IoU 는 클래스 중앙값. 사슬 = `mask_from_box(method=grabcut)` 폴백 포함. "

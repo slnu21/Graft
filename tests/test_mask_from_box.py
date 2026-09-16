@@ -114,3 +114,30 @@ def test_gray_input_is_accepted() -> None:
     assert img.ndim == 2
     mask, used = M.mask_from_box(img, BOX, "otsu", margin=6)
     assert used == "otsu" and _iou(mask, _blob_truth(SIZE, CX, CY, R)) > 0.8
+
+
+def test_hybrid_keeps_confident_chain_and_falls_to_ellipse_on_low_confidence() -> None:
+    """``hybrid``(v0.8 옵션): 고대비 얼룩은 grabcut 사슬 그대로 · 저신뢰(균일 텍스처 잡음 → fragmented/low-contrast)면 ellipse."""
+    img = blob_image(SIZE, [(CX, CY, R)])
+    seed = M.stable_seed("x")
+    chain, used_c = M.mask_from_box(img, BOX, "grabcut", margin=6, seed=seed)
+    hyb, used_h = M.mask_from_box(img, BOX, "hybrid", margin=6, seed=seed)
+    assert used_h == used_c and np.array_equal(hyb, chain)  # 자신 있는 결과는 그대로
+    assert M.mask_confidence(img, chain, BOX, margin=6).score >= M.LOW_CONFIDENCE
+    # 결함 없는 잡음 텍스처(박스 안팎 통계가 같다) → 사슬은 조각을 주워 담고 confidence 가 낮다 → ellipse
+    rng = np.random.default_rng(3)
+    noise = rng.integers(90, 170, size=(SIZE, SIZE), dtype=np.uint8)
+    noise3 = cv2.cvtColor(noise, cv2.COLOR_GRAY2BGR)
+    chain_n, used_n = M.mask_from_box(noise3, BOX, "grabcut", margin=6, seed=seed)
+    conf_n = M.mask_confidence(noise3, chain_n, BOX, margin=6)
+    hyb_n, used_hn = M.mask_from_box(noise3, BOX, "hybrid", margin=6, seed=seed)
+    if conf_n.score < M.LOW_CONFIDENCE and used_n in ("grabcut", "otsu"):
+        assert used_hn == "ellipse" and np.array_equal(
+            hyb_n, M.mask_from_box(noise3, BOX, "ellipse")[0]
+        )
+    else:  # 사슬이 이미 ellipse/rect 로 내려갔거나 자신 있으면 hybrid 도 같다
+        assert used_hn == used_n and np.array_equal(hyb_n, chain_n)
+    # 결정성 · 박스 밖 0 · 방법 목록에 포함
+    assert "hybrid" in M.METHODS
+    again, _ = M.mask_from_box(noise3, BOX, "hybrid", margin=6, seed=seed)
+    assert np.array_equal(again, hyb_n)

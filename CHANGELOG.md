@@ -16,6 +16,8 @@
 - `tools/bench_mask_from_box.py` — GT 마스크가 있는 데이터(MVTec 카테고리·pairs.csv)에서 박스→마스크 추정 4방법의 IoU 와 `mask_confidence` 의 실패 검출력을 재는 벤치(markdown + JSON). 공개 데이터 1180 인스턴스 결과와 읽는 법은 `KNOWN-ISSUES.md` "결정 근거" 절.
 - 검수 '실제' 분포를 **실측 CSV** 로 — 검수 탭 `실측 CSV…` 버튼 · `dataset report --real-csv x.csv`. 열은 `class`(선택) + `area/length/contrast/texture/sharpness/lighting` 중 있는 것(숫자, 빈 칸 건너뜀); CSV 에 있는 열은 CSV 가, 없는 열은 은행이 실제 값을 댄다. 레시피 `source.classes` 필터는 CSV 에도 적용. 리포트 머리 `실제 = 실측 x.csv`. 현장 실측(현미경 µm→px)과 합성 분포를 견줄 때.
 
+- `bank import-yolo --mask-from hybrid`(라벨 탭 자동 선택에도) — grabcut 사슬 결과의 `mask_confidence` 가 0.5 미만이면 내접 타원으로(`mask_origin: yolo-box:ellipse`). 벤치(1180 인스턴스): 사슬 0.37/0.43 → 하이브리드 0.50/0.21. **기본은 그대로 `grabcut`**(은행 재현성) — 전환은 실데이터 2차 뒤. `tools/bench_mask_from_box.py` 에 `hybrid` 열.
+
 ### Fixed
 - 합성 사이드카 `target.file` 이 Windows 에서 역슬래시였던 것 → manifest·정상 사이드카와 같은 posix.
 

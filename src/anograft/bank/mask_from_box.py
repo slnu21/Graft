@@ -6,6 +6,7 @@
 | ``otsu`` | 박스 바깥 링(폭 ``margin``)의 중앙값을 국소 배경으로, ``|gray − 배경|``을 박스 안에서 Otsu → 열림 |
 | ``ellipse`` | 박스 내접 타원 |
 | ``rect`` | 박스 전체 (CutPaste·NSA 방식, ``hard-paste`` 대조군) |
+| ``hybrid`` | ``grabcut`` 사슬을 돌리고 결과의 ``mask_confidence`` 가 ``LOW_CONFIDENCE`` 미만이면 ``ellipse`` 로(v0.8 옵션 — 공개 데이터 벤치에서 사슬 0.37 → 0.50 IoU, 실패 0.43 → 0.21; 기본은 그대로 ``grabcut``) |
 
 - **폴백 사슬**: 추정(grabcut·otsu) 결과 면적이 박스의 ``[5%, 95%]`` 밖이면 ``grabcut → otsu → ellipse`` 순으로 내려간다.
   ``ellipse``가 비면(1~2px 박스) ``rect``. 짧은 변 ``< min_box``면 바로 ``ellipse``. 실제 쓴 방법을 함께 돌려준다.
@@ -41,7 +42,7 @@ __all__ = [
 Box = tuple[int, int, int, int]  # x, y, w, h (이미지 좌표, 정수)
 Method = Literal["grabcut", "otsu", "ellipse", "rect"]
 
-METHODS: tuple[str, ...] = ("grabcut", "otsu", "ellipse", "rect")
+METHODS: tuple[str, ...] = ("grabcut", "otsu", "ellipse", "rect", "hybrid")
 _CHAIN: tuple[str, ...] = ("grabcut", "otsu", "ellipse", "rect")  # 폴백 순서
 AREA_RATIO_MIN = 0.05
 AREA_RATIO_MAX = 0.95
@@ -237,6 +238,15 @@ def mask_from_box(
 
     if method == "rect":
         return mask_rect(shape, box), "rect"
+    if method == "hybrid":
+        mask, used = mask_from_box(image, box, "grabcut", margin, min_box=min_box, seed=seed)
+        if used in ("grabcut", "otsu") and (
+            mask_confidence(image, mask, box, margin=margin).score < LOW_CONFIDENCE
+        ):
+            ell = mask_ellipse(shape, box)
+            if np.any(ell):
+                return ell, "ellipse"
+        return mask, used
     start = "ellipse" if min(box[2], box[3]) < min_box else method
     for m in _CHAIN[_CHAIN.index(start) :]:
         if m == "rect":
