@@ -193,6 +193,9 @@ class BankSourceConfig(_Strict):
     classes: list[str] | None = None  # null = class_ratio 키 (그것도 null이면 은행 전체)
     tags: TagFilter = Field(default_factory=TagFilter)  # null 도 허용(= 필터 없음)
     min_sources_warn: int = Field(default=10, ge=0)
+    redraw_on_empty: int = Field(
+        default=2, ge=0, le=10
+    )  # geometry 결과 마스크가 비면(< 4 px) 소스를 다시 뽑는 횟수 — 실패했을 때만 rng 를 더 쓴다(골든 불변)
 
     @field_validator("tags", mode="before")
     @classmethod
