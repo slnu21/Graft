@@ -113,6 +113,8 @@ anograft-gui recipes/sample-poisson.yaml                                  # GUI 
 
 한 은행에 스크래치(±180° 무방)와 찍힘(조명 의존)이 **섞여 있으면** 프리셋을 둘로 나누지 말고 `geometry.per_class` 로 그 클래스만 좁힙니다 — `per_class: {찍힘: {rotate: [-15, 15], flip: false}}` (준 필드만 덮어씀, 나머지 클래스는 그대로; `bank ls` 의 lightR ≥ 0.5 인 클래스가 후보, `run` 경고가 이 문법을 알려줍니다). `anograft recipe init --bank bank/mine --auto-dent` 가 그 클래스를 찾아 써 줍니다(`--dent-class 찍힘` 으로 직접도). 스튜디오에선 기하 카드 아래 **클래스별 표**(적용 · 회전 · flip)로 편집합니다.
 
+기하 스테이지의 작은 손잡이(v0.8.1, 전부 기본 off·기존 결과 불변): `geometry.tps: {points: 3, jitter: 0.06}` 은 제어점 격자를 흔들어 패치를 **휘고 늘리는** thin-plate spline(elastic 이 국소 잔물결이면 tps 는 전역 휘어짐) · `source.redraw_on_empty`(기본 2)는 축소 뒤 마스크가 사라진 아주 작은 소스를 그 자리에서 **다시 뽑아** 이미지가 skipped 되지 않게 · `source.single_class_per_image: true` 는 한 이미지의 결함을 첫 결함의 클래스로 묶어 MVTec writer 의 클래스 섞임을 없앱니다.
+
 기본값은 샘플 은행에서 "결함이 옅어지는 정도"(hard-paste 대비 마스크 안 L1 비율)를 재서 정했습니다 — 세 조화 방법 모두 정의상 결함 톤을 대상 쪽으로 당기므로 strength를 낮게 뒀습니다. 실데이터 학습 mAP 근거는 아직 없습니다(로드맵).
 
 ### 조명 의존 결함 한 바퀴 (찍힘·덴트)
@@ -142,6 +144,8 @@ pytest ; ruff check . ; ruff format --check .
 ```
 
 구조·규약은 `CLAUDE.md`, 진행은 `docs/TASKS.md`, v0.1 설계는 `docs/design/v0.1-core.md`(docs는 로컬 컨텍스트). 새 알고리즘 = 스테이지 클래스 1 + 레지스트리 1줄 + 프리셋 YAML 1장.
+
+**공개 데이터로 확인·재기**(실데이터 없을 때): `python tools/fetch_public_datasets.py metal_nut magnetic-tile --import`(표준 라이브러리만, MVTec 은 CC BY-NC-SA 로컬 개발용) → `recipes/public-*.yaml` 로 한 바퀴. 받아서 확인할 항목은 **`TESTING.md`**, 잰 숫자(박스→마스크 IoU 1180 인스턴스 · 합성 유/무 YOLO mAP)는 **`BENCHMARKS.md`**, 결정 대기 항목의 근거는 `KNOWN-ISSUES.md`. `tools/bench_mask_from_box.py`·`tools/train_mvtec_map.py`(별도 venv ultralytics) 로 재현.
 
 ## 라이선스
 
@@ -245,6 +249,8 @@ Same seed and target across the four presets (`preview --compare-methods blend|h
 
 When one bank **mixes** scratches (±180° is fine) and dents (lighting-dependent), do not split the recipe — narrow only that class with `geometry.per_class`: `per_class: {dent: {rotate: [-15, 15], flip: false}}` (only the given fields override; other classes are untouched; classes with `lightR` ≥ 0.5 in `bank ls` are the candidates, and the `run` warning spells out the syntax). `anograft recipe init --bank bank/mine --auto-dent` finds those classes and writes the override for you (`--dent-class dent` to name them yourself); in the Studio, edit it in the **per-class table** under the geometry card (enable · rotation · flip).
 
+Small geometry knobs (v0.8.1, all off by default — existing outputs unchanged): `geometry.tps: {points: 3, jitter: 0.06}` bends and stretches the patch with a thin-plate spline over a jittered control grid (elastic is local ripple, tps is global bending) · `source.redraw_on_empty` (default 2) redraws a source whose mask vanished after scaling instead of skipping the image · `source.single_class_per_image: true` keeps one class per image so the MVTec writer never sees mixed classes.
+
 Defaults were chosen by measuring how much each method fades the defect on the sample bank (in-mask L1 relative to hard-paste); all three harmonize methods pull defect tone toward the target by construction, so strengths are kept low. No real-data mAP evidence yet (roadmap).
 
 ### The lighting-dependent loop (dents, dings)
@@ -274,6 +280,8 @@ pytest && ruff check . && ruff format --check .
 ```
 
 A new algorithm = one stage class + one registry line + one preset YAML.
+
+**Public data, when you have none of your own**: `python tools/fetch_public_datasets.py metal_nut magnetic-tile --import` (stdlib only; MVTec AD is CC BY-NC-SA — local development use) and run `recipes/public-*.yaml`. What to check is in **`TESTING.md`**, the measured numbers (box→mask IoU over 1,180 instances, synthetic-vs-none YOLO mAP) in **`BENCHMARKS.md`**, and the evidence for pending defaults in `KNOWN-ISSUES.md`. Reproduce with `tools/bench_mask_from_box.py` and `tools/train_mvtec_map.py` (separate venv with ultralytics).
 
 ### License
 
