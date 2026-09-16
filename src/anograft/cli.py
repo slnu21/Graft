@@ -544,7 +544,9 @@ def cmd_dataset_merge(args: argparse.Namespace) -> int:
     from anograft.io.merge_datasets import MergeError, merge_datasets
 
     try:
-        s = merge_datasets(args.roots, args.out, prefix=args.prefix)
+        s = merge_datasets(
+            args.roots, args.out, prefix=args.prefix, dedupe_normals=args.dedupe_normals
+        )
     except (MergeError, OSError) as e:
         _err(f"병합 실패: {e}")
         return EXIT_RECIPE_ERROR
@@ -553,8 +555,9 @@ def cmd_dataset_merge(args: argparse.Namespace) -> int:
         + (f" skipped {c['skipped']}" if c["skipped"] else "")
         for r, c in zip(s.roots, s.per_root, strict=True)
     )
+    dropped = f"(중복 {s.normals_dropped} 제외)" if s.normals_dropped else ""
     print(
-        f"병합 → {s.out.as_posix()}: 합성 {s.synthetic} · 정상 {s.normals} · skipped 행 {s.skipped} · 파일 {s.files} ({per})"
+        f"병합 → {s.out.as_posix()}: 합성 {s.synthetic} · 정상 {s.normals}{dropped} · skipped 행 {s.skipped} · 파일 {s.files} ({per})"
     )
     for w in s.warnings:
         _err(f"경고: {w}")
@@ -1069,6 +1072,11 @@ def build_parser() -> argparse.ArgumentParser:
     dm.add_argument("--out", required=True, help="병합 폴더 (입력과 달라야 함)")
     dm.add_argument(
         "--prefix", default="d{k}_", help="파일 이름 접두어, {k} = 루트 순번 (기본 d{k}_)"
+    )
+    dm.add_argument(
+        "--dedupe-normals",
+        action="store_true",
+        help="같은 대상(manifest target)의 정상 이미지는 첫 루트 것만 — 같은 정상 폴더로 돌린 출력 여러 개를 합칠 때",
     )
     dm.set_defaults(func=cmd_dataset_merge)
 

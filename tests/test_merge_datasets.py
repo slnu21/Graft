@@ -186,3 +186,23 @@ def test_cli_dataset_merge(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -
     assert "병합 →" in out and "a: 합성" in out and (tmp_path / "m" / "manifest.csv").is_file()
     assert main(["dataset", "merge", str(a), "--out", str(tmp_path / "m2")]) != EXIT_OK
     assert "병합 실패" in capsys.readouterr().err
+
+
+def test_merge_dedupe_normals(tmp_path: Path) -> None:
+    """같은 정상 폴더로 돌린 두 출력을 합치면 정상이 두 배 — ``dedupe_normals`` 면 첫 루트 것만(coco images 도)."""
+    a = _make_output(tmp_path, "a", seed=1, writer="coco")
+    b = _make_output(tmp_path, "b", seed=2, writer="coco")
+    plain = merge_datasets([a, b], tmp_path / "plain")
+    dd = merge_datasets([a, b], tmp_path / "dd", dedupe_normals=True)
+    rows_a = read_manifest(a / "manifest.csv")
+    n_norm_a = sum(r["status"] == "normal" for r in rows_a)
+    assert plain.normals_dropped == 0 and plain.normals == 2 * n_norm_a
+    # a·b 는 은행이 달라도 fake 정상 목록이 같으면 대상 경로가 겹친다
+    rows = read_manifest(tmp_path / "dd" / "manifest.csv")
+    targets = [r["target"] for r in rows if r["status"] == "normal"]
+    assert len(targets) == len(set(targets)) and dd.normals + dd.normals_dropped == 2 * n_norm_a
+    ann = json.loads((tmp_path / "dd" / "annotations.json").read_text(encoding="utf-8"))
+    names = {Path(r["image"]).name for r in rows if r["status"] != "skipped"}
+    assert {im["file_name"] for im in ann["images"]} == names
+    merge_doc = json.loads((tmp_path / "dd" / "merge.json").read_text(encoding="utf-8"))
+    assert merge_doc["normals_dropped"] == dd.normals_dropped

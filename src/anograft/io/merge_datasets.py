@@ -39,6 +39,7 @@ class MergeSummary:
     roots: list[Path]
     synthetic: int = 0
     normals: int = 0
+    normals_dropped: int = 0  # dedupe_normals 로 뺀 정상
     skipped: int = 0
     files: int = 0
     per_root: list[dict[str, int]] = field(default_factory=list)
@@ -168,9 +169,14 @@ def _write_sidecar(
 
 
 def merge_datasets(
-    roots: list[str | Path], out: str | Path, *, prefix: str = "d{k}_"
+    roots: list[str | Path],
+    out: str | Path,
+    *,
+    prefix: str = "d{k}_",
+    dedupe_normals: bool = False,
 ) -> MergeSummary:
-    """``roots`` 를 ``out`` 으로 병합. ``prefix`` 의 ``{k}`` 는 루트 순번."""
+    """``roots`` 를 ``out`` 으로 병합. ``prefix`` 의 ``{k}`` 는 루트 순번. ``dedupe_normals`` 면 같은 대상(manifest ``target``)의
+    정상 이미지는 첫 루트 것만(같은 정상 폴더로 돌린 레시피 여러 개를 합칠 때 정상이 n배로 불지 않게)."""
     roots_p = [Path(r) for r in roots]
     out_p = Path(out)
     fmt, _ = check_compatible(roots_p)
@@ -182,9 +188,11 @@ def merge_datasets(
     review_out: dict[str, tuple[str, str]] = {}
     coco: dict[str, Any] | None = None
     next_index = 0
+    seen_targets: set[str] = set()
     for k, root in enumerate(roots_p):
         pre = prefix.format(k=k)
         counts = {"synthetic": 0, "normals": 0, "skipped": 0}
+        skipped_normal_names: set[str] = set()  # coco images 에서도 빼기 위해
         review = read_review(root / REVIEW_FILE)
         for r in read_manifest(root / MANIFEST_FILE):
             row = dict(r)
@@ -208,6 +216,14 @@ def merge_datasets(
                 if old_index in review:
                     review_out[str(new_index)] = review[old_index]
             else:
+                target = str(row.get("target", ""))
+                if dedupe_normals and target:
+                    if target in seen_targets:
+                        counts["normals_dropped"] = counts.get("normals_dropped", 0) + 1
+                        summary.normals_dropped += 1
+                        skipped_normal_names.add(Path(r.get("image", "")).name)
+                        continue
+                    seen_targets.add(target)
                 counts["normals"] += 1
                 summary.normals += 1
             for col in PATH_COLUMNS:
@@ -251,6 +267,8 @@ def merge_datasets(
             img_off = max((im["id"] for im in coco["images"]), default=0)
             ann_off = max((a["id"] for a in coco["annotations"]), default=0)
             for im in doc.get("images", []):
+                if Path(str(im.get("file_name", ""))).name in skipped_normal_names:
+                    continue
                 im = dict(im)
                 im["id"] = int(im["id"]) + img_off
                 im["file_name"] = prefixed(im.get("file_name", ""), pre)
@@ -281,6 +299,7 @@ def merge_datasets(
                 "per_root": summary.per_root,
                 "synthetic": summary.synthetic,
                 "normals": summary.normals,
+                "normals_dropped": summary.normals_dropped,
                 "skipped": summary.skipped,
             },
             ensure_ascii=False,
