@@ -9,6 +9,7 @@
 - `tools/fetch_public_datasets.py` — MVTec AD 카테고리(HF 미러, 원본 폴더 구조) · DTD 결함류 15 · Magnetic Tile(pairs.csv·normals.txt) · VisA 를 표준 라이브러리만으로 받고 `--import` 로 은행까지. 공개 데이터 리허설 레시피 `recipes/public-*.yaml` 3종.
 - `run --dry-run`·배치 로그·스튜디오 소스 카드에 **`source:` 비국소 클래스 경고** — 패치 긴 변이 대상 짧은 변의 50 % 이상인 클래스(MVTec `flip`, MT `uneven`)는 결함이 아니라 부품 전체 이상일 수 있으니 `source.classes` 로 제외하라고. ROI 를 넓혀도 답이 아닌 경우를 `placement:` 경고와 구분.
 - prepare `targets:` 경고 — 대상 폴더에 같은 이름·다른 확장자 쌍(이미지 옆 마스크 PNG)이 있으면 마스크도 대상으로 뽑힌다고(.txt 목록 권고).
+- **`anograft dataset merge a b … --out c`** — `run` 출력 폴더 여러 개(다른 프리셋·시드, 정리본 권장)를 한 학습셋으로: 파일 이름에 `d<k>_` 접두어(`--prefix`), 합성·skipped 행 index 0부터 재부여(사이드카 `index` 갱신 + `merged_from: {root, index}`), `review.csv` 이어 붙임, yolo `labels/`·mvtec 레이아웃 사본도 접두어, coco `annotations.json` 은 id 오프셋으로 병합, `merge.json` 요약. 같은 writer 형식·같은 클래스 이름(`data.yaml names`)이어야 한다(아니면 거부 — YOLO class id 가 어긋나므로).
 
 ### Fixed
 - 합성 사이드카 `target.file` 이 Windows 에서 역슬래시였던 것 → manifest·정상 사이드카와 같은 posix.

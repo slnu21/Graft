@@ -534,6 +534,28 @@ def cmd_dataset_prune(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_dataset_merge(args: argparse.Namespace) -> int:
+    """출력 폴더 여러 개 → 하나(파일 접두어 · index 재부여 · coco 이어 붙임). 같은 writer 형식·클래스 이름이어야 한다."""
+    from anograft.io.merge_datasets import MergeError, merge_datasets
+
+    try:
+        s = merge_datasets(args.roots, args.out, prefix=args.prefix)
+    except (MergeError, OSError) as e:
+        _err(f"병합 실패: {e}")
+        return EXIT_RECIPE_ERROR
+    per = " · ".join(
+        f"{r.name}: 합성 {c['synthetic']} 정상 {c['normals']}"
+        + (f" skipped {c['skipped']}" if c["skipped"] else "")
+        for r, c in zip(s.roots, s.per_root, strict=True)
+    )
+    print(
+        f"병합 → {s.out.as_posix()}: 합성 {s.synthetic} · 정상 {s.normals} · skipped 행 {s.skipped} · 파일 {s.files} ({per})"
+    )
+    for w in s.warnings:
+        _err(f"경고: {w}")
+    return EXIT_OK
+
+
 def doctor_info() -> dict:
     """환경 진단 — 다른 PC 에서 문제를 보고받을 때 첫 줄에 붙일 것(의존성 버전·Qt·스레드·프리셋·frozen 여부)."""
     import os
@@ -1018,6 +1040,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--drop-unreviewed", action="store_true", help="미검수도 제외하고 채택(accept)만 남긴다"
     )
     dp.set_defaults(func=cmd_dataset_prune)
+    dm = dsub.add_parser(
+        "merge",
+        help="run 출력 폴더 여러 개를 한 학습셋으로(파일 접두어 d<k>_ · index 재부여 · coco 이어 붙임). 같은 writer·클래스여야 함",
+    )
+    dm.add_argument("roots", nargs="+", help="anograft run 출력 폴더 둘 이상 (정리본 권장)")
+    dm.add_argument("--out", required=True, help="병합 폴더 (입력과 달라야 함)")
+    dm.add_argument(
+        "--prefix", default="d{k}_", help="파일 이름 접두어, {k} = 루트 순번 (기본 d{k}_)"
+    )
+    dm.set_defaults(func=cmd_dataset_merge)
 
     p = sub.add_parser(
         "doctor", help="환경 진단(버전·Qt·스레드·프리셋·불가 method) — 문제 보고 첫 줄에"
