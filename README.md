@@ -63,7 +63,7 @@ anograft-gui recipes/sample-poisson.yaml                                  # GUI 
 
 ![GUI 배치 탭](assets/gui-batch.png)
 
-**은행 탭**(v0.7)에서 소스를 신뢰도순으로 보고 저신뢰(빨간 테두리)를 골라 다듬거나 지웁니다. **검수 탭**(v0.7)에서 합성 결과를 A/R 로 판정하고, 왼쪽 히스토그램으로 합성(teal) vs 실제(amber) 분포(크기 · 대비 · 질감 · 선명도 · **조명 방향**)를 비교한 뒤 반려를 뺀 정리본을 내보냅니다. 아래 화면은 ±180° 회전 프리셋으로 찍힘(pit)을 합성한 결과 — 실제 소스의 하이라이트는 한 방향(amber 가 +90° 에 모임)인데 합성은 사방으로 퍼졌고, 필터 **조명 뒤집힘 의심**이 40장 중 33장을 골라냈다(→ `dent-graft`).
+**은행 탭**(v0.7)에서 소스를 신뢰도순으로 보고 저신뢰(빨간 테두리)를 골라 다듬거나 지웁니다. **검수 탭**(v0.7)에서 합성 결과를 A/R 로 판정하고, 왼쪽 히스토그램으로 합성(teal) vs 실제(amber) 분포(크기 · 대비 · 질감 · 선명도 · **조명 방향**)를 비교한 뒤 반려를 뺀 정리본을 내보냅니다. 아래 화면은 MVTec metal_nut(공개 데이터, `recipes/public-metal-nut-dent.yaml`) 검수 — 분포를 **클래스 콤보**(v0.8)로 `bent` 만 보면 실제 35장(amber)의 조명 방향이 +90° 쪽으로 모이고 합성 9장(teal)이 그 안에 들어온다. `실측 CSV…` 로 실제 계열을 현장 측정값으로 바꿀 수 있다.
 
 ![GUI 은행 탭](assets/gui-bank.png)
 
@@ -265,7 +265,7 @@ A dent's appearance *is* the lighting, so rotating it ±180° puts the highlight
 | Preview | Studio variant card **↯** | Shown when an instance's highlight differs from the real direction by more than 90° |
 | Review | Review-tab **lighting** histogram · filter **flipped lighting** · `run --report` | Synthetic vs real angle distribution, per-class R, list of flipped images. `dataset prune --drop-flipped` removes them |
 
-On the sample: `anograft sample --out s --quickstart` detects pit as lighting-dependent and writes the per_class override. Run the same bank with `--preset poisson-graft` instead and the review filter picks out 33 of 40 images (screenshot above).
+On the sample: `anograft sample --out s --quickstart` detects pit as lighting-dependent and writes the per_class override. Run the same bank with `--preset poisson-graft` instead and the review filter picks out most of the images. The screenshot above is the Review tab on MVTec metal_nut (`recipes/public-metal-nut-dent.yaml`): with the **per-class combo** (v0.8) set to `bent`, the 35 real sources (amber) cluster around +90° and the 9 synthetic ones (teal) fall inside; `real CSV…` swaps the real series for field measurements.
 
 **Reproducibility scope**: byte-identical on the same OS and OpenCV minor version. Other environments may differ by a few pixels (`cv2.seamlessClone` solver). The zip ships its own OpenCV, so zip-to-zip results match.
 
