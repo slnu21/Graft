@@ -4,18 +4,19 @@
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-17
+
+공개 데이터(MVTec·Magnetic Tile)로 KNOWN-ISSUES 2차 절차를 리허설하며 나온 것들 — 진단 v2(짧은 변·정렬·축척) · `dataset merge` · 검수 클래스별 분포·실측 CSV · `--mask-from hybrid`(옵션) · 박스→마스크 벤치와 결정 근거 표 · 공개 데이터 받기 도구. 기본값·프리셋·골든 불변. 확인 절차는 `TESTING.md`.
+
 ### Added
 - 검수 리포트에 **기하 한 줄**(scale·rotate·flip·per_class) — 조명 히스토그램을 어떤 회전/flip 으로 만든 결과인지 리포트만 봐도 알 수 있게.
 - `tools/fetch_public_datasets.py` — MVTec AD 카테고리(HF 미러, 원본 폴더 구조) · DTD 결함류 15 · Magnetic Tile(pairs.csv·normals.txt) · VisA 를 표준 라이브러리만으로 받고 `--import` 로 은행까지. 공개 데이터 리허설 레시피 `recipes/public-*.yaml` 3종.
 - `run --dry-run`·배치 로그·스튜디오 소스 카드에 **`source:` 비국소 클래스 경고** — 패치 긴 변이 대상 짧은 변의 50 % 이상인 클래스(MVTec `flip`, MT `uneven`)는 결함이 아니라 부품 전체 이상일 수 있으니 `source.classes` 로 제외하라고. ROI 를 넓혀도 답이 아닌 경우를 `placement:` 경고와 구분.
 - prepare `targets:` 경고 — 대상 폴더에 같은 이름·다른 확장자 쌍(이미지 옆 마스크 PNG)이 있으면 마스크도 대상으로 뽑힌다고(.txt 목록 권고).
 - **`anograft dataset merge a b … --out c`** — `run` 출력 폴더 여러 개(다른 프리셋·시드, 정리본 권장)를 한 학습셋으로: 파일 이름에 `d<k>_` 접두어(`--prefix`), 합성·skipped 행 index 0부터 재부여(사이드카 `index` 갱신 + `merged_from: {root, index}`), `review.csv` 이어 붙임, yolo `labels/`·mvtec 레이아웃 사본도 접두어, coco `annotations.json` 은 id 오프셋으로 병합, `merge.json` 요약. 같은 writer 형식·같은 클래스 이름(`data.yaml names`)이어야 한다(아니면 거부 — YOLO class id 가 어긋나므로).
-
 - 검수 탭 분포에 **클래스 콤보** — 외형 지표(대비·질감·선명도·조명 방향)를 한 클래스만 합성 vs 실제로. 조명 방향은 클래스마다 달라 전체 분포는 섞여 보이므로 클래스별로 보고, 제목에 그 클래스의 R(n). 리포트에도 실제 방향이 유의한 클래스별 조명 방향 히스토그램 격자(`ReportData.hist_lighting_class`). `ReviewSession.class_options/distribution_by_class/lighting_r_for/lighting_histograms_by_class`.
-
 - `tools/bench_mask_from_box.py` — GT 마스크가 있는 데이터(MVTec 카테고리·pairs.csv)에서 박스→마스크 추정 4방법의 IoU 와 `mask_confidence` 의 실패 검출력을 재는 벤치(markdown + JSON). 공개 데이터 1180 인스턴스 결과와 읽는 법은 `KNOWN-ISSUES.md` "결정 근거" 절.
 - 검수 '실제' 분포를 **실측 CSV** 로 — 검수 탭 `실측 CSV…` 버튼 · `dataset report --real-csv x.csv`. 열은 `class`(선택) + `area/length/contrast/texture/sharpness/lighting` 중 있는 것(숫자, 빈 칸 건너뜀); CSV 에 있는 열은 CSV 가, 없는 열은 은행이 실제 값을 댄다. 레시피 `source.classes` 필터는 CSV 에도 적용. 리포트 머리 `실제 = 실측 x.csv`. 현장 실측(현미경 µm→px)과 합성 분포를 견줄 때.
-
 - `bank import-yolo --mask-from hybrid`(라벨 탭 자동 선택에도) — grabcut 사슬 결과의 `mask_confidence` 가 0.5 미만이면 내접 타원으로(`mask_origin: yolo-box:ellipse`). 벤치(1180 인스턴스): 사슬 0.37/0.43 → 하이브리드 0.50/0.21. **기본은 그대로 `grabcut`**(은행 재현성) — 전환은 실데이터 2차 뒤. `tools/bench_mask_from_box.py` 에 `hybrid` 열.
 
 ### Fixed
@@ -222,7 +223,8 @@ v0.4 — CPU 알고리즘 확장. **여전히 샘플 데이터로만 검증**(�
 - GUI는 스튜디오 탭만. 재현은 같은 OS·OpenCV 부버전 범위(`seamlessClone` 솔버).
 - `release.yml`의 Windows zip 잡은 첫 push 전이라 CI에서 미검증(로컬 `tools/build_zip.ps1`와 같은 절차).
 
-[Unreleased]: https://github.com/slnu21/Graft/compare/v0.7.7...HEAD
+[Unreleased]: https://github.com/slnu21/Graft/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/slnu21/Graft/compare/v0.7.7...v0.8.0
 [0.7.7]: https://github.com/slnu21/Graft/compare/v0.7.6...v0.7.7
 [0.7.6]: https://github.com/slnu21/Graft/compare/v0.7.5...v0.7.6
 [0.7.5]: https://github.com/slnu21/Graft/compare/v0.7.4...v0.7.5
