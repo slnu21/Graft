@@ -264,13 +264,21 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--model", default="yolov8n.pt")
     ap.add_argument("--epochs", type=int, default=30)
     ap.add_argument("--imgsz", type=int, default=320)
-    ap.add_argument("--seed", type=int, default=7)
+    ap.add_argument("--seed", type=int, default=7, help="학습·합성 시드")
+    ap.add_argument(
+        "--split-seed",
+        type=int,
+        default=None,
+        help="real-train/val 분할 시드(기본 = --seed). 분할은 고정하고 학습 시드만 바꿔 분산을 볼 때",
+    )
     ap.add_argument("--out", type=Path, default=Path("out/train-map"))
     ap.add_argument("--skip-train", action="store_true", help="데이터만 만들고 학습은 생략")
     a = ap.parse_args(argv)
     a.out.mkdir(parents=True, exist_ok=True)
     a.anograft = str(Path(a.anograft).resolve())  # CreateProcess 는 상대 경로를 못 찾는다
-    info = build_real_sets(a.mvtec, a.classes, a.k, a.seed, a.out)
+    split_seed = a.seed if a.split_seed is None else a.split_seed
+    info = build_real_sets(a.mvtec, a.classes, a.k, split_seed, a.out)
+    info["split_seed"] = split_seed
     print("real sets:", info, flush=True)
     syn_roots = [
         synthesize(a.anograft, a.mvtec, a.out, p, a.count, a.seed, a.roi, a.mask_from)
@@ -301,7 +309,7 @@ def main(argv: list[str] | None = None) -> int:
         rows.append(f"| {name} | {r['map50']:.3f} | {r['map50_95']:.3f} | {pc} | {r['minutes']} |")
     md = (
         "\n".join(rows)
-        + f"\n\n{a.mvtec.name} · classes {a.classes} · real-train {a.k}/class · real-val {info['counts']['val']}(+good {info['counts']['val_neg']}) · 합성 {a.count}/프리셋(roi {a.roi}, mask_from {a.mask_from}) · {a.model} imgsz {a.imgsz} epochs {a.epochs} seed {a.seed} · CPU\n"
+        + f"\n\n{a.mvtec.name} · classes {a.classes} · real-train {a.k}/class · real-val {info['counts']['val']}(+good {info['counts']['val_neg']}) · 합성 {a.count}/프리셋(roi {a.roi}, mask_from {a.mask_from}) · {a.model} imgsz {a.imgsz} epochs {a.epochs} seed {a.seed} · split-seed {split_seed} · CPU\n"
     )
     (a.out / "result.md").write_text(md, encoding="utf-8")
     (a.out / "result.json").write_text(
