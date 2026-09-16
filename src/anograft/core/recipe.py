@@ -953,6 +953,7 @@ def resolve_recipe_paths(
     data: dict[str, Any], base: str | Path
 ) -> tuple[dict[str, Any], list[str]]:
     """상대 입력 경로를 **cwd 우선, 없으면 레시피 파일 기준**으로 해석한다(KNOWN-ISSUES #9 보완 방향). 반환 ``(새 dict, 노트)``.
+    입력이 하나라도 폴백했으면 ``output.root``(상대)도 레시피 파일 기준으로 — 다른 폴더에서 연 레시피의 출력이 cwd 에 흩어지지 않게(v0.8.x).
 
     - cwd 에 있으면 그대로(하위 호환 — repo 루트에서 `recipes/x.yaml` 을 돌리는 기본 사용법은 변하지 않는다).
     - cwd 에 없고 ``base/<경로>`` 가 있으면 그것으로 바꾸고 노트 한 줄. 둘 다 없으면 그대로 두어 원래 오류가 난다.
@@ -989,6 +990,16 @@ def resolve_recipe_paths(
             cur = cur[k]
         cur[keys[-1]] = candidate.as_posix()
         notes.append(f"{'.'.join(keys)}: {value} → {candidate.as_posix()} (레시피 파일 기준)")
+    # output.root: 입력이 하나라도 레시피 파일 기준으로 폴백했으면(= 다른 폴더에서 열었다) 출력도 레시피 파일 기준으로.
+    # 아니면 cwd 그대로(기본 사용법 불변). --out 오버라이드는 apply_overrides 가 이 뒤에 덮는다.
+    output = out.get("output")
+    if notes and isinstance(output, dict):
+        root = output.get("root")
+        if isinstance(root, str) and root.strip() and not Path(root).is_absolute():
+            out["output"] = {**output, "root": (base / root).as_posix()}
+            notes.append(
+                f"output.root: {root} → {(base / root).as_posix()} (레시피 파일 기준 — 입력이 폴백했으므로)"
+            )
     return out, notes
 
 

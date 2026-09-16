@@ -142,3 +142,65 @@ def test_prepare_enables_cache_and_studio_variants_share_it(tmp_path: Path) -> N
     t1 = TargetImage(path=Path("x/../a.png"), image=disk_image(32), gray=False)
     t2 = TargetImage(path=Path("a.png"), image=disk_image(32), gray=False)
     assert RoiCache.key_for(t1, R.OtsuRoiConfig()) != RoiCache.key_for(t2, R.OtsuRoiConfig())
+
+
+def test_prepare_roi_cache_size_option(tmp_path: Path) -> None:
+    """``prepare(roi_cache_size=)``(v0.8.x, CLI ``run --roi-cache``): 크기 지정 · 0 = 캐시 없음(결과 동일) · reprepare 는 None 도 이어 받음."""
+    from anograft.bank.importers import yolo as Y
+    from anograft.cli import EXIT_OK, main
+
+    d = fake_yolo_dataset(tmp_path / "ds")
+    normals = tmp_path / "normals.txt"
+    Y.import_yolo(
+        d["images"],
+        d["labels"],
+        d["names"],
+        tmp_path / "bank",
+        mask_from="rect",
+        list_normals=normals,
+    )
+    data = {
+        "version": 1,
+        "name": "s",
+        "seed": 1,
+        "inputs": {"bank": (tmp_path / "bank").as_posix(), "targets": normals.as_posix()},
+        "output": {"root": (tmp_path / "o").as_posix(), "count": 2},
+        "pipeline": {
+            "preset": "hard-paste",
+            "source": {"method": "bank", "min_sources_warn": 1},
+            "placement": {"roi": {"method": "otsu", "erode_px": 2}, "margin_px": 4},
+        },
+    }
+    rec = R.Recipe.from_dict(data)
+    small = runner.prepare(rec, roi_cache_size=2)
+    assert (
+        isinstance(small.pipeline.roi_cache, RoiCache) and small.pipeline.roi_cache.max_items == 2
+    )
+    off = runner.prepare(rec, roi_cache_size=0)
+    assert off.pipeline.roi_cache is None
+    assert runner.reprepare(off, rec.with_method("blend", "alpha")).pipeline.roi_cache is None
+    a = runner.run_index(runner.prepare(rec), 0)
+    b = runner.run_index(off, 0)
+    assert (a.image == b.image).all() and (a.gt_mask == b.gt_mask).all()  # 캐시 유무와 결과 무관
+    # CLI: --roi-cache 0 · 2 로 돌아가고 결과 파일이 있다
+    import yaml
+
+    recipe = tmp_path / "r.yaml"
+    recipe.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    assert main(["run", str(recipe), "--workers", "0", "--roi-cache", "0"]) == EXIT_OK
+    assert (
+        main(
+            [
+                "run",
+                str(recipe),
+                "--workers",
+                "2",
+                "--roi-cache",
+                "2",
+                "--out",
+                str(tmp_path / "o2"),
+            ]
+        )
+        == EXIT_OK
+    )
+    assert (tmp_path / "o2" / "manifest.csv").is_file()
