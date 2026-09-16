@@ -11,8 +11,8 @@
         ground_truth/<class>/000000_mask.png
 
 - **이미지당 단일 클래스**: 폴더는 클래스 하나뿐이라, 인스턴스가 여러 클래스면 **면적이 가장 큰 인스턴스의 클래스**로 두고
-  사이드카 ``writer.mixed = true`` + 경고. 클래스가 섞이지 않게 하려면 ``defects_per_image: [1, 1]`` 또는 ``class_ratio`` 로
-  한 클래스만.
+  사이드카 ``writer.mixed = true`` + 경고. 클래스가 섞이지 않게 하려면 ``source.single_class_per_image: true``(첫 결함이 뽑은
+  클래스를 그 이미지의 나머지가 따름 — 설계의 '이미지당 1회 추첨', v0.8.x) 또는 ``defects_per_image: [1, 1]``.
 - 정상 분할은 ``write_normal`` 호출 순서(= ``prep.targets`` 정렬)와 ``seed`` 로만 정해진다 — 워커 수와 무관.
 - anomalib: ``MVTecAD(root="<root>/mvtec", category="<category>")`` 또는 ``Folder`` 데이터모듈. ``include_normals: false``
   면 train/good 이 비어 학습이 안 되므로 경고.
@@ -118,7 +118,10 @@ class MvtecWriter(PairsWriter):
         self._pending[result.index] = entry
         if mixed:
             classes = sorted({i.cls for i in result.instances})
-            w = f"mvtec: 인덱스 {result.index} 에 클래스 {classes} 가 섞임 — 면적 최대 '{cls}' 폴더에 둠"
+            w = (
+                f"mvtec: 인덱스 {result.index} 에 클래스 {classes} 가 섞임 — 면적 최대 '{cls}' 폴더에 둠"
+                " (source.single_class_per_image: true 면 이미지당 한 클래스)"
+            )
             sidecar = dict(result.sidecar)
             sidecar["warnings"] = [*sidecar.get("warnings", []), w]
             result = replace(result, sidecar=sidecar, warnings=(*result.warnings, w))
