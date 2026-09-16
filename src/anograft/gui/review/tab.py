@@ -209,12 +209,12 @@ class ReviewTab(QWidget):
         )
         v.addWidget(self.dist_class)
         row = QHBoxLayout()
-        self.btn_real_csv = QPushButton("실측 CSV… real CSV")
+        self.btn_real_csv = QPushButton("실측 CSV…")
         self.btn_real_csv.setToolTip(
             "실제 분포를 은행 대신 실측 CSV 로(열: class? + area/length/contrast/texture/sharpness/lighting) · "
             "Use a measured CSV instead of the bank for the 'real' series"
         )
-        self.btn_real_csv_clear = QPushButton("은행으로 bank")
+        self.btn_real_csv_clear = QPushButton("은행 bank")
         self.btn_real_csv_clear.setEnabled(False)
         row.addWidget(self.btn_real_csv)
         row.addWidget(self.btn_real_csv_clear)
