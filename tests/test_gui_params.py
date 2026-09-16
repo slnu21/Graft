@@ -32,7 +32,9 @@ def test_field_specs_cover_every_kind_from_schema() -> None:
         "flip",
         "elastic.alpha",
         "elastic.sigma",
-    ]  # 선언 순서 · 중첩 평탄화
+        "tps.points",
+        "tps.jitter",
+    ]  # 선언 순서 · 중첩 평탄화 (0.8.x: tps 휘어짐)
     assert geo["scale"].kind == "range" and geo["scale"].value == [0.8, 1.25]
     assert (
         geo["flip"].kind == "choice" and geo["flip"].value == "both"

@@ -3,7 +3,7 @@
 - 이미지는 ``INTER_LINEAR``, 마스크는 ``INTER_NEAREST`` 후 ``>127`` 이진화 — LINEAR로 돌린 마스크는 회색값이 생겨 GT를 오염시킨다.
 - 회전으로 잘리지 않게 출력 캔버스 = 회전 bbox 크기. 캔버스 바깥은 이미지는 반사(``BORDER_REFLECT_101`` — 마스크 밖
   픽셀도 블렌딩 페더·Poisson 그래디언트에 쓰이므로 검은 모서리를 만들지 않는다), 마스크는 0.
-- 무작위 소비 순서(고정): ``uniform(scale)`` → ``uniform(rotate)`` → (flip이면) ``random()`` ×2 → (elastic이면) ``normal`` 필드 2장.
+- 무작위 소비 순서(고정): ``uniform(scale)`` → ``uniform(rotate)`` → (flip이면) ``random()`` ×2 → (elastic이면) ``normal`` 필드 2장 → (tps jitter>0 이면) ``normal`` 2·n².
 - 결과 마스크 면적 < ``MIN_MASK_AREA``이면 ``patch=None`` + 경고 → 파이프라인이 그 결함을 건너뛴다.
 """
 
@@ -21,6 +21,7 @@ from anograft.core.channels import binarize
 from anograft.core.recipe import AffineGeometryConfig
 from anograft.core.registry import register
 from anograft.core.scale import physical_scale
+from anograft.core.tps import tps_deform
 from anograft.core.types import Context
 
 MIN_MASK_AREA = 4  # px — 이보다 작은 마스크는 결함으로 의미가 없다
@@ -135,6 +136,17 @@ class AffineGeometry:
         if cfg.elastic.alpha > 0:
             patch, mask = elastic_deform(patch, mask, cfg.elastic.alpha, cfg.elastic.sigma, rng)
             elastic_log = {"alpha": cfg.elastic.alpha, "sigma": cfg.elastic.sigma}
+        tps_log: dict[str, Any] | None = None
+        tps_cfg = getattr(cfg, "tps", None)
+        if tps_cfg is not None and tps_cfg.jitter > 0:
+            patch, mask, ctrl, moved = tps_deform(
+                patch, mask, points=tps_cfg.points, jitter=tps_cfg.jitter, rng=rng
+            )
+            tps_log = {
+                "points": tps_cfg.points,
+                "jitter": tps_cfg.jitter,
+                "max_shift_px": round(float(np.abs(moved - ctrl).max()), 2),
+            }
 
         area = int(np.count_nonzero(mask))
         log: dict[str, Any] = {
@@ -145,6 +157,7 @@ class AffineGeometry:
             "rotate": angle,
             "flip": [flip_h, flip_v],
             "elastic": elastic_log,
+            "tps": tps_log,
             "per_class": eff.overridden,
             "patch_shape": [int(mask.shape[0]), int(mask.shape[1])],
             "mask_area_px": area,

@@ -9,6 +9,9 @@
 - 레시피를 **다른 폴더에서 열어** 입력 경로가 레시피 파일 기준으로 폴백하면 `output.root`(상대)도 레시피 파일 기준으로 — 출력이 cwd 에 흩어지지 않게. repo 루트에서 쓰는 기본 사용법(cwd)은 그대로, `--out` 은 명시값 우선.
 - `run --roi-cache N` — 대상당 ROI 캐시 항목 수(LRU, 기본 16 · 0 = 끔; `runner.prepare(roi_cache_size=)`). 결과와 무관, 4K 대상 수백 장에서 메모리를 아낄 때. 워커도 같은 값.
 - `source.single_class_per_image`(기본 false) — 한 이미지의 결함은 첫 결함이 뽑은 클래스로(설계의 '이미지당 1회 추첨'). mvtec writer 의 `mixed` 경고가 이 옵션을 가리킨다. 켜면 2번째 결함부터 클래스 추첨 rng 0회(첫 결함·기본값은 불변).
+- GUI 상단 **'샘플 데이터' 옵션 대화상자**(`gui/quickstart_dialog.py`) — 모양·폴더·정상/결함 장수·크기·합성 장수·시드를 한 번에(종전엔 모양+폴더만). `MainWindow.make_sample(root, shape, **opts)`.
+- `tools/train_mvtec_map.py` — MVTec GT 마스크로 real-train(클래스당 k)/real-val 을 나누고, **real-train 의 박스만으로** 은행을 만들어 합성한 뒤 YOLO(ultralytics, 별도 venv) 합성 유/무 mAP 를 같은 홀드아웃에서 비교. 결과는 `BENCHMARKS.md`.
+- `geometry.tps: {points: 3, jitter: 0.0}` — **thin-plate spline 휘어짐**(설계 v0.2 열의 마지막 미구현 method). `points×points` 제어점을 `jitter × 짧은 변` 만큼 흔들어 전역으로 휘고 늘린다(elastic 은 국소 잔물결). headless OpenCV 에 TPS 가 없어 numpy 로(`core/tps.py`). 기본 0 = off = rng 0회 → 골든 불변. 사이드카 `geometry.tps.max_shift_px`. 기하 카드 폼에 자동 노출.
 
 ## [0.8.0] - 2026-09-17
 

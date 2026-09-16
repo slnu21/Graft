@@ -309,6 +309,13 @@ class ElasticConfig(_Strict):
     sigma: float = Field(default=4.0, gt=0.0)
 
 
+class TpsConfig(_Strict):
+    """thin-plate spline 휘어짐(v0.8.x) — ``points×points`` 제어점을 ``jitter × 짧은 변`` 만큼 흔든다. 0 = off = rng 0회."""
+
+    points: int = Field(default=3, ge=2, le=8)
+    jitter: float = Field(default=0.0, ge=0.0, le=0.25)
+
+
 def _check_scale(v: tuple[float, float]) -> tuple[float, float]:
     if v[0] <= 0:
         raise ValueError("scale 범위는 양수여야 합니다")
@@ -378,6 +385,9 @@ class AffineGeometryConfig(_Strict):
     rotate: Range = (-180.0, 180.0)  # deg
     flip: FlipMode = "both"  # none · horizontal · vertical · both(좌우·상하 각각 50 %). YAML 의 true/false 도 받는다(0.7.5 전 호환)
     elastic: ElasticConfig = Field(default_factory=ElasticConfig)
+    tps: TpsConfig = Field(
+        default_factory=TpsConfig
+    )  # 전역 휘어짐(elastic 은 국소 잔물결). 기본 off
     per_class: dict[str, GeometryOverride] = Field(
         default_factory=dict
     )  # 클래스 → 오버라이드(카드 편집기엔 안 나옴 — YAML 로). 은행에 없는 클래스는 validate_against 경고

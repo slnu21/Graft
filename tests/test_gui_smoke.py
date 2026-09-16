@@ -231,7 +231,15 @@ def test_stage_param_form_edits_recipe_and_shows_errors_inline(
         tab = win.studio
         pipe = tab.pipe
         geo = pipe.cards["geometry"]
-        assert list(geo.form.rows) == ["scale", "rotate", "flip", "elastic.alpha", "elastic.sigma"]
+        assert list(geo.form.rows) == [
+            "scale",
+            "rotate",
+            "flip",
+            "elastic.alpha",
+            "elastic.sigma",
+            "tps.points",
+            "tps.jitter",
+        ]
         # 1) 회전 범위 편집 → 디바운스 후 세션 반영
         row = geo.form.rows["rotate"]
         row.editors[0].setValue(-15.0)
@@ -452,6 +460,70 @@ def test_main_window_sample_button_builds_and_opens(qapp: QApplication, tmp_path
         assert _pump(qapp, lambda: ses.prepared is not None)
         assert len(ses.prepared.bank) == q.n_sources and win.bank.session.loaded
         assert "소스" in win.bank.session.summary_text()
+        # 0.8.x: 옵션 대화상자 값 → quickstart 인자 (장수·크기·시드) — 작은 세트로 다시
+        from anograft.gui.quickstart_dialog import QuickstartDialog, quickstart_options
+
+        dlg = QuickstartDialog(win, default_folder=str(tmp_path))
+        dlg.shape.setCurrentIndex(0)
+        dlg.n_normal.setValue(3)
+        dlg.n_defect.setValue(2)
+        dlg.width.setValue(320)
+        dlg.height.setValue(240)
+        dlg.count.setValue(4)
+        dlg.seed.setValue(11)
+        root, opts = dlg.values()
+        assert root == tmp_path / "plate" and opts == {
+            "shape": "plate",
+            "seed": 11,
+            "n_normal": 3,
+            "n_defect": 2,
+            "size": (320, 240),
+            "count": 4,
+        }
+        q2 = win.make_sample(root, **opts)
+        assert q2 is not None and (root / "bank").is_dir() and q2.recipe.is_file()
+        import yaml
+
+        rec = yaml.safe_load(q2.recipe.read_text(encoding="utf-8"))
+        assert rec["output"]["count"] == 4  # seed 는 샘플 생성 시드(레시피 seed 는 init 기본값)
+        assert len(list((root / "images").glob("*.png"))) == 5  # 정상 3 + 결함 2
+        dlg.close()
+        # 검증: 폴더 비면 · 장수 0 · 크기 작음
+        import pytest
+
+        with pytest.raises(ValueError):
+            quickstart_options(
+                folder="",
+                shape="plate",
+                n_normal=1,
+                n_defect=1,
+                width=64,
+                height=64,
+                count=1,
+                seed=0,
+            )
+        with pytest.raises(ValueError):
+            quickstart_options(
+                folder="x",
+                shape="plate",
+                n_normal=0,
+                n_defect=1,
+                width=64,
+                height=64,
+                count=1,
+                seed=0,
+            )
+        with pytest.raises(ValueError):
+            quickstart_options(
+                folder="x",
+                shape="plate",
+                n_normal=1,
+                n_defect=1,
+                width=32,
+                height=64,
+                count=1,
+                seed=0,
+            )
     finally:
         win.worker.stop()
         win.close()
