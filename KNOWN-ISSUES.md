@@ -217,7 +217,7 @@ FileNotFoundError: [Errno 2] No such file or directory: 'recipes\\gbs1005.yaml'
 
 ---
 
-## 2차 적용 절차 (v0.7.7 기준 — 다른 PC 에서 그대로 따라 하기)
+## 2차 적용 절차 (v0.8.1 기준 — 다른 PC 에서 그대로 따라 하기)
 
 > 목적: 위 10건이 실제 토크스 소켓 데이터에서 통했는지 확인하고, 아래 **결정 대기 항목**을 확정한다. 결과는 이 파일에 "2차 결과" 절로 덧붙여 PR 로.
 
@@ -229,6 +229,7 @@ anograft doctor --json > doctor.json
 anograft bank import-yolo --images ng/images --labels ng/labels --names ng/data.yaml --out bank/torx --tags torx,lot1 --um-per-px <피치>
 anograft bank ls bank/torx --json > bank-ls.json      # lowconf 열 · no_um 열 — 저신뢰 비율이 #3 의 답
 anograft bank preview bank/torx --out bank-preview.png  # 빨간 테두리 = 저신뢰. 실제로 엉뚱한 마스크와 일치하는가?
+#    (v0.8) 같은 라벨로 --mask-from hybrid --out bank/torx-h 도 한 번 — 두 preview 를 나란히(벤치에선 사슬 0.37 → 하이브리드 0.50 IoU). 은행 둘을 비교만, 채택은 결정 뒤
 
 # 2. 저신뢰 다듬기 (GUI) — 은행 탭 → "저신뢰 전부 차례로 다듬기" → 라벨 탭에서 다듬고 Ctrl+S → 다음 저신뢰
 #    또는 기존 YOLO 라벨을 라벨 탭에서 열면 초안이 자동으로 채워진다(images/ 옆 labels/).
@@ -238,15 +239,17 @@ anograft recipe init --preset annulus-graft --bank bank/torx --targets ok/ --out
 #    찍힘이면 dent-graft 도 (#5, 0.7.3): --preset dent-graft --roi annulus  (피치를 알면 --um-per-px <피치>)
 #    스크래치·찍힘이 섞인 은행이면 프리셋은 그대로 두고 --auto-dent (lightR ≥ 0.5 클래스만 ±15·flip 끔 = geometry.per_class)
 #    (데이터 없이 이 단계를 먼저 연습: anograft sample --out samples/ring --shape ring → import → 위 init)
-anograft run recipes/torx-annulus.yaml --dry-run            # roi width(링 폭) vs fit <class>(패치 폭) — 불가/빠듯이면 geometry.scale·erode_px 먼저
+anograft run recipes/torx-annulus.yaml --dry-run            # (v0.8) fit 행 = 짧은 변·긴 변 vs 링 폭 + 근거 · source:(부품 전체 클래스) · targets:(마스크 섞임) 경고
 anograft run recipes/torx-annulus.yaml --workers 4 --report # stderr 경고: 축척 정합 · 저신뢰 · skipped 사유(ROI 폭 vs 패치) · --report 는 리포트 HTML 까지
 
 # 4. 검수 (GUI 검수 탭 또는) — 반려하고 정리본 + 리포트
 anograft dataset report out/torx-annulus                    # 합성 vs 실제 면적·긴 변·대비 히스토그램
 anograft dataset prune out/torx-annulus --out out/torx-pruned [--drop-flipped]   # 조명 뒤집힘 의심도 빼려면
+#    (v0.8) 검수 탭 분포 → 클래스 콤보(찍힘만 조명 방향) · 실측 CSV 가 있으면 '실측 CSV…'(또는 dataset report --real-csv) · 여러 레시피 출력은 dataset merge a b --out c
 
 # 5. 학습(선택, ultralytics 별도 설치) — 합성 유/무 mAP
 python tools/train_smoke.py --synthetic out/torx-pruned [--synthetic out/torx-dent-pruned] --base <기존 YOLO 셋> --out train/merged   # 출력 여러 개도
+#    (v0.8) GT 마스크가 있으면 mAP 비교까지: <train-venv>/python tools/train_mvtec_map.py <MVTec 레이아웃> … (BENCHMARKS.md §2 절차를 실데이터로 — 레이아웃이 다르면 tools/train_smoke.py 로 합쳐 직접 학습)
 ```
 
 **확인할 것 (항목 ↔ 근거)**
@@ -296,6 +299,7 @@ python tools/train_smoke.py --synthetic out/torx-pruned [--synthetic out/torx-de
 | 1 mask_dir ROI(1024 축소) | ✅/❌ — | 스튜디오 캡처 |
 | 2 · 4 annulus | 배치 중심 반경 min~max / 링 r_inner~r_outer: | 사이드카 `placement.center` |
 | 3 저신뢰 | 저신뢰 n 중 실제 실패 마스크 n(정밀도 n/n): | `bank preview` 눈 확인 |
+| 3b hybrid | grabcut 은행 vs hybrid 은행 preview 에서 맞는 마스크 n/n (v0.8): | 두 `bank preview` |
 | 5 조명 | 실제 R(클래스) / 합성 R(poisson-graft · dent-graft) / 뒤집힘 의심 n/N: | `review-report.html` 조명 줄 |
 | 6 축척 | 피치 지정 후 경고 사라짐 ✅/❌: | `run` stderr |
 | 7 tags | dry-run `source.tags` 행: | `run --dry-run` |
