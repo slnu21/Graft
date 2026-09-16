@@ -13,6 +13,9 @@
 ### Fixed
 - 합성 사이드카 `target.file` 이 Windows 에서 역슬래시였던 것 → manifest·정상 사이드카와 같은 posix.
 
+### Changed
+- **배치 가능성 진단 v2**(`run --dry-run` fit 행 · 배치 로그 · 스튜디오 배치 카드): 폭에 걸리는 건 **짧은 변**(`minAreaRect`)이다 — 가늘고 긴 스크래치(긴 변 214 px)가 링 폭 100 px 에 13/14 들어가는데 종전엔 "불가"라고 했다. 불가 = 짧은 변이 shrink 뒤에도 폭 초과 · 빠듯 = 짧은 변이 폭의 80 % 초과, 또는 긴 변이 폭을 넘는데 정렬(structure-aware `align`)이 없어 회전에 달림 · 그 외 가능. 행에 짧은/긴 변·근거를 함께. **µm/px 축척**(소스·대상 피치가 모두 있을 때 `physical_scale`)도 패치 크기에 곱한다(`× 축척 f`).
+
 ## [0.7.7] - 2026-09-16
 
 v0.7.6 의 퀵스타트 멱등 수정 + COCO RLE · `bank merge --dedupe` · dry-run 기하 행.

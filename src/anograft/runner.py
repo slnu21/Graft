@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import cv2
 import numpy as np
 from pydantic import ValidationError
 
@@ -35,6 +36,7 @@ from anograft.core import registry
 from anograft.core.appearance import flip_breaks_lighting
 from anograft.core.pipeline import Pipeline, RoiCache
 from anograft.core.recipe import Recipe
+from anograft.core.scale import physical_scale
 from anograft.core.seeds import image_rng, pipeline_hash
 from anograft.core.types import Context, GraftResult
 from anograft.io import imgio
@@ -456,10 +458,19 @@ class FitDiagnostic:
     KNOWN-ISSUES 부록("ROI 폭 대비 패치 크기를 사전에 알려 주는 진단"): 좁은 링에 큰 패치면 max_tries 를 다 쓰고 skipped 가 된다."""
 
     roi_widths: list[tuple[str, float]]  # (대상 파일명, 허용 영역 최대 폭 px)
-    patch_sides: dict[str, float]  # 클래스 → 패치 긴 변 중앙값 × geometry.scale 상한 (px)
+    patch_sides: dict[str, float]  # 클래스 → 패치 긴 변 중앙값 × geometry.scale 상한 × 축척 (px)
     scale_hi: float
     shrink_floor: float  # shrink_on_fail 로 줄어드는 최소 배율(factor^rounds)
     target_short_side: float = 0.0  # 대상 짧은 변(px, 첫 대상) — 0 이면 모름
+    patch_short: dict[str, float] = field(
+        default_factory=dict
+    )  # 클래스 → 짧은 변(minAreaRect) × scale × 축척. 비면 긴 변으로 판정
+    aligned: bool = (
+        False  # structure-aware align along/across — 긴 변이 결 방향으로 눕는다(링이면 접선)
+    )
+    physical: dict[str, float] = field(
+        default_factory=dict
+    )  # 클래스 → 축척 factor 중앙값(1.0 = 미적용)
 
     NON_LOCAL_RATIO = 0.5  # 패치 긴 변 ≥ 대상 짧은 변 × 이 비율 → "국소 결함이 아닐 수 있음"
 
@@ -489,17 +500,35 @@ class FitDiagnostic:
         )
 
     def verdicts(self) -> dict[str, str]:
-        """클래스 → '가능' · '빠듯' · '불가' (가장 좁은 대상 기준)."""
+        """클래스 → '가능' · '빠듯' · '불가' (가장 좁은 대상 기준).
+
+        v2(리허설 2026-09-16): 폭에 걸리는 건 **짧은 변**이다 — 가늘고 긴 스크래치(긴 변 214 px)가 링 폭 100 px 에 13/14 들어갔다.
+        불가 = 짧은 변이 shrink 바닥까지 줄여도 폭 초과 · 빠듯 = 짧은 변이 폭의 80 % 초과, 또는 긴 변이 폭을 넘는데 정렬이 없어
+        회전 운에 달림 · 그 외 가능. ``patch_short`` 가 비면(구 호출자) 긴 변으로 판정(종전 동작)."""
         w = self.min_width
         out: dict[str, str] = {}
-        for c, side in self.patch_sides.items():
-            if side * self.shrink_floor > w:
+        for c, long_s in self.patch_sides.items():
+            short_s = self.patch_short.get(c, long_s)
+            if short_s * self.shrink_floor > w:
                 out[c] = "불가"
-            elif side > w * 0.8:
+            elif short_s > w * 0.8 or (long_s > w and not self.aligned):
                 out[c] = "빠듯"
             else:
                 out[c] = "가능"
         return out
+
+    def verdict_note(self, cls: str) -> str:
+        """행 끝에 붙는 근거 한 토막 — 왜 그 판정인지."""
+        w = self.min_width
+        long_s = self.patch_sides.get(cls, 0.0)
+        short_s = self.patch_short.get(cls, long_s)
+        if short_s * self.shrink_floor > w:
+            return "짧은 변이 shrink 뒤에도 폭 초과"
+        if short_s > w * 0.8:
+            return "짧은 변이 폭의 80% 초과"
+        if long_s > w:
+            return f"긴 변은 폭 초과 — 정렬 {'있음(결 방향으로 눕힘)' if self.aligned else '없음(회전에 따라)'}"
+        return ""
 
     def warning(self) -> str | None:
         v = self.verdicts()
@@ -510,11 +539,13 @@ class FitDiagnostic:
         parts = []
         if bad:
             parts.append(
-                f"클래스 {', '.join(bad)} 는 패치가 ROI 최대 폭 {self.min_width:.0f}px 보다 커서(shrink_on_fail 뒤에도) "
+                f"클래스 {', '.join(bad)} 는 패치 짧은 변이 ROI 최대 폭 {self.min_width:.0f}px 보다 커서(shrink_on_fail 뒤에도) "
                 "어디에도 못 들어갑니다 → skipped 예상"
             )
         if tight:
-            parts.append(f"클래스 {', '.join(tight)} 는 빠듯합니다(폭의 80% 초과)")
+            parts.append(
+                f"클래스 {', '.join(tight)} 는 빠듯합니다(짧은 변이 폭의 80% 초과, 또는 긴 변이 폭을 넘는데 정렬 없음)"
+            )
         return (
             "placement: "
             + " · ".join(parts)
@@ -522,20 +553,60 @@ class FitDiagnostic:
         )
 
 
-def patch_sides(prep: Prepared) -> dict[str, float]:
-    """클래스별 패치 긴 변 중앙값 × ``geometry.scale`` 상한(px, 원본 해상도) — 뽑는 클래스만."""
+def mask_dims(mask: np.ndarray) -> tuple[float, float]:
+    """마스크의 (짧은 변, 긴 변) px — ``cv2.minAreaRect`` 의 회전 사각형(+1: 중심 간 거리 → 픽셀 수). 비면 (0, 0). 점 3개 미만이면 bbox."""
+    ys, xs = np.nonzero(mask)
+    if len(xs) == 0:
+        return 0.0, 0.0
+    if len(xs) < 3:
+        w, h = float(xs.max() - xs.min() + 1), float(ys.max() - ys.min() + 1)
+        return min(w, h), max(w, h)
+    pts = np.stack([xs, ys], axis=1).astype(np.float32)
+    (_c, (w, h), _a) = cv2.minAreaRect(pts)
+    w, h = float(w) + 1.0, float(h) + 1.0  # 픽셀 중심 간 거리 → 픽셀 수(bbox 와 같은 단위)
+    return min(w, h), max(w, h)
+
+
+def patch_dims(prep: Prepared) -> tuple[dict[str, float], dict[str, float], dict[str, float]]:
+    """클래스별 (긴 변, 짧은 변, 축척 factor) 중앙값 — 긴/짧은 변은 ``geometry.scale`` 상한 × 소스별 µm/px 축척(양쪽 피치가 있을 때만,
+    ``core.scale.physical_scale``)을 곱한 원본 해상도 px. 뽑는 클래스만."""
     r = prep.recipe
-    sides: dict[str, float] = {}
+    tgt_um = r.inputs.um_per_px
+    longs: dict[str, float] = {}
+    shorts: dict[str, float] = {}
+    phys: dict[str, float] = {}
     for c in r.effective_classes(prep.bank):
         scale_hi = float(r.pipeline.geometry.for_class(c).scale[1])  # 클래스별 오버라이드 반영
-        vals = []
+        ls, ss, fs = [], [], []
         for s in prep.bank.by_class(c):
-            ys, xs = np.nonzero(s.mask)
-            if len(xs):
-                vals.append(float(max(xs.max() - xs.min() + 1, ys.max() - ys.min() + 1)))
-        if vals:
-            sides[c] = round(float(np.median(vals)) * scale_hi, 1)
-    return sides
+            short_s, long_s = mask_dims(s.mask)
+            if long_s <= 0:
+                continue
+            f = physical_scale(s.um_per_px, tgt_um).factor
+            ls.append(long_s * f)
+            ss.append(short_s * f)
+            fs.append(f)
+        if ls:
+            longs[c] = round(float(np.median(ls)) * scale_hi, 1)
+            shorts[c] = round(float(np.median(ss)) * scale_hi, 1)
+            phys[c] = round(float(np.median(fs)), 3)
+    return longs, shorts, phys
+
+
+def patch_sides(prep: Prepared) -> dict[str, float]:
+    """클래스별 패치 긴 변(호환) — ``patch_dims`` 의 첫 항."""
+    return patch_dims(prep)[0]
+
+
+def placement_aligned(recipe: Recipe) -> bool:
+    """structure-aware ``align`` along/across 면 패치 긴 변이 결 방향으로 눕는다(링이면 접선) → 긴 변은 폭에 안 걸린다."""
+    pl = recipe.pipeline.placement
+    return getattr(pl, "method", "sampled") == "structure-aware" and getattr(
+        pl, "align", "none"
+    ) in (
+        "along",
+        "across",
+    )
 
 
 def fit_from_widths(
@@ -548,12 +619,16 @@ def fit_from_widths(
         return None
     shrink = r.pipeline.placement.shrink_on_fail
     floor = float(shrink.factor**shrink.rounds) if shrink.rounds > 0 else 1.0
+    longs, shorts, phys = patch_dims(prep)
     return FitDiagnostic(
         widths,
-        patch_sides(prep),
+        longs,
         float(r.pipeline.geometry.scale[1]),
         floor,
         float(target_short_side),
+        shorts,
+        placement_aligned(r),
+        phys,
     )
 
 
@@ -637,10 +712,17 @@ def dry_run_table(prep: Prepared, *, fit: FitDiagnostic | None = None) -> list[t
         )
         v = fit.verdicts()
         for c, side in fit.patch_sides.items():
+            short_s = fit.patch_short.get(c, side)
+            f = fit.physical.get(c, 1.0)
+            scale_txt = f"× scale {fit.scale_hi:g}" + (
+                f" × 축척 {f:.2f}" if abs(f - 1.0) > 1e-6 else ""
+            )
+            note = fit.verdict_note(c)
             rows.append(
                 (
                     f"fit {c}",
-                    f"패치 긴 변 중앙값 × scale {fit.scale_hi:g} = {side:.0f}px → {v.get(c, '?')}",
+                    f"패치 짧은 변 {short_s:.0f} · 긴 변 {side:.0f}px({scale_txt}) vs 폭 {fit.min_width:.0f}px → {v.get(c, '?')}"
+                    + (f" ({note})" if note else ""),
                 )
             )
     return rows
