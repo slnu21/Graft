@@ -51,7 +51,7 @@ class ReportData:
     geometry: str = (
         ""  # 레시피 기하 한 줄(scale·rotate·flip·per_class) — 조명 히스토그램을 읽을 때의 맥락
     )
-    bank_name: str = ""
+    bank_name: str = ""  # 실제 분포의 출처 라벨("은행 x" · "실측 x.csv")
     warnings: Sequence[str] = ()
 
 
@@ -200,7 +200,7 @@ th{{color:#697683;font-weight:600}} svg .t{{font-size:12px;fill:#1d232a}} svg .a
 code{{background:#f4f6f8;padding:1px 4px;border-radius:4px}}
 </style></head><body>
 <h1>Graft 검수 리포트 <span class="muted">Review report</span></h1>
-<p class="muted">{e(d.root)} · 레시피 <code>{e(d.recipe_name)}</code> · seed {d.seed if d.seed is not None else "–"} · 프리셋 <code>{e(d.preset)}</code> · pipeline_hash <code>{e(d.pipeline_hash)}</code>{(" · 은행 " + e(d.bank_name)) if d.bank_name else ""}</p>
+<p class="muted">{e(d.root)} · 레시피 <code>{e(d.recipe_name)}</code> · seed {d.seed if d.seed is not None else "–"} · 프리셋 <code>{e(d.preset)}</code> · pipeline_hash <code>{e(d.pipeline_hash)}</code>{(" · 실제 = " + e(d.bank_name)) if d.bank_name else ""}</p>
 {('<p class="muted">기하 geometry — <code>' + e(d.geometry) + "</code></p>") if d.geometry else ""}
 <div class="grid">
 <div class="tile"><b>{total_ok}</b>합성 synthetic</div>
