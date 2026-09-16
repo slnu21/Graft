@@ -30,3 +30,4 @@ Thumbs.db
 *.lock
 !requirements-lock.txt
 
+/runs/
