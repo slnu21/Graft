@@ -1,4 +1,4 @@
-# TESTING — 받아서 확인할 것 (v0.8.0)
+# TESTING — 받아서 확인할 것 (v0.8.0 · v0.8.1)
 
 > 자율 세션(2026-09-16 저녁 ~ 09-17 새벽)이 만든 것을 **다른 PC 에서 그대로 따라 하며** 확인하는 절차. 각 항목은 *무엇을 → 기대 결과 → 어긋나면*. 실데이터가 있으면 `KNOWN-ISSUES.md` "2차 적용 절차"를 먼저, 없으면 아래 공개 데이터로.
 > English summary at the end.
@@ -7,7 +7,7 @@
 
 ```powershell
 # A) 파이썬 없이 — 릴리스 zip 을 풀고
-.\anograft.exe doctor                      # 버전 0.8.0 · gui ok 인지
+.\anograft.exe doctor                      # 버전 0.8.1 · gui ok 인지
 # B) 소스 —
 .\bootstrap.ps1 -Gui                       # = venv + pip install -e ".[dev,gui]"
 anograft doctor --json > doctor.json       # 문제 보고 첫 줄
@@ -42,6 +42,18 @@ python tools/fetch_public_datasets.py screw --import            # (선택) 흑�
 | 11 | `python tools/bench_mask_from_box.py samples/mvtec/metal_nut --limit 5` | 표에 `grabcut otsu ellipse rect hybrid` 5열 · 30 인스턴스 ≈ 15 s | |
 | 12 | 재현성: `run … --workers 0` 과 `--workers 2` 를 같은 `output.root` 로 | 이미지·마스크·사이드카 바이트 동일(`test_cli` 가 자동화 — 손으로는 `Get-FileHash` 몇 개) | |
 
+### v0.8.1 추가 항목
+
+| # | 무엇을 | 기대 결과 |
+|---|---|---|
+| 13 | 아주 작은 소스가 있는 은행으로 `run`(예: `geometry.scale: [0.05, 0.05]`) | 종전엔 `geometry: … 마스크 면적 < 4px` 로 skipped 되던 이미지가 `source: … 소스 재추첨 1/2` 경고와 함께 ok. 사이드카 `defects[].source.redraws`. `source.redraw_on_empty: 0` 이면 종전대로 |
+| 14 | 레시피를 **다른 폴더**에 복사해 두고 그 폴더가 아닌 곳에서 `anograft run <복사본>` (`--out` 없이) | 입력이 레시피 파일 기준으로 폴백되면 출력도 레시피 파일 옆 `out/` 에(cwd 에 흩어지지 않음). stderr `경로: output.root: …` |
+| 15 | `anograft run … --roi-cache 0` 과 기본 | 결과 파일 바이트 동일(캐시는 속도만) |
+| 16 | `source.single_class_per_image: true` + `defects_per_image: [2, 3]` + mvtec writer | `mvtec: … 가 섞임` 경고 없음, 사이드카 defects 의 class 가 이미지 안에서 하나 |
+| 17 | GUI 상단 `샘플 데이터…` | 대화상자(모양·폴더·정상/결함 장수·크기·합성 장수·시드) → 확인 → 스튜디오·은행 탭이 열림. 장수 0·크기 < 64 는 경고 |
+| 18 | 스튜디오 기하 카드 `tps.jitter` 를 0.06 으로 | 변형이 휘어짐(`geometry.tps.max_shift_px` 사이드카). 0 이면 종전과 바이트 동일 |
+| 19 | `BENCHMARKS.md` §2 재현(별도 venv: `python -m venv .venvs\graft-train` → `pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu` → `pip install ultralytics`) | 표와 같은 자릿수의 mAP(시드·CPU 스레드에 따라 ±0.05) |
+
 `real.csv` 예시(항목 8·9):
 
 ```
@@ -64,7 +76,8 @@ scratch,10000,220
 
 ## English (summary)
 
-1. **Install**: unzip the release and run `anograft.exe doctor` (expect 0.8.0, `gui ok`), or `.\bootstrap.ps1 -Gui` + `pytest -q` (all green).
+1. **Install**: unzip the release and run `anograft.exe doctor` (expect 0.8.1, `gui ok`), or `.\bootstrap.ps1 -Gui` + `pytest -q` (all green).
 2. **Data**: `python tools/fetch_public_datasets.py metal_nut magnetic-tile --import` (MVTec is CC BY-NC-SA — local dev only).
 3. **Check** (table above): dry-run `fit` rows now show short/long side + reason; `source:` warning for whole-part classes; `targets:` warning when mask PNGs sit next to images; `dataset merge` (refuses different class lists; merges same-bank outputs with `d<k>_` prefixes and re-indexed manifest); review tab **per-class combo** and **measured CSV** button; `dataset report --real-csv`; `--mask-from hybrid` (opt-in; default unchanged); `tools/bench_mask_from_box.py`.
-4. **Report**: `doctor.json`, the exact command output, screenshots, and any reversed decision in `KNOWN-ISSUES.md`.
+4. **v0.8.1**: `source.redraw_on_empty` (tiny sources no longer skip the image), `output.root` follows the recipe folder when inputs fell back, `run --roi-cache N`, `source.single_class_per_image` (no mixed classes for the MVTec writer), the Sample-data options dialog, `geometry.tps` (thin-plate warp, off by default), and `BENCHMARKS.md` (box→mask IoU · synthetic vs. no-synthetic mAP).
+5. **Report**: `doctor.json`, the exact command output, screenshots, and any reversed decision in `KNOWN-ISSUES.md`.
