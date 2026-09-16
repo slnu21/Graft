@@ -234,7 +234,7 @@ class Pipeline:
             "seed": self.recipe.seed,
             "recipe": self.recipe.name,
             "target": {
-                "file": str(ctx.target.path),
+                "file": ctx.target.path.as_posix(),  # manifest·정상 사이드카와 같은 posix (Windows 역슬래시 금지)
                 "shape": [h, w, 1 if ctx.target.gray else 3],
                 "gray": ctx.target.gray,
                 "um_per_px": ctx.target.um_per_px,

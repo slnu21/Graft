@@ -6,6 +6,12 @@
 
 ### Added
 - 검수 리포트에 **기하 한 줄**(scale·rotate·flip·per_class) — 조명 히스토그램을 어떤 회전/flip 으로 만든 결과인지 리포트만 봐도 알 수 있게.
+- `tools/fetch_public_datasets.py` — MVTec AD 카테고리(HF 미러, 원본 폴더 구조) · DTD 결함류 15 · Magnetic Tile(pairs.csv·normals.txt) · VisA 를 표준 라이브러리만으로 받고 `--import` 로 은행까지. 공개 데이터 리허설 레시피 `recipes/public-*.yaml` 3종.
+- `run --dry-run`·배치 로그·스튜디오 소스 카드에 **`source:` 비국소 클래스 경고** — 패치 긴 변이 대상 짧은 변의 50 % 이상인 클래스(MVTec `flip`, MT `uneven`)는 결함이 아니라 부품 전체 이상일 수 있으니 `source.classes` 로 제외하라고. ROI 를 넓혀도 답이 아닌 경우를 `placement:` 경고와 구분.
+- prepare `targets:` 경고 — 대상 폴더에 같은 이름·다른 확장자 쌍(이미지 옆 마스크 PNG)이 있으면 마스크도 대상으로 뽑힌다고(.txt 목록 권고).
+
+### Fixed
+- 합성 사이드카 `target.file` 이 Windows 에서 역슬래시였던 것 → manifest·정상 사이드카와 같은 posix.
 
 ## [0.7.7] - 2026-09-16
 

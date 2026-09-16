@@ -1,0 +1,57 @@
+# 공개 데이터 리허설 — Magnetic Tile pairs 은행 (tools/fetch_public_datasets.py magnetic-tile --import 뒤). 대상은 normals.txt(마스크 png 제외) · fray/uneven(타일 전체 이상)은 제외.
+# anograft 0.7.7 — recipe init --preset structure-aware-graft --roi none
+# 모든 손잡이가 펼쳐져 있습니다. 스테이지의 method를 바꾸면 그 스테이지 키는 해당 method의 것만 남기세요.
+version: 1
+name: structure-aware-graft
+seed: 20260913
+inputs: {bank: bank/magnetic-tile, targets: samples/magnetic-tile/normals.txt, um_per_px: null}
+output:
+  root: out/public-mt-structure
+  count: 20
+  class_ratio: null
+  defects_per_image: [1, 1]
+  include_normals: true
+  copy_mode: copy
+  writer: {format: yolo, seg: false, names_from: bank}
+pipeline:
+  preset: structure-aware-graft
+  source:
+    method: bank
+    classes: [blowhole, break, crack]
+    tags:
+      include: []
+      exclude: []
+    min_sources_warn: 10
+  geometry:
+    method: affine
+    scale: [0.8, 1.25]
+    rotate: [-180.0, 180.0]
+    flip: both
+    elastic: {alpha: 0.0, sigma: 4.0}
+    per_class: {}
+  placement:
+    roi: {method: none}
+    margin_px: 8
+    max_tries: 50
+    shrink_on_fail: {factor: 0.8, rounds: 3}
+    method: structure-aware
+    prefer: edges
+    strength: 1.0
+    smooth_px: 3.0
+    align: along
+    min_coherence: 0.2
+    min_anisotropy: 0.1
+    jitter_deg: 10.0
+    max_align_deg: null
+  blend: {method: poisson, poisson_mode: normal, mask_dilate_px: 5, feather_px: 3}
+  harmonize: {method: stats, strength: 0.3, ring_px: 12}
+  degrade:
+    method: camera
+    noise_sigma: [0.0, 2.0]
+    blur_sigma: [0.0, 0.6]
+    jpeg_quality: null
+    motion_blur_px: null
+    motion_angle: [0.0, 180.0]
+    vignette: null
+    gamma: null
+  gtmask: {policy: union, diff_threshold: 12, dilate_px: 2}

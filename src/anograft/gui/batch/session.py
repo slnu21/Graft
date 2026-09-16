@@ -119,6 +119,8 @@ def run_batch(
             prep
         )  # 워커 스레드라 ROI 몇 장은 괜찮다(캐시로 run 이 이어 쓴다)
         if fit is not None:
+            if sw := fit.source_warning():
+                warn(sw)
             fw = fit.warning()
             if fw:
                 warn(fw)

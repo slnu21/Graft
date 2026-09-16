@@ -38,7 +38,7 @@ from anograft.core.recipe import Recipe
 from anograft.core.seeds import image_rng, pipeline_hash
 from anograft.core.types import Context, GraftResult
 from anograft.io import imgio
-from anograft.io.targets import TargetsError, list_targets, load_target
+from anograft.io.targets import TargetsError, list_targets, load_target, targets_warning
 from anograft.io.writers import WriterSummary, make_writer
 
 Progress = Callable[[int, int, GraftResult], None]
@@ -231,6 +231,8 @@ def prepare(recipe: Recipe) -> Prepared:
         targets = list_targets(recipe.inputs.targets)
     except TargetsError as e:
         raise PrepareError(str(e)) from e
+    if tw := targets_warning(targets):
+        warnings.append(tw)
     deps = build_deps(recipe, bank, warnings)
     try:
         pipeline = Pipeline.from_recipe(recipe, deps)
@@ -252,6 +254,8 @@ def reprepare(prep: Prepared, recipe: Recipe) -> Prepared:
     warnings = prepare_warnings(
         recipe, prep.bank
     )  # 축척·저신뢰·조명 경고는 레시피에 따라 바뀐다(카드 편집)
+    if tw := targets_warning(prep.targets):  # 대상은 그대로라 경고도 유지
+        warnings.append(tw)
     deps = build_deps(recipe, prep.bank, warnings)
     try:
         pipeline = Pipeline.from_recipe(recipe, deps)
@@ -455,10 +459,34 @@ class FitDiagnostic:
     patch_sides: dict[str, float]  # 클래스 → 패치 긴 변 중앙값 × geometry.scale 상한 (px)
     scale_hi: float
     shrink_floor: float  # shrink_on_fail 로 줄어드는 최소 배율(factor^rounds)
+    target_short_side: float = 0.0  # 대상 짧은 변(px, 첫 대상) — 0 이면 모름
+
+    NON_LOCAL_RATIO = 0.5  # 패치 긴 변 ≥ 대상 짧은 변 × 이 비율 → "국소 결함이 아닐 수 있음"
 
     @property
     def min_width(self) -> float:
         return min((w for _, w in self.roi_widths), default=0.0)
+
+    def non_local_classes(self) -> dict[str, float]:
+        """패치가 대상 자체와 맞먹는 클래스 → 비율. 결함이 아니라 부품 전체 이상(MVTec ``flip`` 처럼 자세·누락)일 때 —
+        ROI 를 넓혀도 답이 아니고 ``source.classes`` 로 빼는 게 맞다(리허설 2026-09-16: metal_nut ``flip`` 685/700px)."""
+        if self.target_short_side <= 0:
+            return {}
+        return {
+            c: round(side / self.target_short_side, 2)
+            for c, side in self.patch_sides.items()
+            if side >= self.target_short_side * self.NON_LOCAL_RATIO
+        }
+
+    def source_warning(self) -> str | None:
+        big = self.non_local_classes()
+        if not big:
+            return None
+        return (
+            "source: 클래스 "
+            + ", ".join(f"{c}(대상 짧은 변의 {int(r * 100)}%)" for c, r in big.items())
+            + " 는 패치가 대상 자체와 맞먹습니다 — 국소 결함이 아니라 부품 전체 이상(자세·누락)일 수 있음 → source.classes 로 제외 검토"
+        )
 
     def verdicts(self) -> dict[str, str]:
         """클래스 → '가능' · '빠듯' · '불가' (가장 좁은 대상 기준)."""
@@ -510,14 +538,23 @@ def patch_sides(prep: Prepared) -> dict[str, float]:
     return sides
 
 
-def fit_from_widths(prep: Prepared, widths: list[tuple[str, float]]) -> FitDiagnostic | None:
-    """이미 잰 허용 영역 폭(원본 px)으로 진단 — 스튜디오가 미리보기 ROI(축소본 ÷ 배율)로 부른다. 비-bank 면 None."""
+def fit_from_widths(
+    prep: Prepared, widths: list[tuple[str, float]], *, target_short_side: float = 0.0
+) -> FitDiagnostic | None:
+    """이미 잰 허용 영역 폭(원본 px)으로 진단 — 스튜디오가 미리보기 ROI(축소본 ÷ 배율)로 부른다. 비-bank 면 None.
+    ``target_short_side``(원본 px)를 주면 "국소 결함이 아닐 수 있음" 경고까지."""
     r = prep.recipe
     if r.bankless or len(prep.bank) == 0 or not widths:
         return None
     shrink = r.pipeline.placement.shrink_on_fail
     floor = float(shrink.factor**shrink.rounds) if shrink.rounds > 0 else 1.0
-    return FitDiagnostic(widths, patch_sides(prep), float(r.pipeline.geometry.scale[1]), floor)
+    return FitDiagnostic(
+        widths,
+        patch_sides(prep),
+        float(r.pipeline.geometry.scale[1]),
+        floor,
+        float(target_short_side),
+    )
 
 
 def fit_diagnostic(prep: Prepared, n_targets: int = 3) -> FitDiagnostic | None:
@@ -530,6 +567,7 @@ def fit_diagnostic(prep: Prepared, n_targets: int = 3) -> FitDiagnostic | None:
 
     margin = int(getattr(r.pipeline.placement, "margin_px", 0))
     widths: list[tuple[str, float]] = []
+    short_side = 0.0
     for path in prep.targets[: max(1, n_targets)]:
         try:
             target = load_target(path, r.inputs.um_per_px)
@@ -538,7 +576,8 @@ def fit_diagnostic(prep: Prepared, n_targets: int = 3) -> FitDiagnostic | None:
         ctx = prep.pipeline._apply_roi(Context.initial(np.random.default_rng(0), target), target)
         width = roi_max_width(ctx.roi, margin, target.image.shape[:2])
         widths.append((path.name, round(width, 1)))
-    return fit_from_widths(prep, widths)
+        short_side = short_side or float(min(target.image.shape[:2]))
+    return fit_from_widths(prep, widths, target_short_side=short_side)
 
 
 def dry_run_table(prep: Prepared, *, fit: FitDiagnostic | None = None) -> list[tuple[str, str]]:

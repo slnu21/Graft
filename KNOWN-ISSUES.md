@@ -254,7 +254,7 @@ python tools/train_smoke.py --synthetic out/torx-pruned [--synthetic out/torx-de
 | # | 확인 | 어디서 |
 |---|---|---|
 | 1 | 스튜디오 1024 축소에서 `mask_dir` ROI 가 동작 | 스튜디오 배치 카드 ⚠ 없음, ROI 오버레이 |
-| 2 · 4 | annulus 링 안에만 배치(중심 반경 319~510) | 사이드카 `placement.center` 반경 · `roi.center_source: detected` |
+| 2 · 4 | annulus 링 안에만 배치(중심 반경 319~510) | 사이드카 `placement.center` 반경 · `roi.center_source: auto` |
 | 3 | 저신뢰 비율이 실제 실패 마스크와 맞는가 | `bank ls --json` `low_confidence_ids` vs `bank preview` 눈 확인 |
 | 5 | dent-graft 가 자연스러운가(음영 방향) | `bank ls` `lightR`(찍힘 클래스 ≥ 0.5 인가) · poisson-graft 로 `run --dry-run` 하면 조명 경고가 뜨는가 · 스튜디오 변형 6개 vs poisson-graft · 검수 탭 분포 **조명 방향** 의 클래스별 R(합성 vs 실제) — `dataset report` 의 조명 일관성 줄 |
 | 6 | 축척 경고가 사라지는가(피치 넣은 뒤) | `run` stderr · 상태바 |
