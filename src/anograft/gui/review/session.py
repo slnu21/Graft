@@ -453,6 +453,38 @@ class ReviewSession:
             value_range=FIXED_RANGE.get(key),
         )
 
+    def class_options(self, key: str) -> list[str]:
+        """클래스별 분포를 그릴 수 있는 클래스 — 외형 지표(``IMAGE_KEYS``)만, 합성·실제 어느 쪽이든 값이 있는 클래스(이름순)."""
+        if key not in IMAGE_KEYS:
+            return []
+        return sorted(set(self.synthetic_by_class(key)) | set(self.real_by_class(key)))
+
+    def distribution_by_class(self, key: str, cls: str, *, bins: int = 12) -> Histogram:
+        """한 클래스만의 합성 vs 실제 히스토그램(외형 지표) — 조명 방향은 클래스마다 다르므로 전체 분포는 섞여 보인다.
+        ``lighting_r_for(key, cls)`` 와 같은 값 집합."""
+        if key not in IMAGE_KEYS:
+            raise ReviewError(f"클래스별 분포는 외형 지표만 (선택: {', '.join(IMAGE_KEYS)})")
+        return histogram(
+            self.synthetic_by_class(key).get(cls, []),
+            self.real_by_class(key).get(cls, []),
+            bins=bins,
+            log=False,
+            value_range=FIXED_RANGE.get(key),
+        )
+
+    def lighting_r_for(self, cls: str) -> tuple[float | None, float | None, int, int]:
+        """한 클래스의 조명 일관성 (R 합성, R 실제, n 합성, n 실제)."""
+        syn = self.synthetic_by_class("lighting").get(cls, [])
+        real = self.real_by_class("lighting").get(cls, [])
+        return circular_concentration(syn), circular_concentration(real), len(syn), len(real)
+
+    def lighting_histograms_by_class(self, *, bins: int = 12) -> dict[str, Histogram]:
+        """리포트용 — 실제 방향이 유의한 클래스(`directional_classes`)의 조명 방향 히스토그램. 없으면 빈 dict."""
+        return {
+            c: self.distribution_by_class("lighting", c, bins=bins)
+            for c in self.directional_classes()
+        }
+
     def lighting_concentration(self) -> tuple[float | None, float | None]:
         """조명 일관성 R — (합성, 실제) 전체. 합성이 실제보다 뚜렷이 낮으면 회전 범위가 조명 방향을 깨고 있다(→ dent-graft)."""
         return (
@@ -541,6 +573,7 @@ class ReviewSession:
             hist_length=self.distribution("length"),
             hist_contrast=self.distribution("contrast"),
             hist_lighting=self.distribution("lighting"),
+            hist_lighting_class=self.lighting_histograms_by_class(),
             lighting_r=self.lighting_concentration(),
             lighting_r_class=self.lighting_concentration_by_class(),
             directional=self.directional_classes(),

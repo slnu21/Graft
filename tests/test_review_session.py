@@ -370,8 +370,23 @@ def test_lighting_direction_and_concentration(output_root: Path, tmp_path: Path)
         s.synthetic_by_class("area")
     per = s.lighting_concentration_by_class()
     assert all(len(v) == 2 for v in per.values())
+    # 클래스별 분포(0.8): 외형 지표만 · 값 집합은 by_class 와 같다 · 조명은 구간 고정
+    assert s.class_options("lighting") == sorted(set(by_cls) | set(s.real_by_class("lighting")))
+    assert s.class_options("area") == []
+    for c in s.class_options("lighting"):
+        hc = s.distribution_by_class("lighting", c)
+        assert not hc.log and hc.edges[0] == -180.0 and hc.edges[-1] == 180.0
+        assert sum(hc.a) == len(by_cls.get(c, [])) and sum(hc.b) == len(
+            s.real_by_class("lighting").get(c, [])
+        )
+        r_s, r_r, n_s, n_r = s.lighting_r_for(c)
+        assert (n_s, n_r) == (sum(hc.a), sum(hc.b)) and per[c] == (r_s, r_r)
+    with pytest.raises(ReviewError):
+        s.distribution_by_class("area", "spot")
+    assert set(s.lighting_histograms_by_class()) == set(s.directional_classes())
     data = s.report_data()
     assert data.hist_lighting is not None and data.lighting_r == (rs, rr)
+    assert set(data.hist_lighting_class) == set(s.directional_classes())
     assert data.lighting_r_class == per
     assert (
         data.geometry.startswith("scale ") and "flip both" in data.geometry

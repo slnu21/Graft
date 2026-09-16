@@ -11,6 +11,8 @@
 - prepare `targets:` 경고 — 대상 폴더에 같은 이름·다른 확장자 쌍(이미지 옆 마스크 PNG)이 있으면 마스크도 대상으로 뽑힌다고(.txt 목록 권고).
 - **`anograft dataset merge a b … --out c`** — `run` 출력 폴더 여러 개(다른 프리셋·시드, 정리본 권장)를 한 학습셋으로: 파일 이름에 `d<k>_` 접두어(`--prefix`), 합성·skipped 행 index 0부터 재부여(사이드카 `index` 갱신 + `merged_from: {root, index}`), `review.csv` 이어 붙임, yolo `labels/`·mvtec 레이아웃 사본도 접두어, coco `annotations.json` 은 id 오프셋으로 병합, `merge.json` 요약. 같은 writer 형식·같은 클래스 이름(`data.yaml names`)이어야 한다(아니면 거부 — YOLO class id 가 어긋나므로).
 
+- 검수 탭 분포에 **클래스 콤보** — 외형 지표(대비·질감·선명도·조명 방향)를 한 클래스만 합성 vs 실제로. 조명 방향은 클래스마다 달라 전체 분포는 섞여 보이므로 클래스별로 보고, 제목에 그 클래스의 R(n). 리포트에도 실제 방향이 유의한 클래스별 조명 방향 히스토그램 격자(`ReportData.hist_lighting_class`). `ReviewSession.class_options/distribution_by_class/lighting_r_for/lighting_histograms_by_class`.
+
 ### Fixed
 - 합성 사이드카 `target.file` 이 Windows 에서 역슬래시였던 것 → manifest·정상 사이드카와 같은 posix.
 
