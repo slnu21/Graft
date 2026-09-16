@@ -2,6 +2,7 @@
 
 최신순. 1 버전 = 1 파일. GitHub Release 본문은 각 파일을 그대로 쓴다.
 
+- [v0.8.1](v0.8.1.md) — 2026-09-17 · `BENCHMARKS.md`(합성 유/무 mAP 0.27 → 0.37 · 박스→마스크 IoU) · `source.redraw_on_empty`·`single_class_per_image` · `geometry.tps` · `output.root` 폴백 · `run --roi-cache` · `merge --dedupe-normals` · 샘플 데이터 대화상자
 - [v0.8.0](v0.8.0.md) — 2026-09-17 · 공개 데이터 리허설의 결과: `dataset merge` · 배치 가능성 진단 v2(짧은 변·정렬·축척) · `source:`/`targets:` 경고 · 검수 클래스 콤보·실측 CSV · `--mask-from hybrid`(옵션) · 벤치·받기 도구 · `TESTING.md`
 - [v0.7.7](v0.7.7.md) — 2026-09-16 · 퀵스타트 멱등 수정(두 번 눌러도 은행 안 쌓임) · COCO `segmentation: rle` · `bank merge --dedupe` · dry-run 기하·per_class 행
 - [v0.7.6](v0.7.6.md) — 2026-09-16 · flip 모드(none/horizontal/vertical/both, true/false 호환) · 안전한 flip 자동 선택 · 기하 카드 per_class 편집 표 · 변형 카드 ↯ · `bank ls` lightR* · 검수 일괄 반려 · train_smoke 다중 출력

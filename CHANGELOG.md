@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-09-17
+
+v0.8.0 뒤 같은 밤 — 작은 기하·소스 손잡이(전부 기본 off) · `dataset merge --dedupe-normals` · 샘플 데이터 대화상자 · **`BENCHMARKS.md`**(박스→마스크 IoU · 합성 유/무 YOLO mAP 0.27 → 0.37) · `tools/train_mvtec_map.py`. 기존 레시피·골든·은행 결과 불변.
+
 ### Added
 - `source.redraw_on_empty`(기본 2) — 기하 변환 뒤 마스크가 비면(< 4 px, 아주 작은 소스 × 축소) 그 자리에서 소스를 다시 뽑는다. 실패했을 때만 rng 를 더 쓰므로 성공 경로·골든·기존 출력 불변. 사이드카 `source.redraws` · 경고 `source: … 소스 재추첨 k/n`. 소스 카드 폼에 자동 노출.
 - 레시피를 **다른 폴더에서 열어** 입력 경로가 레시피 파일 기준으로 폴백하면 `output.root`(상대)도 레시피 파일 기준으로 — 출력이 cwd 에 흩어지지 않게. repo 루트에서 쓰는 기본 사용법(cwd)은 그대로, `--out` 은 명시값 우선.
@@ -234,7 +238,8 @@ v0.4 — CPU 알고리즘 확장. **여전히 샘플 데이터로만 검증**(�
 - GUI는 스튜디오 탭만. 재현은 같은 OS·OpenCV 부버전 범위(`seamlessClone` 솔버).
 - `release.yml`의 Windows zip 잡은 첫 push 전이라 CI에서 미검증(로컬 `tools/build_zip.ps1`와 같은 절차).
 
-[Unreleased]: https://github.com/slnu21/Graft/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/slnu21/Graft/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/slnu21/Graft/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/slnu21/Graft/compare/v0.7.7...v0.8.0
 [0.7.7]: https://github.com/slnu21/Graft/compare/v0.7.6...v0.7.7
 [0.7.6]: https://github.com/slnu21/Graft/compare/v0.7.5...v0.7.6

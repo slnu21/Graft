@@ -12,7 +12,7 @@
 
 ![원본 | 합성 | GT](assets/preview.png)
 
-> **상태: v0.8.0** — CLI 코어(7단계 파이프라인 · 레시피 · 결함 은행 · YOLO/MVTec/COCO 출력 · 프리셋 9종 · 은행 없이 도는 self-cut/perlin · 구조 정합 배치 · GrabCut·annulus ROI · VisA·DTD 어댑터)와 GUI **은행 · 라벨 · 스튜디오 · 배치 · 검수** 5탭 — 결함 사진만 있으면 GUI 만으로 라벨링 → 은행 정리 → 미리보기 → 데이터셋 생성 → 검수·정리본까지. 실데이터 1차 적용(경면 금속 원형 부품)에서 나온 [알려진 문제 10건](KNOWN-ISSUES.md)을 v0.6 에서 보정. **2차 실데이터 적용·학습 1 epoch은 아직 미검증**(데이터가 생기면 아래 3줄로 확인). 표준셋 실제 사본(MVTec metal_nut·screw·grid·bottle·hazelnut·carpet · Magnetic Tile · VisA · DTD)으로는 v0.8 에서 리허설·벤치 완료 — `TESTING.md` · `KNOWN-ISSUES.md` 결정 근거 절.
+> **상태: v0.8.1** — CLI 코어(7단계 파이프라인 · 레시피 · 결함 은행 · YOLO/MVTec/COCO 출력 · 프리셋 9종 · 은행 없이 도는 self-cut/perlin · 구조 정합 배치 · GrabCut·annulus ROI · VisA·DTD 어댑터)와 GUI **은행 · 라벨 · 스튜디오 · 배치 · 검수** 5탭 — 결함 사진만 있으면 GUI 만으로 라벨링 → 은행 정리 → 미리보기 → 데이터셋 생성 → 검수·정리본까지. 실데이터 1차 적용(경면 금속 원형 부품)에서 나온 [알려진 문제 10건](KNOWN-ISSUES.md)을 v0.6 에서 보정. **2차 실데이터 적용은 아직 미검증**(데이터가 생기면 아래 3줄로 확인). 공개 데이터(MVTec metal_nut)에선 합성 유/무 YOLO mAP50 **0.27 → 0.37**(`BENCHMARKS.md`, 시드 1개). 표준셋 실제 사본(MVTec metal_nut·screw·grid·bottle·hazelnut·carpet · Magnetic Tile · VisA · DTD)으로는 v0.8 에서 리허설·벤치 완료 — `TESTING.md` · `KNOWN-ISSUES.md` 결정 근거 절.
 
 ## 왜
 
@@ -163,7 +163,7 @@ MIT © 2026 slnu21 — `LICENSE`. 함께 배포되는 구성 요소(PySide6/Qt L
 
 **Graft real, labeled defects onto normal images to build training datasets for anomaly detection — with ground-truth masks and full reproducibility metadata.** Package/CLI: `anograft`. Fully offline, CPU-only; the Windows zip needs no Python.
 
-> **Status: v0.8.0** — CLI core (7-stage pipeline, recipes, defect bank, YOLO/MVTec/COCO output, 9 presets, bank-free self-cut/perlin sources, structure-aware placement, GrabCut/annulus ROI, VisA/DTD adapters) plus all five GUI tabs **Bank · Label · Studio · Batch · Review** — with only defect photos you can label → tidy the bank → preview → generate → review and export a pruned set entirely in the GUI. The [10 known issues](KNOWN-ISSUES.md) from a first real-data application (mirror-finish round metal part) are addressed in v0.6. **A second real-data pass and a training epoch are still unverified** — three commands once you have data (below). Real public copies (MVTec metal_nut/screw/grid/bottle/hazelnut/carpet, Magnetic Tile, VisA, DTD) were rehearsed and benchmarked in v0.8 — see `TESTING.md` and the evidence section of `KNOWN-ISSUES.md`.
+> **Status: v0.8.1** — CLI core (7-stage pipeline, recipes, defect bank, YOLO/MVTec/COCO output, 9 presets, bank-free self-cut/perlin sources, structure-aware placement, GrabCut/annulus ROI, VisA/DTD adapters) plus all five GUI tabs **Bank · Label · Studio · Batch · Review** — with only defect photos you can label → tidy the bank → preview → generate → review and export a pruned set entirely in the GUI. The [10 known issues](KNOWN-ISSUES.md) from a first real-data application (mirror-finish round metal part) are addressed in v0.6. **A second real-data pass is still unverified** — three commands once you have data (below). On public data (MVTec metal_nut) synthetic augmentation lifted YOLO mAP50 **0.27 → 0.37** (`BENCHMARKS.md`, one seed). Real public copies (MVTec metal_nut/screw/grid/bottle/hazelnut/carpet, Magnetic Tile, VisA, DTD) were rehearsed and benchmarked in v0.8 — see `TESTING.md` and the evidence section of `KNOWN-ISSUES.md`.
 
 ### Why
 
