@@ -17,13 +17,13 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any
 
 from PySide6.QtCore import QSettings, Qt
 from PySide6.QtWidgets import (
     QApplication,
-    QFileDialog,
+    QDialog,
     QHBoxLayout,
-    QInputDialog,
     QLabel,
     QMainWindow,
     QMessageBox,
@@ -190,30 +190,27 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ 샘플 데이터
 
     def _on_sample_clicked(self) -> None:
-        shapes = {
-            "판 plate — 브러시드 메탈 사각 판": "plate",
-            "원형 ring — 가공 링 면 + 리세스(annulus·dent-graft)": "ring",
-        }
-        label, ok = QInputDialog.getItem(
-            self, "샘플 데이터 Sample data", "부품 모양 Part shape", list(shapes), 0, False
-        )
-        if not ok:
-            return
-        folder = QFileDialog.getExistingDirectory(
-            self, "샘플을 만들 폴더 Folder for the sample set", str(Path.cwd() / "samples")
-        )
-        if not folder:
-            return
-        self.make_sample(Path(folder) / shapes[label], shapes[label])
+        from anograft.gui.quickstart_dialog import QuickstartDialog
 
-    def make_sample(self, root: str | Path, shape: str = "plate") -> Quickstart | None:
-        """샘플 → 은행 → 레시피(``samples.quickstart``, Qt 없음) → 스튜디오·은행 탭에 연다. 몇 초 걸린다(박스→마스크 grabcut)."""
+        dlg = QuickstartDialog(self, default_folder=str(Path.cwd() / "samples"))
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        try:
+            root, opts = dlg.values()
+        except ValueError as e:
+            QMessageBox.warning(self, "샘플 데이터", str(e))
+            return
+        self.make_sample(root, **opts)
+
+    def make_sample(self, root: str | Path, shape: str = "plate", **opts: Any) -> Quickstart | None:
+        """샘플 → 은행 → 레시피(``samples.quickstart``, Qt 없음) → 스튜디오·은행 탭에 연다. 몇 초 걸린다(박스→마스크 grabcut).
+        ``opts`` = seed·n_normal·n_defect·size·count(대화상자 값)."""
         from anograft.samples.quickstart import quickstart
 
         self.status_bar.showMessage(f"샘플 데이터 만드는 중… {Path(root).as_posix()}")
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            q = quickstart(root, shape=shape)
+            q = quickstart(root, shape=shape, **opts)
         except (ValueError, OSError) as e:
             QMessageBox.warning(self, "샘플 생성 실패", str(e))
             return None
