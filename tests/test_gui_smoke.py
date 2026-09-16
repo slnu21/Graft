@@ -231,7 +231,15 @@ def test_stage_param_form_edits_recipe_and_shows_errors_inline(
         tab = win.studio
         pipe = tab.pipe
         geo = pipe.cards["geometry"]
-        assert list(geo.form.rows) == ["scale", "rotate", "flip", "elastic.alpha", "elastic.sigma"]
+        assert list(geo.form.rows) == [
+            "scale",
+            "rotate",
+            "flip",
+            "elastic.alpha",
+            "elastic.sigma",
+            "tps.points",
+            "tps.jitter",
+        ]
         # 1) 회전 범위 편집 → 디바운스 후 세션 반영
         row = geo.form.rows["rotate"]
         row.editors[0].setValue(-15.0)
