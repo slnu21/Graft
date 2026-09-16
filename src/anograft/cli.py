@@ -227,7 +227,12 @@ def cmd_run(args: argparse.Namespace) -> int:
     if rec is None:
         return EXIT_RECIPE_ERROR
     try:
-        prep = runner.prepare(rec)
+        prep = runner.prepare(
+            rec,
+            roi_cache_size=(
+                args.roi_cache if args.roi_cache is not None else runner.DEFAULT_ROI_CACHE
+            ),
+        )
     except runner.PrepareError as e:
         _err(str(e))
         return EXIT_RECIPE_ERROR
@@ -884,6 +889,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="프로세스 수. 0 = 인프로세스. 결과는 N과 무관하게 동일",
     )
     p.add_argument("--dry-run", action="store_true", help="배분·경고만 계산, 파일 안 씀")
+    p.add_argument(
+        "--roi-cache",
+        type=int,
+        default=None,
+        help="대상당 ROI 캐시 항목 수(LRU, 기본 16 · 0 = 끔). 결과와 무관 — 4K 대상 수백 장에서 메모리를 아낄 때",
+    )
     p.add_argument(
         "--report",
         action="store_true",

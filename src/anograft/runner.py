@@ -219,7 +219,12 @@ def prepare_warnings(recipe: Recipe, bank: Bank) -> list[str]:
     return warnings
 
 
-def prepare(recipe: Recipe) -> Prepared:
+DEFAULT_ROI_CACHE = (
+    16  # 대상당 ROI 캐시 항목 수(LRU). 레시피가 아니라 실행 옵션 — pipeline_hash 에 안 들어간다
+)
+
+
+def prepare(recipe: Recipe, *, roi_cache_size: int = DEFAULT_ROI_CACHE) -> Prepared:
     try:
         bank = (
             Bank.from_sources([], name="(없음)")
@@ -240,7 +245,8 @@ def prepare(recipe: Recipe) -> Prepared:
         pipeline = Pipeline.from_recipe(recipe, deps)
     except (registry.StageNotImplementedError, registry.StageUnavailableError) as e:
         raise PrepareError(f"실행할 수 없는 스테이지: {e}") from e
-    pipeline.roi_cache = RoiCache()  # 대상당 ROI 1회(스튜디오 변형·run 대상 재추첨)
+    # 대상당 ROI 1회(스튜디오 변형·run 대상 재추첨). 0 이면 캐시 없음(메모리가 빠듯한 4K 배치 등). 결과는 캐시 유무와 무관(ROI 는 rng 0회)
+    pipeline.roi_cache = RoiCache(roi_cache_size) if roi_cache_size > 0 else None
     ph = pipeline_hash(recipe.hash_yaml(), __version__, bank.fingerprint())
     return Prepared(recipe, bank, targets, pipeline, ph, deps, warnings)
 
@@ -264,7 +270,7 @@ def reprepare(prep: Prepared, recipe: Recipe) -> Prepared:
     except (registry.StageNotImplementedError, registry.StageUnavailableError) as e:
         raise PrepareError(f"실행할 수 없는 스테이지: {e}") from e
     # ROI 캐시는 이어 받는다 — 키에 ROI 설정이 들어 있어 다른 스테이지 파라미터를 바꿔도(카드 편집) grabcut 을 다시 풀지 않는다
-    pipeline.roi_cache = prep.pipeline.roi_cache or RoiCache()
+    pipeline.roi_cache = prep.pipeline.roi_cache  # None 이면(캐시 끔) 그대로 None
     ph = pipeline_hash(recipe.hash_yaml(), __version__, prep.bank.fingerprint())
     return Prepared(recipe, prep.bank, list(prep.targets), pipeline, ph, deps, warnings)
 
@@ -339,10 +345,10 @@ class RunSummary:
 _WORKER_PREP: Prepared | None = None
 
 
-def _worker_init(recipe_yaml: str) -> None:
+def _worker_init(recipe_yaml: str, roi_cache_size: int = DEFAULT_ROI_CACHE) -> None:
     """풀 initializer — 레시피 YAML → ``prepare``(은행·대상·파이프라인) 1회. 실패는 각 인덱스에서 예외로 드러난다."""
     global _WORKER_PREP
-    _WORKER_PREP = prepare(Recipe.from_yaml(recipe_yaml))
+    _WORKER_PREP = prepare(Recipe.from_yaml(recipe_yaml), roi_cache_size=roi_cache_size)
 
 
 def _worker_run(index: int) -> GraftResult:
@@ -359,7 +365,10 @@ def iter_results(prep: Prepared, indices: Iterable[int], workers: int) -> Iterat
         return
     n = min(workers, len(idx))
     ctx = mp.get_context("spawn")
-    with ctx.Pool(n, initializer=_worker_init, initargs=(prep.recipe.to_yaml(),)) as pool:
+    cache_size = prep.pipeline.roi_cache.max_items if prep.pipeline.roi_cache is not None else 0
+    with ctx.Pool(
+        n, initializer=_worker_init, initargs=(prep.recipe.to_yaml(), cache_size)
+    ) as pool:
         yield from pool.imap(_worker_run, idx, chunksize=4)
 
 
