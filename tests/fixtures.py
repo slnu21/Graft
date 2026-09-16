@@ -12,6 +12,9 @@
 
 from __future__ import annotations
 
+import importlib.util
+import sys
+import types
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -24,6 +27,18 @@ from anograft.bank import Bank
 from anograft.core.recipe import Recipe
 from anograft.core.types import Context, DefectSource, PlacedDefect, TargetImage
 from anograft.io import imgio
+
+
+def load_tool(name: str) -> types.ModuleType:
+    """``tools/<name>.py`` 를 모듈로 로드(패키지 밖 스크립트). ``sys.modules`` 에 먼저 등록해야 ``from __future__ import
+    annotations`` 아래의 dataclass 가 애노테이션을 풀 수 있다."""
+    path = Path(__file__).resolve().parents[1] / "tools" / f"{name}.py"
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def disk_image(size: int = 128, *, invert: bool = False, radius: int | None = None) -> np.ndarray:

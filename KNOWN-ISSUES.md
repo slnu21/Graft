@@ -264,6 +264,27 @@ python tools/train_smoke.py --synthetic out/torx-pruned [--synthetic out/torx-de
 
 **결정 대기 항목(결과로 확정)**: `gtmask.diff_threshold` 12 · 박스→마스크 기본 `grabcut` vs `otsu` · YOLO 박스 GT `dilate_px` · `structure-aware prefer` edges/uniform · `grabcut work_px` 1024→512 · 저신뢰 경고 강화 임계 50 % · `dent-graft` 조화 0.2 · `max_align_deg` 30 · 조명 임계(R 0.5/0.3 · Rayleigh 2.9 · 링 2 px · 뒤집힘 90°). 뒤집히는 게 있으면 0.7.x 패치(프리셋 기본값 변경은 골든 갱신 + 데브로그 사유).
 
+### 결정 근거 — 공개 데이터 벤치 (2026-09-16, `tools/bench_mask_from_box.py`, 결정 아님)
+
+사용자 데이터 없이 **GT 마스크가 있는 공개 데이터**(MVTec metal_nut·screw·grid·bottle·hazelnut·carpet + Magnetic Tile, 인스턴스 1180)에서 GT 로 박스(각 변 10 % 느슨)를 만들어 `mask_from_box` 를 돌린 결과. IoU 는 클래스 중앙값, 실패 = IoU < 0.3, 저신뢰 = `confidence < 0.5`. 전체 표는 `python tools/bench_mask_from_box.py <roots…> --out x.md` 로 재현.
+
+| 데이터셋 | 사슬(grabcut→otsu→ellipse) IoU / 실패율 | ellipse IoU / 실패율 | 하이브리드(저신뢰면 ellipse) IoU / 실패율 |
+|---|---|---|---|
+| metal_nut(경면 금속) | 0.641 / 0.31 | 0.503 / 0.14 | 0.522 / 0.15 |
+| screw(흑백) | 0.287 / 0.51 | 0.497 / 0.05 | 0.488 / 0.21 |
+| grid(흑백 텍스처) | 0.253 / 0.58 | 0.431 / 0.14 | 0.431 / 0.19 |
+| bottle | 0.295 / 0.51 | 0.377 / 0.22 | 0.358 / 0.28 |
+| hazelnut | 0.556 / 0.21 | 0.413 / 0.27 | 0.487 / 0.27 |
+| carpet(텍스처) | 0.215 / 0.79 | 0.525 / 0.24 | 0.511 / 0.25 |
+| magnetic-tile(산업 흑백) | 0.444 / 0.36 | 0.554 / 0.15 | 0.658 / 0.20 |
+| **전체 1180** | **0.367 / 0.43** | **0.487 / 0.16** | **0.502 / 0.21** (오라클 best-of-4: 0.564 / 0.12) |
+
+읽는 법(근거만, 결정은 실데이터 2차 뒤):
+- **grabcut/otsu 사슬은 덩어리형·고대비 결함에서만 이긴다**(metal_nut color 0.71 · hazelnut hole 0.73 · MT blowhole 0.79). 가늘고 긴 것(scratch·thread·cut)과 텍스처 배경(carpet·grid)에선 ellipse/rect 보다 못하다 — 사슬의 면적 검사가 통과해도 엉뚱한 조각을 잡는다(실패의 flags: `fragmented` 320 · `low-contrast` 277).
+- **저신뢰 플래그는 실패를 재현율 0.79 / 정밀도 0.59 로 잡는다** — 임계 0.5 는 "놓치지 않는" 쪽(경고 많음). metal_nut bent 는 저신뢰율 0.89 vs 실패율 0.37 로 과경고.
+- **하이브리드(사슬 결과가 저신뢰면 ellipse)가 전체 0.37→0.50, 실패 0.43→0.21** 로 오라클(0.56/0.12)에 가장 가깝다 — 임계 0.3~0.7 사이에선 둔감. 기본값을 바꾸면 기존 은행 재현성이 깨지므로 **옵션 `--mask-from hybrid`** 로 먼저(0.8.0), 기본 전환은 실데이터 2차 결과 뒤.
+- `--mask-from otsu` 시작은 grabcut 시작과 거의 같다(사슬이 어차피 otsu 로 내려온다: 699 vs 437) — grabcut/otsu 기본 논쟁은 실익이 작고, **ellipse 를 언제 쓰느냐**가 진짜 변수.
+
 ### 2차 결과 (채울 것 — 다른 PC 에서 돌린 뒤 이 절을 PR 로)
 
 > 아래 표의 빈칸을 채우고, 뒤집힌 결정은 "결정" 절에 한 줄씩. 숫자는 명령 출력을 그대로(`bank ls --json` · `run --dry-run` · `review-report.html`).
