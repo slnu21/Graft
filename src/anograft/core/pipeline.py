@@ -172,21 +172,41 @@ class Pipeline:
         lo, hi = rec.output.defects_per_image
         n_defects = int(ctx.rng.integers(lo, hi + 1))
         n_ok = 0
+        redraw_max = int(getattr(rec.pipeline.source, "redraw_on_empty", 0) or 0)
         for k in range(n_defects):
-            ctx = ctx.begin_defect()
-            aborted = False
-            for stage_key, must_set in _DEFECT_LOOP:
-                ctx = self.stages[stage_key].apply(ctx)
-                if trace:
-                    steps.append(TraceStep(stage_key, k, ctx))
-                if getattr(ctx, must_set) is None:
-                    aborted = True
-                    break
-            if aborted:
+            redraws = 0
+            while True:
+                ctx = ctx.begin_defect()
+                aborted_at: str | None = None
+                for stage_key, must_set in _DEFECT_LOOP:
+                    ctx = self.stages[stage_key].apply(ctx)
+                    if trace:
+                        steps.append(TraceStep(stage_key, k, ctx))
+                    if getattr(ctx, must_set) is None:
+                        aborted_at = stage_key
+                        break
+                # 기하 변환 뒤 마스크가 비면(가늘고 작은 소스 + 축소) 같은 자리에서 소스를 다시 뽑는다 — 실패했을 때만 rng 를 더 쓴다
+                if aborted_at == "geometry" and redraws < redraw_max:
+                    redraws += 1
+                    failed = ctx.log.get("source", {})
+                    ctx = ctx.warn(
+                        f"source: {failed.get('source_id', '?')} 변환 후 마스크가 비어 소스 재추첨 {redraws}/{redraw_max}"
+                    )
+                    ctx = replace(ctx, placed_mask=None).end_defect()
+                    ctx = replace(
+                        ctx, defect_logs=ctx.defect_logs[:-1]
+                    )  # 실패한 시도의 로그는 버린다(사이드카 defects = 요청 수)
+                    continue
+                break
+            if aborted_at is not None:
                 # 실패한 결함은 placed에 들어가지 않도록 placed_mask를 비운 채 봉인
                 ctx = replace(ctx, placed_mask=None)
             else:
                 n_ok += 1
+            if redraws:
+                ctx = ctx.with_log(
+                    "source", {**dict(ctx.log.get("source", {})), "redraws": redraws}
+                )
             ctx = ctx.end_defect()
 
         ctx = replace(ctx, pre_degrade=ctx.composite)

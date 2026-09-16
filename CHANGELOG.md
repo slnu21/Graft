@@ -4,6 +4,9 @@
 
 ## [Unreleased]
 
+### Added
+- `source.redraw_on_empty`(기본 2) — 기하 변환 뒤 마스크가 비면(< 4 px, 아주 작은 소스 × 축소) 그 자리에서 소스를 다시 뽑는다. 실패했을 때만 rng 를 더 쓰므로 성공 경로·골든·기존 출력 불변. 사이드카 `source.redraws` · 경고 `source: … 소스 재추첨 k/n`. 소스 카드 폼에 자동 노출.
+
 ## [0.8.0] - 2026-09-17
 
 공개 데이터(MVTec·Magnetic Tile)로 KNOWN-ISSUES 2차 절차를 리허설하며 나온 것들 — 진단 v2(짧은 변·정렬·축척) · `dataset merge` · 검수 클래스별 분포·실측 CSV · `--mask-from hybrid`(옵션) · 박스→마스크 벤치와 결정 근거 표 · 공개 데이터 받기 도구. 기본값·프리셋·골든 불변. 확인 절차는 `TESTING.md`.
