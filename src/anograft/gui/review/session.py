@@ -164,6 +164,8 @@ class ReviewSession:
         self.review: dict[str, tuple[str, str]] = {}
         self.recipe_meta: dict[str, Any] = {}
         self.bank: Bank | None = None
+        self.real_csv: Path | None = None  # 실측 CSV(있으면 그 열들은 은행 대신)
+        self.real_rows: list[dict[str, Any]] = []
         self.warnings: list[str] = []
         self.dirty = False
 
@@ -208,6 +210,8 @@ class ReviewSession:
             )
         self.recipe_meta = {}
         self.bank = None
+        self.real_csv = None
+        self.real_rows = []
         rr = r / "recipe.resolved.yaml"
         if rr.is_file():
             try:
@@ -392,6 +396,67 @@ class ReviewSession:
                 out.setdefault(c, []).append(v)
         return out
 
+    # ------------------------------------------------------------------ 실측 CSV(실제 분포를 은행 대신 현장 측정값으로)
+
+    def load_real_csv(self, path: str | Path) -> int:
+        """실제 분포를 은행 소스 대신 **실측 CSV** 로 — 열 = ``class``(선택) + ``area``·``length``·``contrast``·``texture``·``sharpness``·
+        ``lighting`` 중 있는 것(숫자, 빈 칸은 건너뜀). 현장에서 잰 결함 크기 분포(예: 현미경 µm → px 환산)를 합성과 견줄 때.
+        CSV 에 있는 키는 CSV 가, 없는 키는 여전히 은행이 실제 값을 댄다. 반환: 읽은 행 수. 형식이 틀리면 ``ReviewError``."""
+        import csv
+
+        p = Path(path)
+        try:
+            with open(p, encoding="utf-8-sig", newline="") as f:
+                reader = csv.DictReader(f)
+                cols = [c.strip() for c in (reader.fieldnames or [])]
+                rows = [{k.strip(): (v or "").strip() for k, v in r.items() if k} for r in reader]
+        except (OSError, csv.Error) as e:
+            raise ReviewError(f"실측 CSV 를 읽을 수 없습니다: {e}") from e
+        keys = [c for c in cols if c in DIST_KEYS]
+        if not keys:
+            raise ReviewError(
+                f"실측 CSV 에 분포 열이 없습니다 (가능: {', '.join(DIST_KEYS)}; 선택: class)"
+            )
+        parsed: list[dict[str, Any]] = []
+        for r in rows:
+            item: dict[str, Any] = {"class": r.get("class", "")}
+            for k in keys:
+                v = r.get(k, "")
+                if v == "":
+                    continue
+                try:
+                    item[k] = float(v)
+                except ValueError as e:
+                    raise ReviewError(f"실측 CSV {k} 열에 숫자가 아닌 값: {v!r}") from e
+            parsed.append(item)
+        self.real_csv = p
+        self.real_rows = parsed
+        return len(parsed)
+
+    def clear_real_csv(self) -> None:
+        self.real_csv = None
+        self.real_rows = []
+
+    def real_csv_keys(self) -> set[str]:
+        return {k for r in self.real_rows for k in r if k != "class"}
+
+    def real_label(self) -> str:
+        """실제 분포의 출처 — '실측 x.csv' 또는 '은행 name' 또는 ''."""
+        if self.real_csv is not None:
+            return f"실측 {self.real_csv.name}"
+        return f"은행 {self.bank.name}" if self.bank is not None else ""
+
+    def _csv_values(self, key: str) -> list[float] | None:
+        """CSV 가 그 키를 갖고 있으면 값 목록(레시피 클래스 필터 적용), 아니면 None(은행으로)."""
+        if key not in self.real_csv_keys():
+            return None
+        allowed = self.real_classes()
+        return [
+            float(r[key])
+            for r in self.real_rows
+            if key in r and (allowed is None or not r.get("class") or r["class"] in allowed)
+        ]
+
     def real_classes(self) -> list[str] | None:
         """'실제' 분포에 쓸 은행 클래스 — 레시피가 뽑은 클래스만(`source.classes` → `class_ratio` 키 → 전부 None).
         은행에 스크래치·얼룩이 같이 있어도 pit 만 합성한 출력이면 실제 쪽도 pit 만 세어야 비교가 된다."""
@@ -416,6 +481,13 @@ class ReviewSession:
         if key not in IMAGE_KEYS:
             raise ReviewError(f"클래스별 분포는 외형 지표만 (선택: {', '.join(IMAGE_KEYS)})")
         out: dict[str, list[float]] = {}
+        if key in self.real_csv_keys():
+            allowed = self.real_classes()
+            for r in self.real_rows:
+                c = str(r.get("class") or "")
+                if key in r and c and (allowed is None or c in allowed):
+                    out.setdefault(c, []).append(float(r[key]))
+            return out
         if self.bank is None:
             return out
         for s in self.real_sources():
@@ -427,6 +499,9 @@ class ReviewSession:
     def real_values(self, key: str = "area") -> list[float]:
         if key not in DIST_KEYS:
             raise ReviewError(f"분포 키 {key!r} (선택: {', '.join(DIST_KEYS)})")
+        csv_vals = self._csv_values(key)
+        if csv_vals is not None:
+            return csv_vals
         if self.bank is None:
             return []
         vals: list[float] = []
@@ -579,7 +654,7 @@ class ReviewSession:
             directional=self.directional_classes(),
             geometry=self.geometry_text(),
             flipped=sorted(self.flipped_lighting()),
-            bank_name=self.bank.name if self.bank is not None else "",
+            bank_name=self.real_label(),
             warnings=list(self.warnings),
         )
 

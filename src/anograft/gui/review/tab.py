@@ -208,6 +208,17 @@ class ReviewTab(QWidget):
             "클래스별 분포 — 외형 지표(대비·질감·선명도·조명 방향)만 · Per-class distribution"
         )
         v.addWidget(self.dist_class)
+        row = QHBoxLayout()
+        self.btn_real_csv = QPushButton("실측 CSV… real CSV")
+        self.btn_real_csv.setToolTip(
+            "실제 분포를 은행 대신 실측 CSV 로(열: class? + area/length/contrast/texture/sharpness/lighting) · "
+            "Use a measured CSV instead of the bank for the 'real' series"
+        )
+        self.btn_real_csv_clear = QPushButton("은행으로 bank")
+        self.btn_real_csv_clear.setEnabled(False)
+        row.addWidget(self.btn_real_csv)
+        row.addWidget(self.btn_real_csv_clear)
+        v.addLayout(row)
         self.hist = HistogramWidget()
         v.addWidget(self.hist, 1)
         self.count = QLabel("")
@@ -314,6 +325,8 @@ class ReviewTab(QWidget):
         self.f_cls.currentIndexChanged.connect(lambda _i: self.refresh_grid())
         self.dist_key.currentIndexChanged.connect(lambda _i: self.refresh_hist())
         self.dist_class.currentIndexChanged.connect(lambda _i: self.refresh_hist())
+        self.btn_real_csv.clicked.connect(self._pick_real_csv)
+        self.btn_real_csv_clear.clicked.connect(self.clear_real_csv)
         self.grid.itemSelectionChanged.connect(self._on_select)
         self.btn_accept.clicked.connect(lambda: self.verdict("accept"))
         self.btn_reject.clicked.connect(lambda: self.verdict("reject"))
@@ -332,6 +345,35 @@ class ReviewTab(QWidget):
         d = QFileDialog.getExistingDirectory(self, "검수할 출력 폴더", self.root_edit.text() or ".")
         if d:
             self.open_root(d)
+
+    def _pick_real_csv(self) -> None:
+        if not self.session.loaded:
+            return
+        f, _ = QFileDialog.getOpenFileName(
+            self, "실측 CSV", self.root_edit.text() or ".", "CSV (*.csv)"
+        )
+        if f:
+            self.load_real_csv(f)
+
+    def load_real_csv(self, path: str | Path) -> bool:
+        """실제 분포를 실측 CSV 로(세션 ``load_real_csv``). 실패는 상태 줄에."""
+        try:
+            n = self.session.load_real_csv(path)
+        except ReviewError as e:
+            self.result.setText(f"실측 CSV 실패: {e}")
+            return False
+        self.btn_real_csv_clear.setEnabled(True)
+        self.result.setText(
+            f"실측 CSV {Path(path).name}: {n}행 ({', '.join(sorted(self.session.real_csv_keys()))}) — 그 열은 은행 대신"
+        )
+        self.refresh_hist()
+        return True
+
+    def clear_real_csv(self) -> None:
+        self.session.clear_real_csv()
+        self.btn_real_csv_clear.setEnabled(False)
+        self.result.setText("실제 분포 = 은행")
+        self.refresh_hist()
 
     def open_root(self, root: str | Path) -> bool:
         text = str(root).strip()
@@ -446,7 +488,9 @@ class ReviewTab(QWidget):
             broken = lighting_broken_classes(per_class, self.session.directional_classes())
             if broken and (not cls or cls in broken):
                 title += f" · ⚠ {', '.join(broken)} 회전이 조명을 뒤집음 → dent-graft"
-        if self.session.bank is None:
+        if key in self.session.real_csv_keys():
+            title += f" · 실제 = {self.session.real_label()}"
+        elif self.session.bank is None:
             title += " — 은행 없음"
         elif self.session.real_classes():
             title += f" · 실제 = {', '.join(self.session.real_classes() or [])}"

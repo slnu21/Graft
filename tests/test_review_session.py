@@ -1,5 +1,4 @@
-"""v0.7 검수(Qt 없음) — ``io.prune``(review.csv 읽기/쓰기 · 정리본: 반려 제외·정상 유지·skipped 제거·manifest 재작성·coco 필터·
-mvtec 사본) · ``ReviewSession``(열기·지연 사이드카·필터·판정·저장·분포 히스토그램·prune) · CLI ``dataset prune``."""
+"""v0.7 검수(Qt 없음) — ``io.prune``(review.csv 읽기/쓰기 · 정리본: 반려 제외·정상 유지·skipped 제거·manifest 재작성·coco 필터·\nmvtec 사본) · ``ReviewSession``(열기·지연 사이드카·필터·판정·저장·분포 히스토그램·prune) · CLI ``dataset prune``."""
 
 from __future__ import annotations
 
@@ -440,8 +439,7 @@ def test_flipped_lighting_filter(output_root: Path, monkeypatch: pytest.MonkeyPa
 
 
 def test_real_distribution_follows_recipe_classes(output_root: Path, tmp_path: Path) -> None:
-    """0.7.3+ — '실제' 분포는 레시피가 뽑은 클래스만(source.classes → class_ratio → 전부). pit 만 합성한 출력과
-    은행의 스크래치까지 비교하면 분포가 어긋난다."""
+    """0.7.3+ — '실제' 분포는 레시피가 뽑은 클래스만(source.classes → class_ratio → 전부). pit 만 합성한 출력과\n    은행의 스크래치까지 비교하면 분포가 어긋난다."""
     s = ReviewSession()
     s.load(output_root)
     assert s.real_classes() is None and len(s.real_sources()) == 5  # 레시피가 전부 뽑음
@@ -492,3 +490,56 @@ def test_prune_drop_indices_and_cli_drop_flipped(
     assert len(read_manifest(tmp_path / "p2" / "manifest.csv")) == len(
         [r for r in read_manifest(output_root / "manifest.csv") if r["status"] != "skipped"]
     )
+
+
+def test_real_csv_replaces_bank_series(output_root: Path, tmp_path: Path) -> None:
+    """실측 CSV(0.8): CSV 에 있는 열은 은행 대신, 없는 열은 은행 그대로 · class 열로 클래스별 · 레시피 클래스 필터 · 검증."""
+    s = ReviewSession()
+    s.load(output_root)
+    bank_area = s.real_values("area")
+    bank_contrast = s.real_by_class("contrast")
+    csv = tmp_path / "real.csv"
+    csv.write_text(
+        "class,area,contrast\nspot,100,\nspot,200,5\ncrack,300,7\nother,999,9\n", encoding="utf-8"
+    )
+    assert s.load_real_csv(csv) == 4
+    assert s.real_csv_keys() == {"area", "contrast"} and s.real_label() == "실측 real.csv"
+    # 레시피가 클래스를 제한하지 않으면 전부(빈 칸은 건너뜀) · 제한하면(spot·crack) other 제외
+    assert sorted(s.real_values("area")) == [100.0, 200.0, 300.0, 999.0]
+    assert s.real_by_class("contrast") == {"spot": [5.0], "crack": [7.0], "other": [9.0]}
+    s.recipe_meta.setdefault("pipeline", {}).setdefault("source", {})["classes"] = ["spot", "crack"]
+    assert sorted(s.real_values("area")) == [100.0, 200.0, 300.0]
+    assert s.real_by_class("contrast") == {"spot": [5.0], "crack": [7.0]}
+    assert s.real_values("length") == s.real_values("length")  # 은행 폴백 경로가 살아 있다
+    assert s.real_values("area") != bank_area
+    h = s.distribution("area")
+    assert sum(h.b) == 3
+    data = s.report_data()
+    assert data.bank_name == "실측 real.csv"
+    page = s.write_report(tmp_path / "r.html").read_text(encoding="utf-8")
+    assert "실제 = 실측 real.csv" in page
+    s.clear_real_csv()
+    assert s.real_values("area") == bank_area and s.real_by_class("contrast") == bank_contrast
+    assert s.real_label().startswith("은행 ")
+    # 형식 오류
+    bad = tmp_path / "bad.csv"
+    bad.write_text("foo,bar\n1,2\n", encoding="utf-8")
+    with pytest.raises(ReviewError, match="분포 열"):
+        s.load_real_csv(bad)
+    bad.write_text("area\nx\n", encoding="utf-8")
+    with pytest.raises(ReviewError, match="숫자"):
+        s.load_real_csv(bad)
+    with pytest.raises(ReviewError, match="읽을 수"):
+        s.load_real_csv(tmp_path / "none.csv")
+
+
+def test_cli_dataset_report_real_csv(
+    output_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    csv = tmp_path / "real.csv"
+    csv.write_text("area\n10\n20\n", encoding="utf-8")
+    assert main(["dataset", "report", str(output_root), "--real-csv", str(csv)]) == EXIT_OK
+    cap = capsys.readouterr()
+    assert "실측 real.csv" in cap.out and "2행" in cap.err
+    page = (output_root / "review-report.html").read_text(encoding="utf-8")
+    assert "실제 = 실측 real.csv" in page

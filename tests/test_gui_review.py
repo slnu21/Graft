@@ -1,5 +1,4 @@
-"""v0.7 검수 탭 GUI 스모크 — PySide6 없으면 skip. offscreen 에서 ``ReviewTab`` 을 열어 그리드·필터·상세·판정(A/R/U, 자동 저장 →
-review.csv)·다음으로 이동·히스토그램·정리본 내보내기를 굴리고, 메인 창에서 검수 탭이 실물인지 확인한다."""
+"""v0.7 검수 탭 GUI 스모크 — PySide6 없으면 skip. offscreen 에서 ``ReviewTab`` 을 열어 그리드·필터·상세·판정(A/R/U, 자동 저장 →\nreview.csv)·다음으로 이동·히스토그램·정리본 내보내기를 굴리고, 메인 창에서 검수 탭이 실물인지 확인한다."""
 
 from __future__ import annotations
 
@@ -116,7 +115,7 @@ def test_main_window_has_review_tab(qapp: QApplication) -> None:
         qapp.processEvents()
 
 
-def test_review_tab_report_button(qapp: QApplication, output_root: Path) -> None:  # noqa: F811
+def test_review_tab_report_button(qapp: QApplication, output_root: Path, tmp_path: Path) -> None:  # noqa: F811
     t = ReviewTab()
     t.open_report_in_browser = False
     assert t.write_report() is None  # 열기 전
@@ -139,6 +138,14 @@ def test_review_tab_report_button(qapp: QApplication, output_root: Path) -> None
     assert t.dist_class.currentData() == cls  # 키를 바꿔도 선택 유지
     t.dist_key.setCurrentIndex(t.dist_key.findData("area"))
     assert not t.dist_class.isEnabled() and t.dist_class.currentData() == ""  # 면적은 전체만
+    # 실측 CSV(0.8): 버튼으로 실제 계열 교체 → 제목 · 되돌리기
+    csv = tmp_path / "real.csv"
+    csv.write_text("area\n10\n20\n30\n", encoding="utf-8")
+    assert t.load_real_csv(csv) and t.btn_real_csv_clear.isEnabled()
+    assert "실제 = 실측 real.csv" in t.hist.title and sum(t.hist.hist.b) == 3
+    assert not t.load_real_csv(tmp_path / "none.csv") and "실측 CSV 실패" in t.result.text()
+    t.clear_real_csv()
+    assert not t.btn_real_csv_clear.isEnabled() and "실측" not in t.hist.title
     t.close()
 
 

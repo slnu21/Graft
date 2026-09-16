@@ -657,6 +657,11 @@ def cmd_dataset_report(args: argparse.Namespace) -> int:
     s = ReviewSession()
     try:
         s.load(args.root, load_bank=not args.no_bank)
+        if args.real_csv:
+            n = s.load_real_csv(args.real_csv)
+            _err(
+                f"실측 CSV {args.real_csv}: {n}행 ({', '.join(sorted(s.real_csv_keys()))}) — 그 열은 은행 대신"
+            )
         out = s.write_report(args.out)
     except ReviewError as e:
         _err(f"리포트 실패: {e}")
@@ -665,8 +670,8 @@ def cmd_dataset_report(args: argparse.Namespace) -> int:
     print(
         f"리포트 → {out.as_posix()}: 합성 {c['ok']} · 채택 {c['accept']} · 반려 {c['reject']} · 미검수 {c['unreviewed']}"
         + (
-            f" · 실제(은행) {len(s.real_values())}"
-            if s.bank is not None
+            f" · 실제({s.real_label()}) {len(s.real_values())}"
+            if (s.bank is not None or s.real_csv is not None)
             else " · 은행 없음(실제 분포 없음)"
         )
     )
@@ -1023,6 +1028,11 @@ def build_parser() -> argparse.ArgumentParser:
     dr.add_argument("root", help="anograft run 출력 폴더 (manifest.csv, review.csv)")
     dr.add_argument("--out", default=None, help="HTML 경로 (기본 <root>/review-report.html)")
     dr.add_argument("--no-bank", action="store_true", help="은행을 열지 않는다(실제 분포 생략)")
+    dr.add_argument(
+        "--real-csv",
+        default=None,
+        help="실제 분포를 은행 대신 실측 CSV 로(열: class? + area/length/contrast/texture/sharpness/lighting 중 있는 것)",
+    )
     dr.set_defaults(func=cmd_dataset_report)
     dp = dsub.add_parser(
         "prune",

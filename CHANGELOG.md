@@ -14,6 +14,7 @@
 - 검수 탭 분포에 **클래스 콤보** — 외형 지표(대비·질감·선명도·조명 방향)를 한 클래스만 합성 vs 실제로. 조명 방향은 클래스마다 달라 전체 분포는 섞여 보이므로 클래스별로 보고, 제목에 그 클래스의 R(n). 리포트에도 실제 방향이 유의한 클래스별 조명 방향 히스토그램 격자(`ReportData.hist_lighting_class`). `ReviewSession.class_options/distribution_by_class/lighting_r_for/lighting_histograms_by_class`.
 
 - `tools/bench_mask_from_box.py` — GT 마스크가 있는 데이터(MVTec 카테고리·pairs.csv)에서 박스→마스크 추정 4방법의 IoU 와 `mask_confidence` 의 실패 검출력을 재는 벤치(markdown + JSON). 공개 데이터 1180 인스턴스 결과와 읽는 법은 `KNOWN-ISSUES.md` "결정 근거" 절.
+- 검수 '실제' 분포를 **실측 CSV** 로 — 검수 탭 `실측 CSV…` 버튼 · `dataset report --real-csv x.csv`. 열은 `class`(선택) + `area/length/contrast/texture/sharpness/lighting` 중 있는 것(숫자, 빈 칸 건너뜀); CSV 에 있는 열은 CSV 가, 없는 열은 은행이 실제 값을 댄다. 레시피 `source.classes` 필터는 CSV 에도 적용. 리포트 머리 `실제 = 실측 x.csv`. 현장 실측(현미경 µm→px)과 합성 분포를 견줄 때.
 
 ### Fixed
 - 합성 사이드카 `target.file` 이 Windows 에서 역슬래시였던 것 → manifest·정상 사이드카와 같은 posix.
