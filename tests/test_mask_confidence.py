@@ -235,3 +235,11 @@ def test_source_tile_lighting_arrow() -> None:
     assert (
         len(ys) and ys.max() > ys.min() and xs.max() - xs.min() <= 6
     )  # 아래를 가리키는 세로 화살표
+
+
+def test_tile_id_label_keeps_tail_number() -> None:
+    from anograft.preview import tile_id_label
+
+    assert tile_id_label("bent/metal_nut-bent-000", 20) == "metal_nut-bent-000"
+    assert tile_id_label("bent/metal_nut-bent-000", 10) == "~-bent-000"
+    assert tile_id_label("a/b", 6) == "b" and tile_id_label("noslash-12", 6) == "~sh-12"

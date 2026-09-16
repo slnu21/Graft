@@ -123,6 +123,14 @@ def _fit_tile(image: np.ndarray, tile: int) -> tuple[np.ndarray, tuple[int, int,
     return canvas, (x, y, s)
 
 
+def tile_id_label(source_id: str, max_chars: int) -> str:
+    """타일 id 라벨 — 클래스 접두(``cls/``)는 격자에서 이미 보이므로 떼고, 길면 **앞을 잘라** 번호(꼬리)가 남게(``~``)."""
+    name = source_id.rsplit("/", 1)[-1]
+    if len(name) <= max_chars:
+        return name
+    return "~" + name[-(max_chars - 1) :]  # cv2 Hershey 폰트는 ASCII 만
+
+
 def source_tile(
     image: np.ndarray,
     mask: np.ndarray,
@@ -144,8 +152,8 @@ def source_tile(
         cv2.polylines(canvas, [pts.reshape(-1, 1, 2)], True, GT_EDGE, 1)
     estimated = mask_origin.startswith("yolo-box:")
     origin = mask_origin.split(":", 1)[1] if estimated else mask_origin.replace("yolo-", "")
-    max_chars = max(6, int(tile / 6.2))
-    _label(canvas, source_id[-max_chars:], (2, tile - 14), 0.36)
+    max_chars = max(6, int(tile / 7.2))  # 0.36 스케일 글자 ≈ 7 px — 타일 밖으로 넘치지 않게
+    _label(canvas, tile_id_label(source_id, max_chars), (2, tile - 14), 0.36)
     low = confidence is not None and confidence < LOW_CONFIDENCE
     text = origin[:max_chars]
     if confidence is not None:
