@@ -237,8 +237,10 @@ def cmd_run(args: argparse.Namespace) -> int:
             print(f"{k:>14}: {v}")
         for w in prep.warnings:
             _err(f"경고: {w}")
-        if fit is not None and (fw := fit.warning()):
-            _err(f"경고: {fw}")
+        if fit is not None:
+            for fw in (fit.source_warning(), fit.warning()):
+                if fw:
+                    _err(f"경고: {fw}")
         print("(dry-run — 파일을 쓰지 않았습니다)")
         return EXIT_OK
 

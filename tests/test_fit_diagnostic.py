@@ -30,6 +30,28 @@ def test_verdicts_and_warning_are_pure() -> None:
     assert runner.FitDiagnostic([("a", 50.0)], {"x": 51.0}, 1.0, 1.0).verdicts() == {"x": "불가"}
 
 
+def test_non_local_class_warning() -> None:
+    """패치가 대상 자체와 맞먹는 클래스(MVTec ``flip`` 685/700px) → ``source:`` 경고. 대상 크기를 모르면(0) 침묵."""
+    fit = runner.FitDiagnostic(
+        [("a", 100.0)],
+        {"flip": 685.0, "bent": 141.0, "half": 350.0},
+        1.0,
+        0.512,
+        target_short_side=700.0,
+    )
+    assert fit.non_local_classes() == {"flip": 0.98, "half": 0.5}
+    w = fit.source_warning()
+    assert w and w.startswith("source:") and "flip(대상 짧은 변의 98%)" in w and "bent" not in w
+    assert "source.classes" in w
+    assert (
+        runner.FitDiagnostic([("a", 100.0)], {"flip": 685.0}, 1.0, 0.512).source_warning() is None
+    )
+    assert (
+        runner.FitDiagnostic([("a", 100.0)], {"bent": 141.0}, 1.0, 0.512, 700.0).source_warning()
+        is None
+    )
+
+
 def test_fit_diagnostic_on_workspace(tmp_path: Path) -> None:
     from anograft.bank.importers import yolo as Y
 
@@ -64,6 +86,7 @@ def test_fit_diagnostic_on_workspace(tmp_path: Path) -> None:
     )
     assert fit.scale_hi == rec.pipeline.geometry.scale[1]
     assert 0 < fit.shrink_floor <= 1.0
+    assert fit.target_short_side > 0 and fit.source_warning() is None  # 샘플 결함은 국소
     rows = dict(runner.dry_run_table(prep, fit=fit))
     assert (
         "roi width" in rows

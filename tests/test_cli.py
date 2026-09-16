@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import numpy as np
@@ -213,6 +214,10 @@ def test_run_writes_triplets_manifest_and_is_reproducible(
             assert (root / r[col]).is_file(), col
         m = imgio.read_mask(root / r["mask"])
         assert set(np.unique(m)) == {0, 255} and int(r["area_px"]) == int(np.count_nonzero(m))
+        side = json.loads((root / r["sidecar"]).read_text(encoding="utf-8"))
+        assert (
+            "\\" not in side["target"]["file"] and side["target"]["file"] == r["target"]
+        )  # posix, manifest 와 동일
     assert (root / "recipe.resolved.yaml").is_file()
     assert sorted(p.name for p in (root / "images").iterdir())[:2] == ["000000.png", "000001.png"]
     # 같은 레시피를 다른 폴더에 다시 돌리면 트리가 바이트 동일 (recipe.resolved.yaml의 root만 다르다)

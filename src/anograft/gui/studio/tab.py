@@ -263,10 +263,14 @@ class StudioTab(QWidget):
 
         margin = int(getattr(self.session.recipe.pipeline.placement, "margin_px", 0))
         width = roi_max_width(roi, margin) / max(res.scale, 1e-6)
-        fit = runner.fit_from_widths(prep, [(res.target.path.name, round(width, 1))])
+        short_side = float(min(roi.shape[:2])) / max(res.scale, 1e-6)
+        fit = runner.fit_from_widths(
+            prep, [(res.target.path.name, round(width, 1))], target_short_side=short_side
+        )
         self._fit = fit
-        w = fit.warning() if fit is not None else None
-        return [w] if w else []
+        if fit is None:
+            return []
+        return [w for w in (fit.source_warning(), fit.warning()) if w]
 
     def _update_zoom_info(self) -> None:
         w, h = self.canvas.image_size()

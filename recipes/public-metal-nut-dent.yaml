@@ -1,0 +1,58 @@
+# 공개 데이터 리허설 — MVTec metal_nut (tools/fetch_public_datasets.py metal_nut --import 뒤). flip(부품 전체 이상)은 source.classes 로 제외.
+# anograft 0.7.7 — recipe init --preset dent-graft --roi annulus
+# 모든 손잡이가 펼쳐져 있습니다. 스테이지의 method를 바꾸면 그 스테이지 키는 해당 method의 것만 남기세요.
+version: 1
+name: dent-graft
+seed: 20260913
+inputs: {bank: bank/metal_nut, targets: samples/mvtec/metal_nut/train/good, um_per_px: null}
+output:
+  root: out/public-metal-nut-dent
+  count: 40
+  class_ratio: null
+  defects_per_image: [1, 1]
+  include_normals: true
+  copy_mode: copy
+  writer: {format: yolo, seg: false, names_from: bank}
+pipeline:
+  preset: dent-graft
+  source:
+    method: bank
+    classes: [bent, color, scratch]
+    tags:
+      include: []
+      exclude: []
+    min_sources_warn: 10
+  geometry:
+    method: affine
+    scale: [0.9, 1.1]
+    rotate: [-15.0, 15.0]
+    flip: none
+    elastic: {alpha: 0.0, sigma: 4.0}
+    per_class: {}
+  placement:
+    roi: {method: annulus, center: null, radius: null, r_inner: 0.55, r_outer: 0.9,
+      units: ratio, invert: auto, erode_px: 4}
+    margin_px: 8
+    max_tries: 50
+    shrink_on_fail: {factor: 0.8, rounds: 3}
+    method: structure-aware
+    prefer: uniform
+    strength: 1.0
+    smooth_px: 3.0
+    align: along
+    min_coherence: 0.2
+    min_anisotropy: 0.1
+    jitter_deg: 5.0
+    max_align_deg: 30.0
+  blend: {method: poisson, poisson_mode: normal, mask_dilate_px: 5, feather_px: 3}
+  harmonize: {method: stats, strength: 0.2, ring_px: 12}
+  degrade:
+    method: camera
+    noise_sigma: [0.0, 2.0]
+    blur_sigma: [0.0, 0.6]
+    jpeg_quality: null
+    motion_blur_px: null
+    motion_angle: [0.0, 180.0]
+    vignette: null
+    gamma: null
+  gtmask: {policy: union, diff_threshold: 12, dilate_px: 2}
