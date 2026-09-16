@@ -39,6 +39,9 @@ class ReportData:
     hist_length: Any = None
     hist_contrast: Any = None  # 선형 구간(음수 가능)
     hist_lighting: Any = None  # 조명 방향 각도(−180..180)
+    hist_lighting_class: Mapping[str, Any] = field(
+        default_factory=dict
+    )  # 클래스 → 조명 방향 히스토그램(실제 방향이 유의한 클래스만)
     lighting_r: tuple[float | None, float | None] = (None, None)  # 조명 일관성 R(합성, 실제)
     lighting_r_class: Mapping[str, tuple[float | None, float | None]] = field(default_factory=dict)
     flipped: Sequence[str] = ()  # 조명 뒤집힘 의심 index(실제 클래스 방향에서 > 90°)
@@ -149,6 +152,23 @@ def svg_histogram(hist: Any, title: str, *, width: int = 520, height: int = 200)
     return "".join(parts)
 
 
+def lighting_class_grid(
+    hists: Mapping[str, Any], r_class: Mapping[str, tuple[float | None, float | None]]
+) -> str:
+    """조명 방향이 유의한 클래스별 히스토그램 격자 — 전체 분포는 클래스마다 방향이 달라 섞여 보이므로 클래스별로 본다."""
+    if not hists:
+        return ""
+
+    def fmt(v: float | None) -> str:
+        return "–" if v is None else f"{v:.2f}"
+
+    cells = []
+    for c, h in hists.items():
+        rs, rr = r_class.get(c, (None, None))
+        cells.append(svg_histogram(h, f"조명 방향 — {c} (R 합성 {fmt(rs)} / 실제 {fmt(rr)})"))
+    return '<div class="grid">' + "".join(cells) + "</div>"
+
+
 def render_report(d: ReportData) -> str:
     c = d.counts
     e = html.escape
@@ -195,6 +215,7 @@ code{{background:#f4f6f8;padding:1px 4px;border-radius:4px}}
 <h2>분포 Distribution <span class="muted">— 합성(반려 제외) vs 실제(은행 소스), 로그 구간</span></h2>
 <div class="grid">{svg_histogram(d.hist_area, "면적 area (px)")}{svg_histogram(d.hist_length, "긴 변 length (px)")}{svg_histogram(d.hist_contrast, "대비 contrast (gray, 마스크 − 링)")}{svg_histogram(d.hist_lighting, "조명 방향 lighting (°, 0 = →, 90 = ↓)")}</div>
 {lighting_line(d.lighting_r, d.lighting_r_class, d.directional)}
+{lighting_class_grid(d.hist_lighting_class, d.lighting_r_class)}
 {flipped_line(d.flipped)}
 <h2>클래스별 인스턴스 <span class="muted">(채택 + 미검수)</span></h2>
 <table><tr><th>클래스</th><th>인스턴스</th></tr>{per_class or '<tr><td colspan="2" class="muted">없음</td></tr>'}</table>

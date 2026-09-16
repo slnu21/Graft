@@ -201,6 +201,13 @@ class ReviewTab(QWidget):
         self.dist_key.addItem("선명도 sharpness (∇² 분산)", "sharpness")
         self.dist_key.addItem("조명 방향 lighting (°)", "lighting")
         v.addWidget(self.dist_key)
+        self.dist_class = (
+            QComboBox()
+        )  # 외형 지표만 클래스별(조명 방향은 클래스마다 달라 전체는 섞인다)
+        self.dist_class.setToolTip(
+            "클래스별 분포 — 외형 지표(대비·질감·선명도·조명 방향)만 · Per-class distribution"
+        )
+        v.addWidget(self.dist_class)
         self.hist = HistogramWidget()
         v.addWidget(self.hist, 1)
         self.count = QLabel("")
@@ -306,6 +313,7 @@ class ReviewTab(QWidget):
         self.f_which.currentIndexChanged.connect(lambda _i: self.refresh_grid())
         self.f_cls.currentIndexChanged.connect(lambda _i: self.refresh_grid())
         self.dist_key.currentIndexChanged.connect(lambda _i: self.refresh_hist())
+        self.dist_class.currentIndexChanged.connect(lambda _i: self.refresh_hist())
         self.grid.itemSelectionChanged.connect(self._on_select)
         self.btn_accept.clicked.connect(lambda: self.verdict("accept"))
         self.btn_reject.clicked.connect(lambda: self.verdict("reject"))
@@ -412,7 +420,8 @@ class ReviewTab(QWidget):
             self.hist.set_histogram(None)
             return
         key = str(self.dist_key.currentData() or "area")
-        h = self.session.distribution(key)
+        cls = self._sync_class_combo(key)
+        h = self.session.distribution_by_class(key, cls) if cls else self.session.distribution(key)
         title = {
             "area": "면적 px (로그 구간)",
             "length": "긴 변 px (로그 구간)",
@@ -421,19 +430,42 @@ class ReviewTab(QWidget):
             "sharpness": "선명도 — 마스크 안 라플라시안 분산 (선형)",
             "lighting": "조명 방향 ° (0 = →, 90 = ↓; 링에서 밝은 쪽)",
         }.get(key, key)
+        if cls:
+            title += f" · 클래스 {cls}"
         if key == "lighting":
-            rs, rr = self.session.lighting_concentration()
             fmt = lambda v: "–" if v is None else f"{v:.2f}"  # noqa: E731
-            title += f" · 일관성 R 합성 {fmt(rs)} / 실제 {fmt(rr)}"
+            if cls:
+                rs, rr, ns, nr = self.session.lighting_r_for(cls)
+                title += f" · R 합성 {fmt(rs)} (n {ns}) / 실제 {fmt(rr)} (n {nr})"
+                if cls in self.session.directional_classes():
+                    title += " · 실제 방향 유의"
+            else:
+                rs, rr = self.session.lighting_concentration()
+                title += f" · 일관성 R 합성 {fmt(rs)} / 실제 {fmt(rr)}"
             per_class = self.session.lighting_concentration_by_class()
             broken = lighting_broken_classes(per_class, self.session.directional_classes())
-            if broken:
+            if broken and (not cls or cls in broken):
                 title += f" · ⚠ {', '.join(broken)} 회전이 조명을 뒤집음 → dent-graft"
         if self.session.bank is None:
             title += " — 은행 없음"
         elif self.session.real_classes():
             title += f" · 실제 = {', '.join(self.session.real_classes() or [])}"
         self.hist.set_histogram(h, title)
+
+    def _sync_class_combo(self, key: str) -> str:
+        """분포 키에 맞춰 클래스 콤보를 채운다(외형 지표만). 반환: 선택된 클래스("" = 전부)."""
+        options = self.session.class_options(key)
+        prev = str(self.dist_class.currentData() or "")
+        self.dist_class.blockSignals(True)
+        self.dist_class.clear()
+        self.dist_class.addItem("전체 all classes", "")
+        for c in options:
+            self.dist_class.addItem(c, c)
+        i = self.dist_class.findData(prev) if prev in options else 0
+        self.dist_class.setCurrentIndex(max(i, 0))
+        self.dist_class.setEnabled(bool(options))
+        self.dist_class.blockSignals(False)
+        return str(self.dist_class.currentData() or "")
 
     def selected_indices(self) -> list[str]:
         return [str(it.data(Qt.ItemDataRole.UserRole)) for it in self.grid.selectedItems()]

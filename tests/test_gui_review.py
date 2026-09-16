@@ -128,6 +128,17 @@ def test_review_tab_report_button(qapp: QApplication, output_root: Path) -> None
     assert i >= 0
     t.dist_key.setCurrentIndex(i)
     assert "조명 방향" in t.hist.title and "일관성 R" in t.hist.title
+    # 클래스 콤보(0.8): 외형 지표에서만 켜지고, 고르면 제목에 클래스·클래스별 R(n)
+    # 클래스 콤보(0.8): 외형 지표에서만 켜지고(샘플은 조명 값이 없어 대비로), 고르면 제목에 클래스
+    t.dist_key.setCurrentIndex(t.dist_key.findData("contrast"))
+    assert t.dist_class.isEnabled() and t.dist_class.count() >= 2
+    t.dist_class.setCurrentIndex(1)
+    cls = str(t.dist_class.currentData())
+    assert f"클래스 {cls}" in t.hist.title
+    t.dist_key.setCurrentIndex(t.dist_key.findData("texture"))
+    assert t.dist_class.currentData() == cls  # 키를 바꿔도 선택 유지
+    t.dist_key.setCurrentIndex(t.dist_key.findData("area"))
+    assert not t.dist_class.isEnabled() and t.dist_class.currentData() == ""  # 면적은 전체만
     t.close()
 
 
