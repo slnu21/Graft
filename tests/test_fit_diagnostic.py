@@ -30,6 +30,70 @@ def test_verdicts_and_warning_are_pure() -> None:
     assert runner.FitDiagnostic([("a", 50.0)], {"x": 51.0}, 1.0, 1.0).verdicts() == {"x": "불가"}
 
 
+def test_verdicts_v2_short_side_and_alignment() -> None:
+    """가늘고 긴 패치: 짧은 변이 폭에 들어가면 정렬(along) 시 가능, 정렬 없으면 빠듯(회전 운) · 짧은 변까지 넘으면 불가."""
+    base = dict(
+        roi_widths=[("a", 100.0)],
+        patch_sides={"scratch": 214.0, "flip": 685.0, "spot": 40.0},
+        scale_hi=1.1,
+        shrink_floor=0.512,
+    )
+    aligned = runner.FitDiagnostic(
+        **base, patch_short={"scratch": 80.0, "flip": 628.0, "spot": 30.0}, aligned=True
+    )
+    assert aligned.verdicts() == {"scratch": "가능", "flip": "불가", "spot": "가능"}
+    assert "정렬 있음" in aligned.verdict_note("scratch") and aligned.verdict_note("spot") == ""
+    loose = runner.FitDiagnostic(
+        **base, patch_short={"scratch": 80.0, "flip": 628.0, "spot": 30.0}, aligned=False
+    )
+    assert loose.verdicts()["scratch"] == "빠듯" and "정렬 없음" in loose.verdict_note("scratch")
+    tight = runner.FitDiagnostic(
+        **base, patch_short={"scratch": 85.0, "flip": 628.0, "spot": 30.0}, aligned=True
+    )
+    assert tight.verdicts()["scratch"] == "빠듯" and "80%" in tight.verdict_note("scratch")
+    # patch_short 가 비면 종전(긴 변) 판정
+    assert runner.FitDiagnostic(**base).verdicts() == {
+        "scratch": "불가",
+        "flip": "불가",
+        "spot": "가능",
+    }
+    w = loose.warning()
+    assert w and "정렬 없음" in w and "flip" in w
+
+
+def test_mask_dims_and_placement_aligned() -> None:
+    m = np.zeros((50, 50), np.uint8)
+    m[20:24, 5:45] = 255  # 가로 40 × 세로 4
+    short_s, long_s = runner.mask_dims(m)
+    assert 3.5 <= short_s <= 5.0 and 39.0 <= long_s <= 41.0
+    d = np.zeros((50, 50), np.uint8)
+    yy, xx = np.mgrid[:50, :50]
+    d[(yy - 25) ** 2 + (xx - 25) ** 2 <= 10**2] = 255  # 지름 ≈ 21 원 → 짧은≈긴
+    short_s, long_s = runner.mask_dims(d)
+    assert abs(short_s - long_s) < 2.5 and 19 <= long_s <= 23
+    assert runner.mask_dims(np.zeros((5, 5), np.uint8)) == (0.0, 0.0)
+    one = np.zeros((5, 5), np.uint8)
+    one[2, 2] = 255
+    assert runner.mask_dims(one) == (1.0, 1.0)
+    rec = R.Recipe.from_dict(
+        {
+            "version": 1,
+            "name": "t",
+            "seed": 1,
+            "inputs": {"bank": "b", "targets": "t"},
+            "output": {"root": "o", "count": 1},
+            "pipeline": {"preset": "structure-aware-graft"},
+        }
+    )
+    assert runner.placement_aligned(rec) is True
+    assert (
+        runner.placement_aligned(
+            R.Recipe.from_dict({**rec.to_dict(), "pipeline": {"preset": "poisson-graft"}})
+        )
+        is False
+    )
+
+
 def test_non_local_class_warning() -> None:
     """패치가 대상 자체와 맞먹는 클래스(MVTec ``flip`` 685/700px) → ``source:`` 경고. 대상 크기를 모르면(0) 침묵."""
     fit = runner.FitDiagnostic(
@@ -87,12 +151,16 @@ def test_fit_diagnostic_on_workspace(tmp_path: Path) -> None:
     assert fit.scale_hi == rec.pipeline.geometry.scale[1]
     assert 0 < fit.shrink_floor <= 1.0
     assert fit.target_short_side > 0 and fit.source_warning() is None  # 샘플 결함은 국소
-    rows = dict(runner.dry_run_table(prep, fit=fit))
-    assert (
-        "roi width" in rows
-        and "fit spot" in rows
-        and rows["fit spot"].split("→")[-1].strip() in {"가능", "빠듯", "불가"}
+    assert set(fit.patch_short) == {"spot", "crack"} and all(
+        0 < fit.patch_short[c] <= fit.patch_sides[c] + 1e-6 for c in fit.patch_short
     )
+    assert (
+        fit.physical == {"spot": 1.0, "crack": 1.0} and fit.aligned is False
+    )  # hard-paste = sampled
+    rows = dict(runner.dry_run_table(prep, fit=fit))
+    assert "roi width" in rows and "fit spot" in rows and "짧은 변" in rows["fit spot"]
+    assert rows["fit spot"].split("→")[-1].strip().split(" ")[0] in {"가능", "빠듯", "불가"}
+    assert "축척" not in rows["fit spot"]  # 피치 없음 → 축척 표기 없음
     # ROI 캐시를 타므로 두 번 불러도 같다(rng 0회)
     assert runner.fit_diagnostic(prep, n_targets=5) == fit
     # 대상 하나만 보면 폭 1개
@@ -193,3 +261,49 @@ def test_roi_max_width_and_fit_from_widths(tmp_path: Path) -> None:
     assert runner.fit_from_widths(prep, []) is None
     tiny = runner.fit_from_widths(prep, [("x.png", 2.0)])
     assert tiny is not None and set(tiny.verdicts().values()) == {"불가"}
+
+
+def test_fit_uses_physical_scale(tmp_path: Path) -> None:
+    """소스 µm/px 4 · 대상 µm/px 2 → 소스 1 px 가 대상 2 px(factor 2.0): 패치 변이 두 배로 잡혀 판정이 바뀐다. 한쪽만 있으면 1.0."""
+    from anograft.bank.importers import yolo as Y
+
+    d = fake_yolo_dataset(tmp_path / "ds")
+    normals = tmp_path / "normals.txt"
+    Y.import_yolo(
+        d["images"],
+        d["labels"],
+        d["names"],
+        tmp_path / "bank",
+        mask_from="rect",
+        list_normals=normals,
+        um_per_px=4.0,
+    )
+    base = {
+        "version": 1,
+        "name": "t",
+        "seed": 1,
+        "inputs": {"bank": (tmp_path / "bank").as_posix(), "targets": normals.as_posix()},
+        "output": {"root": (tmp_path / "o").as_posix(), "count": 1},
+        "pipeline": {"preset": "hard-paste", "source": {"method": "bank", "min_sources_warn": 1}},
+    }
+    plain = runner.fit_diagnostic(runner.prepare(R.Recipe.from_dict(base)))
+    scaled = runner.fit_diagnostic(
+        runner.prepare(R.Recipe.from_dict({**base, "inputs": {**base["inputs"], "um_per_px": 2.0}}))
+    )
+    assert plain is not None and scaled is not None
+    assert plain.physical == {"spot": 1.0, "crack": 1.0} and scaled.physical == {
+        "spot": 2.0,
+        "crack": 2.0,
+    }
+    for c in ("spot", "crack"):
+        assert abs(scaled.patch_sides[c] - 2 * plain.patch_sides[c]) <= 0.2
+        assert abs(scaled.patch_short[c] - 2 * plain.patch_short[c]) <= 0.2
+    rows = dict(
+        runner.dry_run_table(
+            runner.prepare(
+                R.Recipe.from_dict({**base, "inputs": {**base["inputs"], "um_per_px": 2.0}})
+            ),
+            fit=scaled,
+        )
+    )
+    assert "축척 2.00" in rows["fit spot"]
