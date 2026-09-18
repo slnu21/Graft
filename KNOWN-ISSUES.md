@@ -249,7 +249,7 @@ anograft dataset prune out/torx-annulus --out out/torx-pruned [--drop-flipped]  
 
 # 5. 학습(선택, ultralytics 별도 설치) — 합성 유/무 mAP
 python tools/train_smoke.py --synthetic out/torx-pruned [--synthetic out/torx-dent-pruned] --base <기존 YOLO 셋> --out train/merged   # 출력 여러 개도
-#    (v0.8) GT 마스크가 있으면 mAP 비교까지: <train-venv>/python tools/train_mvtec_map.py <MVTec 레이아웃> … (BENCHMARKS.md §2 절차를 실데이터로 — 레이아웃이 다르면 tools/train_smoke.py 로 합쳐 직접 학습)
+#    (v0.8) GT 마스크가 있으면 mAP 비교까지: <train-venv>/python tools/train_mvtec_map.py <MVTec 레이아웃 또는 pairs.csv> --split-seed 7 --train-seeds 7 8 9 --mask-from grabcut hybrid … (BENCHMARKS.md §2 절차를 실데이터로 — 분할을 2~3개 바꿔 가며; 다른 레이아웃은 tools/train_smoke.py 로 합쳐 직접 학습)
 ```
 
 **확인할 것 (항목 ↔ 근거)**
