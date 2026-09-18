@@ -52,7 +52,9 @@ python tools/fetch_public_datasets.py screw --import            # (선택) 흑�
 | 16 | `source.single_class_per_image: true` + `defects_per_image: [2, 3]` + mvtec writer | `mvtec: … 가 섞임` 경고 없음, 사이드카 defects 의 class 가 이미지 안에서 하나 |
 | 17 | GUI 상단 `샘플 데이터…` | 대화상자(모양·폴더·정상/결함 장수·크기·합성 장수·시드) → 확인 → 스튜디오·은행 탭이 열림. 장수 0·크기 < 64 는 경고 |
 | 18 | 스튜디오 기하 카드 `tps.jitter` 를 0.06 으로 | 변형이 휘어짐(`geometry.tps.max_shift_px` 사이드카). 0 이면 종전과 바이트 동일 |
-| 19 | `BENCHMARKS.md` §2 재현(별도 venv: `python -m venv .venvs\graft-train` → `pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu` → `pip install ultralytics`) | 표와 같은 자릿수의 mAP(시드·CPU 스레드에 따라 ±0.05) |
+| 19 | `BENCHMARKS.md` §2 재현(별도 venv: `python -m venv .venvs\graft-train` → `pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu` → `pip install ultralytics`) | 표와 같은 자릿수의 mAP. `deterministic=True` CPU 라 **같은 시드·같은 데이터면 소수 셋째 자리까지 같아야** 한다(seed 7 재현 확인됨) — 다르면 torch/ultralytics 버전 |
+| 20 | (v0.8.1 뒤) 같은 `--out` 으로 `--train-seeds 7 8 9 --split-seed 7 --mask-from grabcut hybrid` 를 두 번 | 두 번째는 `== cached …`·`(합성 재사용: …)` 만 찍고 학습 없이 표를 다시 씀. `--split-seed 8` 로 같은 폴더를 주면 `다른 분할이 있습니다` 거부 |
+| 21 | `samples/magnetic-tile/pairs.csv --classes blowhole break crack --roi none --epochs 1 --count 8 --k 2` | `real sets: … 'dataset': 'magnetic-tile', 'targets': 220, 'normals': 952` · `targets.txt` 220줄 · 은행 `bank-grabcut`/`bank-hybrid` · 1 epoch 표 |
 
 `real.csv` 예시(항목 8·9):
 
@@ -80,4 +82,5 @@ scratch,10000,220
 2. **Data**: `python tools/fetch_public_datasets.py metal_nut magnetic-tile --import` (MVTec is CC BY-NC-SA — local dev only).
 3. **Check** (table above): dry-run `fit` rows now show short/long side + reason; `source:` warning for whole-part classes; `targets:` warning when mask PNGs sit next to images; `dataset merge` (refuses different class lists; merges same-bank outputs with `d<k>_` prefixes and re-indexed manifest); review tab **per-class combo** and **measured CSV** button; `dataset report --real-csv`; `--mask-from hybrid` (opt-in; default unchanged); `tools/bench_mask_from_box.py`.
 4. **v0.8.1**: `source.redraw_on_empty` (tiny sources no longer skip the image), `output.root` follows the recipe folder when inputs fell back, `run --roi-cache N`, `source.single_class_per_image` (no mixed classes for the MVTec writer), the Sample-data options dialog, `geometry.tps` (thin-plate warp, off by default), and `BENCHMARKS.md` (box→mask IoU · synthetic vs. no-synthetic mAP).
-5. **Report**: `doctor.json`, the exact command output, screenshots, and any reversed decision in `KNOWN-ISSUES.md`.
+5. **After v0.8.1** (`tools/train_mvtec_map.py`): `--train-seeds 7 8 9` repeats only the training seed on a fixed split/synthesis and prints per-seed + mean Δ; `--mask-from grabcut hybrid` builds one B set per bank; a `pairs.csv` (Magnetic Tile) is accepted as the dataset; finished (set, seed) pairs are cached under `results/` so re-running the same `--out` skips training. Expect exact (3-decimal) reproduction for the same seed and data.
+6. **Report**: `doctor.json`, the exact command output, screenshots, and any reversed decision in `KNOWN-ISSUES.md`.

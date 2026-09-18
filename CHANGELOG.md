@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Changed
+- `tools/train_mvtec_map.py` — `--train-seeds 7 8 9`(분할·합성 고정, 학습 시드만 반복 → 시드별 + 평균 Δ 표) · `--mask-from grabcut hybrid`(은행마다 B 셋) · **`pairs.csv` 입력**(Magnetic Tile: `normals.txt` 앞 `--n-good` 은 음성, 그다음 `--n-targets` 는 합성 대상) · `results/` 캐시와 합성 재사용(프리셋·은행을 나중에 보태도 끝난 학습은 안 돌림) · 한 `--out` = 한 분할. GT 마스크 이진화 `> 127`(MT 의 JPEG 링 잡음 — MVTec 0/255 는 불변).
+- `BENCHMARKS.md` §2 — 분할 고정(split-seed 7) 학습 시드 3개 · dent-graft 분산 · Magnetic Tile 행.
+
 ## [0.8.1] - 2026-09-17
 
 v0.8.0 뒤 같은 밤 — 작은 기하·소스 손잡이(전부 기본 off) · `dataset merge --dedupe-normals` · 샘플 데이터 대화상자 · **`BENCHMARKS.md`**(박스→마스크 IoU · 합성 유/무 YOLO mAP 0.27 → 0.37) · `tools/train_mvtec_map.py`. 기존 레시피·골든·은행 결과 불변.
