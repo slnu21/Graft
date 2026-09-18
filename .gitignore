@@ -31,3 +31,6 @@ Thumbs.db
 !requirements-lock.txt
 
 /runs/
+
+# ultralytics 가 cwd 에 내려받는 가중치(yolov8n.pt 등, tools/train_mvtec_map.py)
+/*.pt

@@ -1056,8 +1056,11 @@ def init_recipe_dict(
     roi: str | None = None,
     um_per_px: float | None = None,
     dent_classes: Sequence[str] | Mapping[str, Mapping[str, Any]] = (),
+    classes: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     """``recipe init``용 — 프리셋을 완전히 펼친 레시피 딕셔너리(사용자가 모든 손잡이를 본다).
+    ``classes`` 는 ``source.classes`` — 이 프리셋을 은행의 일부 클래스에만(결함 성격별 프리셋: 얼룩은 poisson, 구멍은 hard-paste 로
+    따로 돌려 ``dataset merge --dedupe-normals``). 은행 없는 프리셋(self-cut·perlin)에는 ``KeyError``.
     ``dent_classes`` 는 조명 의존 클래스 — ``geometry.per_class`` 에 ``DENT_OVERRIDE``(±15°, flip none)를 넣는다(프리셋은 그대로).
     매핑을 주면(클래스 → 오버라이드 dict) 그 값을 쓴다(예: 조명이 위/아래면 ``flip: horizontal`` — ``dent_override_for``).
     ``roi`` 는 프리셋의 ROI method 만 갈아 끼운다(예: dent-graft + annulus — 원형 부품의 찍힘). 그 method 의
@@ -1079,8 +1082,15 @@ def init_recipe_dict(
         "pipeline": {"preset": preset},
     }
     pipe = apply_preset(dict(data))["pipeline"]
-    if str(pipe.get("source", {}).get("method", "bank")) in BANKLESS_SOURCES:
+    bankless = str(pipe.get("source", {}).get("method", "bank")) in BANKLESS_SOURCES
+    if bankless:
         data["inputs"]["bank"] = None  # 은행 없이 동작하는 프리셋
+    if classes is not None:
+        if bankless:
+            raise KeyError(
+                f"프리셋 {preset!r} 은 은행을 쓰지 않아 --classes 를 받을 수 없습니다 (source.method = {pipe['source']['method']})"
+            )
+        data["pipeline"].setdefault("source", {"method": "bank"})["classes"] = list(classes)
     if roi is not None:
         if roi not in ROI_METHODS:
             raise KeyError(f"ROI method 가 없습니다: {roi!r} (선택: {', '.join(ROI_METHODS)})")

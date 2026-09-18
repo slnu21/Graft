@@ -132,6 +132,7 @@ def cmd_recipe_init(args: argparse.Namespace) -> int:
             roi=args.roi,
             um_per_px=args.um_per_px,
             dent_classes=dent,
+            classes=args.classes,
         )
     except KeyError as e:
         print(str(e.args[0]), file=sys.stderr)
@@ -140,6 +141,7 @@ def cmd_recipe_init(args: argparse.Namespace) -> int:
     header = (
         f"# anograft {__version__} — recipe init --preset {args.preset}"
         + (f" --roi {args.roi}" if args.roi else "")
+        + (f" --classes {' '.join(args.classes)}" if args.classes else "")
         + (f" --dent-class {' '.join(dent)}" if dent else "")
         + "\n"
         "# 모든 손잡이가 펼쳐져 있습니다. 스테이지의 method를 바꾸면 그 스테이지 키는 해당 method의 것만 남기세요.\n"
@@ -858,6 +860,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pi.add_argument(
         "--um-per-px", type=float, default=None, help="대상 µm/px (inputs.um_per_px — 축척 정합)"
+    )
+    pi.add_argument(
+        "--classes",
+        nargs="+",
+        default=None,
+        metavar="CLASS",
+        help="source.classes — 이 프리셋을 은행의 일부 클래스에만(결함 성격별 프리셋으로 따로 돌려 dataset merge --dedupe-normals)",
     )
     pi.add_argument(
         "--dent-class",
