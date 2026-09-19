@@ -57,7 +57,7 @@ anograft-gui recipes/sample-poisson.yaml                                  # GUI 
 
 ![GUI 미리보기 탭](assets/gui-studio.png)
 
-미리보기 탭 오른쪽 **파이프라인 카드**에서 단계별 method 를 고르고 **모든 파라미터를 바로 편집**합니다(레시피 스키마에서 자동 생성 — 범위·on/off·선택지·경로, `null` 은 체크 해제). 라벨은 한국어(단위 포함)이고 툴팁에 설명·영어 이름·YAML 키·범위가 있습니다(v0.9). 같은 설명을 CLI 에서: `anograft explain geometry.scale` · `explain blend:poisson` · `explain preset:dent-graft`, 전체 표는 [`PARAMS.md`](PARAMS.md). 잘못된 값은 그 카드에 빨간 줄로 막히고, 결과는 레시피 저장에 그대로 반영됩니다 (v0.6).
+미리보기 탭 오른쪽 **파이프라인 카드**에서 단계별 method 를 고르고 **모든 파라미터를 바로 편집**합니다(레시피 스키마에서 자동 생성 — 범위·on/off·선택지·경로, `null` 은 체크 해제). 라벨은 한국어(단위 포함)이고 툴팁에 설명·영어 이름·YAML 키·범위가 있습니다(v0.9). 프리셋 값과 다른 행은 teal 라벨 + ↺(되돌리기), 자주 안 쓰는 값은 **고급 옵션** 아래 접혀 있고, 세기 같은 값은 슬라이더(더블클릭 = 되돌리기)로 끕니다. 같은 설명을 CLI 에서: `anograft explain geometry.scale` · `explain blend:poisson` · `explain preset:dent-graft`, 전체 표는 [`PARAMS.md`](PARAMS.md). 잘못된 값은 그 카드에 빨간 줄로 막히고, 결과는 레시피 저장에 그대로 반영됩니다 (v0.6).
 
 ![GUI 결함 표시 탭](assets/gui-label.png)
 

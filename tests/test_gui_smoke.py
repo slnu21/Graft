@@ -284,7 +284,10 @@ def test_stage_param_form_edits_recipe_and_shows_errors_inline(
         # 6) ROI 하위 스테이지 — method 콤보 + 폼
         pl = pipe.cards["placement"]
         assert pl.roi_method is not None and pl.roi_form is not None
-        assert list(pl.roi_form.rows) == ["invert", "erode_px"]
+        assert list(pl.roi_form.rows) == [
+            "erode_px",
+            "invert",
+        ]  # 기본 행 먼저, 고급(invert)은 접힘 아래
         pl.roi_form.rows["erode_px"].editors[0].setValue(20)
         assert _pump(qapp, lambda: ses.recipe.pipeline.placement.roi.erode_px == 20, 5.0)
         i = pl.roi_method.findData("mask_dir")
