@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import cv2
 import numpy as np
@@ -18,6 +19,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QCheckBox,
+    QDialog,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -150,6 +152,7 @@ class StudioTab(QWidget):
     def _wire(self) -> None:
         s = self.strip
         s.preset_changed.connect(lambda name: self._edit(lambda: self.session.set_preset(name)))
+        s.gallery_clicked.connect(self.open_preset_gallery)
         s.seed_changed.connect(lambda v: self._edit(lambda: self.session.set_seed(v)))
         s.variants_changed.connect(self._on_variants)
         s.long_side_changed.connect(self._on_long_side)
@@ -384,6 +387,34 @@ class StudioTab(QWidget):
             )
         self.status.emit(msg)
         self.recipe_opened.emit(Path(path).as_posix())
+
+    def gallery_thumbs(self) -> dict[str, Any] | None:
+        """갤러리 썸네일 — 준비된 세션 + 고른 바탕 이미지가 있을 때만(없으면 None → 문안만)."""
+        from anograft.gui.studio.gallery import render_preset_thumbs
+
+        ses = self.session
+        if ses.prepared is None or ses.target is None:
+            return None
+        try:
+            return render_preset_thumbs(ses.prepared, ses.recipe, ses.target)
+        except Exception as e:  # fail-soft
+            self.status.emit(f"프리셋 썸네일 실패: {e}")
+            return None
+
+    def open_preset_gallery(self) -> str | None:
+        """프리셋 갤러리 → 고르면 콤보를 바꿔(= set_preset) 카드·미리보기가 따라온다. 반환 = 고른 이름(취소면 None)."""
+        from anograft.gui.studio.preset_gallery import PresetGalleryDialog
+
+        dlg = PresetGalleryDialog(self.session.recipe.pipeline.preset, self.gallery_thumbs(), self)
+        if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.chosen:
+            return None
+        self.apply_preset(dlg.chosen)
+        return dlg.chosen
+
+    def apply_preset(self, name: str) -> None:
+        i = self.strip.preset.findData(name)
+        if i >= 0 and i != self.strip.preset.currentIndex():
+            self.strip.preset.setCurrentIndex(i)  # → preset_changed → set_preset
 
     def open_recipe_dialog(self) -> None:
         f, _ = QFileDialog.getOpenFileName(self, "레시피 열기", "recipes", "레시피 (*.yaml *.yml)")

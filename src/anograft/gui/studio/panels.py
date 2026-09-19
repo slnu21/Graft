@@ -107,6 +107,7 @@ def h4(text: str) -> QLabel:
 
 class StripBar(QWidget):
     preset_changed = Signal(str)
+    gallery_clicked = Signal()
     seed_changed = Signal(int)
     variants_changed = Signal(int)
     long_side_changed = Signal(int)
@@ -131,7 +132,19 @@ class StripBar(QWidget):
         self.preset.setToolTip(
             "Preset — 7단계 설정을 묶어 둔 시작점. 고르면 아래 카드 값이 바뀝니다"
         )
-        lay.addWidget(self._field("프리셋", self.preset))
+        self.btn_gallery = QToolButton()
+        self.btn_gallery.setText("고르기…")
+        self.btn_gallery.setObjectName("Gallery")
+        self.btn_gallery.setToolTip("Preset gallery — 프리셋을 설명·썸네일과 함께 고릅니다")
+        self.btn_gallery.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_gallery.clicked.connect(self.gallery_clicked.emit)
+        preset_box = QWidget()
+        pb = QHBoxLayout(preset_box)
+        pb.setContentsMargins(0, 0, 0, 0)
+        pb.setSpacing(4)
+        pb.addWidget(self.preset)
+        pb.addWidget(self.btn_gallery)
+        lay.addWidget(self._field("프리셋", preset_box))
 
         self.seed = QSpinBox()
         self.seed.setRange(0, 2_000_000_000)

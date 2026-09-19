@@ -21,7 +21,7 @@
 Graft는 알고리즘을 새로 만드는 도구가 아니라 그 사이를 메우는 도구입니다.
 
 - **결함 보관함(bank)** — 보유 YOLO 라벨(박스·폴리곤)이나 마스크 PNG에서 결함 조각을 모읍니다. 박스만 있으면 마스크를 추정합니다(GrabCut 등, 출처를 `mask_origin`으로 끌고 다님). 데이터가 없으면 표준 산업 데이터셋(MVTec AD)을 로컬 사본에서 읽습니다.
-- **7단계 파이프라인** `결함 고르기 → 크기·회전 → 위치 정하기 → 붙이기 → 색·밝기 맞추기 → 카메라 효과 → 정답 영역`(source → geometry → placement → blend → harmonize → degrade → gtmask) — 알고리즘은 각 단계의 `method`로 고릅니다(붙이기: paste · alpha · Poisson · multiband, 색·밝기 맞추기: stats · Reinhard · 히스토그램 매칭 · relative(노출 보정), 위치: sampled · structure-aware, 붙일 수 있는 영역(ROI): otsu · grabcut · none · mask_dir). 프리셋으로 시작하고 필요할 때만 펼칩니다.
+- **7단계 파이프라인** `결함 고르기 → 크기·회전 → 위치 정하기 → 붙이기 → 색·밝기 맞추기 → 카메라 효과 → 정답 영역`(source → geometry → placement → blend → harmonize → degrade → gtmask) — 알고리즘은 각 단계의 `method`로 고릅니다(붙이기: paste · alpha · Poisson · multiband, 색·밝기 맞추기: stats · Reinhard · 히스토그램 매칭 · relative(노출 보정), 위치: sampled · structure-aware, 붙일 수 있는 영역(ROI): otsu · grabcut · none · mask_dir). 프리셋으로 시작하고 필요할 때만 펼칩니다(미리보기 탭 **프리셋 고르기…** 갤러리가 각 프리셋을 지금 바탕 이미지에 적용한 썸네일과 이럴 때/피할 때를 함께 보여 줍니다, v0.9).
 - **붙일 수 있는 영역(ROI)** 이 기본값 — 배경에 붙은 결함은 학습에 해롭습니다.
 - **재현** — 레시피(YAML) + 시드가 같으면 워커 수와 무관하게 바이트 단위로 같은 데이터셋. 이미지마다 사이드카 JSON(결함 조각 id · 변환 · 좌표 · 시드 · 파이프라인 해시).
 - **출력** — 정본은 이미지 + GT 마스크 + 사이드카 + `manifest.csv`. 그 위에 writer가 학습 형식을 덧붙입니다(YOLO `labels/*.txt` + `data.yaml` — 기존 학습셋에 그대로 합침 · `mvtec` — anomalib 이 읽는 `mvtec/<category>/{train,test,ground_truth}` 레이아웃, v0.4 · `coco` — `annotations.json`(instances: 폴리곤 segmentation(`segmentation: rle` 로 비압축 RLE — 조각·구멍 무손실)·bbox·area, categories = 보관함 classes) — Detectron2·mmdetection 용, v0.7).
