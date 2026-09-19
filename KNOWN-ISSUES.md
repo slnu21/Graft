@@ -246,7 +246,7 @@ anograft run recipes/torx-annulus.yaml --workers 4 --report # stderr 경고: 축
 anograft dataset report out/torx-annulus                    # 합성 vs 실제 면적·긴 변·대비 히스토그램
 anograft dataset prune out/torx-annulus --out out/torx-pruned [--drop-flipped]   # 조명 뒤집힘 의심도 빼려면
 #    (v0.8) 검수 탭 분포 → 클래스 콤보(찍힘만 조명 방향) · 실측 CSV 가 있으면 '실측 CSV…'(또는 dataset report --real-csv) · 여러 레시피 출력은 dataset merge a b --out c
-#    (v0.8.2) 대비 히스토그램에서 어느 클래스의 합성이 실제보다 0 쪽으로 몰려 있으면(구멍·핏이 옅어짐) 그 클래스만 relative-paste 로 갈라 다시:
+#    (v0.8.2) 대비 히스토그램에서 어느 클래스의 합성이 실제보다 0 쪽으로 몰려 있으면(구멍·핏이 옅어짐) 그 클래스만 relative-paste 로 갈라 다시(v0.8.3: dataset report 가 `대비 힌트: <클래스>: …` 로 알려 준다 — 합성 중앙값이 실제의 50% 미만·차 ≥ 12 gray):
 #      anograft recipe init --preset relative-paste --bank bank/torx --classes <클래스> --roi annulus --write recipes/torx-hole.yaml → run → dataset merge out/torx-pruned out/torx-hole --out out/torx-all --dedupe-normals
 
 # 5. 학습(선택, ultralytics 별도 설치) — 합성 유/무 mAP

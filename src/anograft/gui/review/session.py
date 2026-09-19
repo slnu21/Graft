@@ -30,9 +30,11 @@ from anograft.core.appearance import (  # noqa: F401 — 검수 탭·테스트�
     LIGHT_REAL_MIN,
     LIGHT_RING_PX,
     RING_PX,
+    ContrastHint,
     angle_diff,
     circular_concentration,
     circular_mean,
+    contrast_hints,
     is_directional,
     mask_contrast,
     mask_lighting,
@@ -604,6 +606,11 @@ class ReviewSession:
             for c in sorted(set(syn) | set(real))
         }
 
+    def contrast_hints(self) -> list[ContrastHint]:
+        """합성 대비가 실제보다 옅은 클래스(`appearance.contrast_hints`, 채택/미검수 합성 vs 은행·실측) — 검수 탭 대비 제목·
+        리포트·`dataset report` 가 같은 목록을 쓴다. MT blowhole −17 vs −48 이 학습 전에 보였던 신호(BENCHMARKS §2)."""
+        return contrast_hints(self.synthetic_by_class("contrast"), self.real_by_class("contrast"))
+
     def directional_classes(self) -> list[str]:
         """실제 소스의 조명 방향이 유의하게 뚜렷한 클래스(`is_directional`) — 리포트·제목의 '뒤집힘' 판정 대상."""
         return [
@@ -654,6 +661,7 @@ class ReviewSession:
             directional=self.directional_classes(),
             geometry=self.geometry_text(),
             flipped=sorted(self.flipped_lighting()),
+            contrast_hints=self.contrast_hints(),
             bank_name=self.real_label(),
             warnings=list(self.warnings),
         )

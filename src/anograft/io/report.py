@@ -2,7 +2,7 @@
 학습 로그에 첨부하거나 정리본 폴더에 같이 둔다. Qt 없음 — CLI ``dataset report`` 와 검수 탭 공용.
 
 내용: 레시피 이름·시드·파이프라인 해시·프리셋 · 합성/정상/skipped · 채택/반려/미검수 · 클래스별 인스턴스 수 · 폴백 수 ·
-합성 vs 실제(은행) 면적·긴 변 히스토그램(합성 ``#00A188`` / 실제 ``#C8841C``) · 반려 목록(index · 클래스 · 메모) · skipped 사유 상위.
+합성 vs 실제(은행) 면적·긴 변 히스토그램(합성 ``#00A188`` / 실제 ``#C8841C``) · 대비 힌트(클래스별 합성 대비가 실제의 절반 미만 → ``relative-paste`` 로 갈라 보라, v0.8.3) · 반려 목록(index · 클래스 · 메모) · skipped 사유 상위.
 """
 
 from __future__ import annotations
@@ -14,7 +14,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from anograft.core.appearance import LIGHT_REAL_MIN, LIGHT_SYNTH_MAX
+from anograft.core.appearance import (
+    CONTRAST_FADE_RATIO,
+    LIGHT_REAL_MIN,
+    LIGHT_SYNTH_MAX,
+    ContrastHint,
+)
 
 SYNTH = "#00A188"
 REAL = "#C8841C"
@@ -52,6 +57,9 @@ class ReportData:
         ""  # 레시피 기하 한 줄(scale·rotate·flip·per_class) — 조명 히스토그램을 읽을 때의 맥락
     )
     bank_name: str = ""  # 실제 분포의 출처 라벨("은행 x" · "실측 x.csv")
+    contrast_hints: Sequence[
+        ContrastHint
+    ] = ()  # 합성 대비가 실제보다 옅은 클래스(appearance.contrast_hints)
     warnings: Sequence[str] = ()
 
 
@@ -69,6 +77,28 @@ def lighting_broken_classes(
         and (c in directional if directional is not None else rr >= LIGHT_REAL_MIN)
         and rs < LIGHT_SYNTH_MAX
     ]
+
+
+def contrast_hint_text(h: ContrastHint) -> str:
+    """대비 힌트 한 줄(순수 텍스트 — 검수 탭 제목·CLI·리포트 공용). 극성이 반대면 '반전', 같으면 비율."""
+    ms, mr = f"{h.synth_median:+.0f}", f"{h.real_median:+.0f}"
+    if h.flipped:
+        why = f"합성 대비 극성이 실제와 반대(중앙값 {ms} vs {mr}) — 노출이 다른 대상에 톤을 그대로 붙였다"
+    else:
+        why = f"합성 대비가 실제의 {h.ratio:.0%}(중앙값 {ms} vs {mr}, n {h.n_synth}/{h.n_real}) — 블렌딩·조화가 결함 톤을 옅게 만든다"
+    return f"{h.cls}: {why} → 이 클래스만 relative-paste 로 갈라(recipe init --classes {h.cls}) dataset merge"
+
+
+def contrast_line(hints: Sequence[ContrastHint]) -> str:
+    """대비 힌트 문단(HTML) — 없으면 빈 문자열. BENCHMARKS §2: MT blowhole −17 vs −48 이 mAP −0.30, relative-paste 로 갈라 +0.15."""
+    if not hints:
+        return ""
+    items = "".join(f"<li>{html.escape(contrast_hint_text(h))}</li>" for h in hints)
+    return (
+        f'<p class="muted">대비 힌트 <b>{len(hints)}</b> 클래스 — 합성 대비 중앙값이 실제의 {CONTRAST_FADE_RATIO:.0%} 미만(또는 극성 반대). '
+        "대비가 곧 신호인 결함(구멍·핏)은 poisson·stats 계열이 정의상 옅게 만든다(<code>BENCHMARKS.md</code> §2 결함 성격별 프리셋)</p>"
+        f"<ul>{items}</ul>"
+    )
 
 
 def flipped_line(flipped: Sequence[str]) -> str:
@@ -217,6 +247,7 @@ code{{background:#f4f6f8;padding:1px 4px;border-radius:4px}}
 {lighting_line(d.lighting_r, d.lighting_r_class, d.directional)}
 {lighting_class_grid(d.hist_lighting_class, d.lighting_r_class)}
 {flipped_line(d.flipped)}
+{contrast_line(d.contrast_hints)}
 <h2>클래스별 인스턴스 <span class="muted">(채택 + 미검수)</span></h2>
 <table><tr><th>클래스</th><th>인스턴스</th></tr>{per_class or '<tr><td colspan="2" class="muted">없음</td></tr>'}</table>
 <h2>반려 Rejected ({len(d.rejected)})</h2>

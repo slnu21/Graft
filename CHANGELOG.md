@@ -4,6 +4,9 @@
 
 ## [Unreleased]
 
+### Added
+- **대비 힌트** — 검수 탭 대비 히스토그램 제목 · 리포트 문단 · `dataset report` stderr: 클래스별 합성 대비 중앙값이 실제(은행·실측 CSV)의 **50% 미만**(또는 극성 반대)이면 "이 클래스만 `relative-paste` 로 갈라(`recipe init --classes <cls>`) `dataset merge`" — MT blowhole −17 vs −48 이 학습 전에 보였던 신호(BENCHMARKS §2, 갈라서 +0.15)의 자동화. `appearance.contrast_hints`(순수, rng 0): 양쪽 n ≥ 5 · |실제| ≥ 8 · 중앙값 차 ≥ 12(MT crack −4.5 vs −13.7 은 블렌딩에 무차별이라 제외). MT 40장: poisson → blowhole 13% 힌트 · relative-paste → 힌트 없음. 기본값·출력 불변(진단만).
+
 ## [0.8.2] - 2026-09-19
 
 **결함 성격별 프리셋** — `harmonize.relative`(노출 보정) + 프리셋 `relative-paste` · `recipe init --classes`(프리셋을 클래스 부분집합에만) → `run` × n → `dataset merge --dedupe-normals`. Magnetic Tile 에서 blowhole 만 갈라 mAP50 0.460 → 0.605(+0.15, 학습 시드 3/3). 기본값·기존 프리셋·골든·은행 결과 불변(새 프리셋·옵션만 추가).
