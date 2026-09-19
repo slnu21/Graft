@@ -35,6 +35,7 @@ from anograft.core import recipe as R
 from anograft.core import registry
 from anograft.core.help import STAGE_HELP, method_help
 from anograft.core.pipeline import TraceStep
+from anograft.gui.notice import Notice
 from anograft.gui.qt_image import to_qpixmap
 from anograft.gui.studio.param_form import ParamForm
 from anograft.gui.studio.params import baseline_config, field_specs
@@ -523,37 +524,27 @@ class StageCard(QFrame):
         body.addWidget(self.thumb)
         notes = QVBoxLayout()
         notes.setSpacing(4)
-        # fail-soft 경고(`<stage>: …`)를 그 스테이지 카드에 바로 보인다 — 로그에만 남으면 사용자는 원인을 못 본다
-        self.note = QLabel("")
-        self.note.setObjectName("Warn")
-        self.note.setWordWrap(True)
-        self.note.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self.note.hide()
-        notes.addWidget(self.note)
-        # 경고를 한 번에 고치는 버튼(탭이 라벨과 동작을 정한다 — 예: 조명 의존 클래스만 per_class 로) · 정보 한 줄(per_class 등)
-        self.fix = QPushButton("")
-        self.fix.setObjectName("Fix")
-        self.fix.setSizePolicy(
-            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed
-        )  # 긴 라벨이 카드 폭을 넘기지 않게
-        self.fix.hide()
-        self.fix.clicked.connect(lambda: self.fix_requested.emit(self.stage))
-        notes.addWidget(self.fix)
+        # fail-soft 경고(`<stage>: …`)를 그 스테이지 카드에 바로 보인다 — 로그에만 남으면 사용자는 원인을 못 본다.
+        # v0.9: Notice 하나(아이콘 · 문장 · 고치기 버튼). `note`/`fix` 는 그 안의 라벨·버튼(기존 API 호환)
+        self.notice = Notice("warn")
+        self.note = self.notice.label
+        self.fix = self.notice.button
+        self.notice.action.connect(lambda: self.fix_requested.emit(self.stage))
+        # 경고·오류 Notice 는 썸네일 행 아래 전체 폭에(좁은 옆 칸에선 너무 길어진다)
         self.info = QLabel("")
         self.info.setObjectName("Muted")
         self.info.setWordWrap(True)
         self.info.hide()
         notes.addWidget(self.info)
         # 파라미터 재검증 오류 — 값은 세션 값으로 되돌아가고 사유만 여기 남는다
-        self.error = QLabel("")
-        self.error.setObjectName("Bad")
-        self.error.setWordWrap(True)
-        self.error.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self.error.hide()
-        notes.addWidget(self.error)
+        self.error_notice = Notice("error")
+        self.error = self.error_notice.label
+
         notes.addStretch(1)
         body.addLayout(notes, 1)
         lay.addLayout(body)
+        lay.addWidget(self.notice)
+        lay.addWidget(self.error_notice)
 
         self.form = ParamForm()
         self.form.value_changed.connect(lambda n, v: self.field_changed.emit(self.stage, n, v))
@@ -698,8 +689,7 @@ class StageCard(QFrame):
 
     def set_fix(self, label: str | None) -> None:
         """경고 옆 '고치기' 버튼 — None 이면 숨김."""
-        self.fix.setText(label or "")
-        self.fix.setVisible(bool(label))
+        self.notice.set_action(label)
 
     def set_info(self, text: str | None) -> None:
         """카드 아래 정보 한 줄(경고 아님) — None/빈 문자열이면 숨김."""
@@ -708,8 +698,7 @@ class StageCard(QFrame):
 
     def set_error(self, text: str | None, field: str | None = None, *, roi: bool = False) -> None:
         """재검증 오류 한 줄(None 이면 해제) + 해당 필드 행 강조."""
-        self.error.setText(text or "")
-        self.error.setVisible(bool(text))
+        self.error_notice.set_text(text)
         self.form.set_error(None if roi else field)
         if self.roi_form is not None:
             self.roi_form.set_error(field if roi else None)
@@ -725,12 +714,10 @@ class StageCard(QFrame):
             if m.startswith(prefixes)
         ]
         if not mine:
-            self.note.hide()
-            self.note.setText("")
+            self.notice.set_text(None)
             return
-        self.note.setText("\n".join(f"⚠ {m}" for m in mine))
+        self.notice.set_text("\n\n".join(mine))
         self.note.setToolTip("\n".join(mine))
-        self.note.show()
 
     def set_thumb(self, image: np.ndarray | None) -> None:
         if image is None:

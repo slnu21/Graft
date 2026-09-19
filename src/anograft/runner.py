@@ -125,15 +125,18 @@ def scale_warning(recipe: Recipe, bank: Bank) -> str | None:
     target_pitch = recipe.inputs.um_per_px
     if target_pitch is None and no_pitch == len(bank):
         return (
-            "축척 정합 꺼짐 — 은행 소스 전부와 대상(inputs.um_per_px) 모두 µm/px 가 없어 결함이 픽셀 크기 그대로 이식됩니다. "
-            "다른 카메라/배율의 결함이면 임포트 --um-per-px 와 레시피 inputs.um_per_px 를 지정"
+            "축척 정합 꺼짐 — 결함 조각 전부와 바탕 이미지(inputs.um_per_px) 모두 픽셀 크기(µm/px)가 없습니다. "
+            "결함이 픽셀 크기 그대로 붙습니다. → 다른 카메라·배율의 결함이면 임포트 --um-per-px 와 레시피 inputs.um_per_px 를 지정하세요"
         )
     if target_pitch is None:
-        return f"축척 정합 꺼짐 — 대상 inputs.um_per_px 가 없어 은행 피치(소스 {len(bank) - no_pitch}개)가 쓰이지 않습니다"
+        return (
+            f"축척 정합 꺼짐 — 바탕 이미지의 픽셀 크기(대상 inputs.um_per_px)가 없어 조각의 픽셀 크기({len(bank) - no_pitch}개)를 "
+            "쓰지 못합니다. → 레시피 inputs.um_per_px 를 지정하세요"
+        )
     if no_pitch:
         return (
-            f"축척 정합 일부 꺼짐 — um_per_px 없는 소스 {no_pitch}/{len(bank)}개는 factor 1.0 으로 이식됩니다"
-            " (bank ls 의 no_um 열)"
+            f"축척 정합 일부 꺼짐 — 픽셀 크기(um_per_px)가 없는 조각 {no_pitch}/{len(bank)}개는 배율 1.0 으로 붙습니다. "
+            "→ bank ls 의 no_um 열에서 확인하세요"
         )
     return None
 
@@ -148,15 +151,16 @@ def confidence_warning(recipe: Recipe, bank: Bank) -> str | None:
         return None
     est = sum(r.estimated for r in bank.summary())
     ratio = len(low) / est if est else 0.0
-    head = (
-        f"추정 마스크 {est}개 중 저신뢰 {len(low)}개({ratio:.0%}) — 절반이 넘습니다. 이 은행으로 합성하면 결함이 아니라 "
-        f"원본 표면이 이식될 수 있으니 은행을 먼저 손보세요"
-        if ratio > 0.5
-        else f"저신뢰 추정 마스크 {len(low)}/{est}개"
-    )
+    examples = ", ".join(s.id for s in low[:3])
+    if ratio > 0.5:
+        return (
+            f"추정 마스크 {est}개 중 신뢰도 낮음 {len(low)}개({ratio:.0%}) — 절반이 넘습니다. 이 보관함으로 합성하면 결함이 아니라 "
+            f"원본 표면이 붙을 수 있습니다. → 보관함을 먼저 손보세요: 보관함 탭 '신뢰도 낮은 것 차례로 다듬기' 또는 "
+            f"import-yolo --mask-from otsu (예: {examples})"
+        )
     return (
-        f"{head}: bank preview 로 확인, 라벨 탭 YOLO 초안으로 다듬기 또는 import-yolo --mask-from otsu "
-        f"(예: {', '.join(s.id for s in low[:3])})"
+        f"마스크 신뢰도 낮은 조각 {len(low)}/{est}개(추정 마스크 중) — 결함이 아닌 표면이 붙을 수 있습니다. "
+        f"→ 보관함 탭에서 다듬거나 import-yolo --mask-from otsu (예: {examples})"
     )
 
 
@@ -193,11 +197,10 @@ def lighting_warning(recipe: Recipe, bank: Bank) -> str | None:
         return None
     what = " · ".join(bad)
     cause = " + ".join(sorted(causes, key=lambda c: (c.startswith("flip"), c)))
-    return (  # `geometry:` 접두 — 스튜디오가 기하 카드에 ⚠ 로 라우팅(스테이지 경고 규약)
-        f"geometry: 조명 의존 결함 {what} 을 {cause} 로 합성하면 하이라이트 방향이 뒤집힙니다 — 프리셋 dent-graft(±15°, flip none), "
-        f"geometry.rotate 를 ±45° 안으로·flip none(조명이 위/아래에서 오면 horizontal 은 됨), "
-        f"또는 그 클래스만 geometry.per_class: {{<class>: {{rotate: [-15, 15], flip: none}}}} "
-        f"(검수 탭 '조명 방향' 분포로 확인)"
+    return (  # `geometry:` 접두 — 스튜디오가 크기·회전 카드에 ⚠ 로 라우팅(스테이지 경고 규약)
+        f"geometry: 빛 방향이 정해진 결함 {what} 을 {cause} 로 합성하면 하이라이트가 뒤집힌 그림이 섞입니다. "
+        f"→ 프리셋 dent-graft(±15°, 뒤집기 없음), 또는 그 클래스만 좁히기(크기·회전 카드 '빛 방향 클래스만 ±15°로 좁히기' = "
+        f"geometry.per_class). 검수 탭 '밝은 쪽 방향' 분포로 확인"
     )
 
 

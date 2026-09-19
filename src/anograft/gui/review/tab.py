@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 )
 
 from anograft.core.channels import promote_to_bgr
+from anograft.gui.notice import Notice
 from anograft.gui.qt_image import to_qpixmap
 from anograft.gui.review.session import FILTERS, Histogram, ReviewError, ReviewItem, ReviewSession
 from anograft.gui.studio.panels import flat_icon, h4
@@ -233,19 +234,15 @@ class ReviewTab(QWidget):
         v.addLayout(row)
         self.hist = HistogramWidget()
         v.addWidget(self.hist, 1)
-        self.hint = QLabel(
-            ""
-        )  # 대비 힌트(옅어진 클래스 → relative-paste) — 제목은 좁은 패널에서 잘리므로 따로
-        self.hint.setObjectName("Warn")
-        self.hint.setWordWrap(True)
-        self.hint.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        self.hint.hide()
-        v.addWidget(self.hint)
+        # 대비·조명 힌트(옅어진 클래스 → relative-paste · 회전이 빛 방향을 뒤집음 → dent-graft) — 제목은 좁은 패널에서 잘리므로 따로
+        self.hint_notice = Notice("hint")
+        self.hint = self.hint_notice.label
+        v.addWidget(self.hint_notice)
         self.count = QLabel("")
         self.count.setObjectName("Hint")
         self.count.setWordWrap(True)
         v.addWidget(self.count)
-        left.setMinimumWidth(220)
+        left.setMinimumWidth(300)  # 히스토그램 제목·힌트가 읽히는 폭(v0.9)
         return left
 
     def _center(self) -> QWidget:
@@ -484,7 +481,7 @@ class ReviewTab(QWidget):
     def refresh_hist(self) -> None:
         if not self.session.loaded:
             self.hist.set_histogram(None)
-            self.hint.hide()
+            self.hint_notice.set_text(None)
             return
         key = str(self.dist_key.currentData() or "area")
         cls = self._sync_class_combo(key)
@@ -499,6 +496,7 @@ class ReviewTab(QWidget):
         }.get(key, key)
         if cls:
             title += f" · 클래스 {cls}"
+        notes: list[str] = []  # 히스토그램 아래 힌트(조명·대비) — 제목은 좁아서 클래스 이름만
         if key == "lighting":
             fmt = lambda v: "–" if v is None else f"{v:.2f}"  # noqa: E731
             if cls:
@@ -512,20 +510,24 @@ class ReviewTab(QWidget):
             per_class = self.session.lighting_concentration_by_class()
             broken = lighting_broken_classes(per_class, self.session.directional_classes())
             if broken and (not cls or cls in broken):
-                title += f" · ⚠ {', '.join(broken)}: 회전이 빛 방향을 뒤집음 → 프리셋 dent-graft"
+                title += f" · ⚠ {', '.join(broken)}"
+                notes.append(
+                    f"{', '.join(broken)}: 실제 조각은 빛 방향이 한쪽인데 합성은 방향이 흩어졌습니다 — 회전 범위가 빛 방향을 뒤집고 있습니다. "
+                    "→ 프리셋 dent-graft(±15°, 뒤집기 없음) 또는 크기·회전 카드의 '빛 방향 클래스만 ±15°로 좁히기'"
+                )
         hints = (
             [h for h in self.session.contrast_hints() if not cls or h.cls == cls]
             if key == "contrast"
             else []
         )
-        self.hint.setText("\n\n".join("⚠ " + contrast_hint_text(h) for h in hints) if hints else "")
+        notes += [contrast_hint_text(h) for h in hints]
+        self.hint_notice.set_text("\n\n".join(notes) if notes else None)
         self.hint.setToolTip(
             "합성 대비 중앙값이 실제의 절반 미만(또는 극성 반대) — BENCHMARKS §2 결함 성격별 프리셋 · "
             "Synthetic median contrast below half of real: split this class onto relative-paste"
             if hints
             else ""
         )
-        self.hint.setVisible(bool(hints))
         if hints:
             title += " · ⚠ " + ", ".join(h.cls for h in hints)
         if key in self.session.real_csv_keys():

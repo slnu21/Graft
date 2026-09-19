@@ -146,7 +146,7 @@ def _recipe() -> R.Recipe:
 def test_runner_confidence_warning_levels() -> None:
     assert runner.confidence_warning(_recipe(), _bank_with([0.9, None, 0.8])) is None
     mild = runner.confidence_warning(_recipe(), _bank_with([0.9, 0.2, 0.8, None]))
-    assert mild and mild.startswith("저신뢰 추정 마스크 1/3개") and "scratch/001" in mild
+    assert mild and mild.startswith("마스크 신뢰도 낮은 조각 1/3개") and "scratch/001" in mild
     strong = runner.confidence_warning(_recipe(), _bank_with([0.1, 0.2, 0.8]))
     assert strong and "절반이 넘습니다" in strong and "67%" in strong
     empty = Bank.from_sources([], name="(없음)")
