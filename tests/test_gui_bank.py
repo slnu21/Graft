@@ -118,7 +118,7 @@ def test_main_window_refine_roundtrip(qapp: QApplication, bank_root: Path, tmp_p
         win.show()
         win.studio.open_inputs(bank_root.as_posix(), normals.as_posix())
         assert _pump(qapp, lambda: ses.prepared is not None)
-        assert win.tabs.tabText(0).startswith("결함 보관함")
+        assert win.tabs.tabText(1).startswith("② 결함 보관함")  # 흐름 순서: 결함 표시 → 보관함 → …
         win.bank.open_bank(bank_root)
         win.bank.confirm_delete = None
         win.label.confirm_discard = None

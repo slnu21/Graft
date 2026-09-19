@@ -150,7 +150,7 @@ def test_main_window_send_to_batch(qapp: QApplication, recipe_file: Path, tmp_pa
             and win.batch.session.recipe.name == ses.recipe.name
         )
         assert "(미리보기 탭의 레시피" in win.batch.recipe_label.text()
-        assert win.tabs.tabText(3).startswith("일괄 생성")
+        assert win.tabs.tabText(3).startswith("④ 일괄 생성")
     finally:
         win.close()
         qapp.processEvents()

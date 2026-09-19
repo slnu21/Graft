@@ -90,7 +90,9 @@ def test_main_window_tabs_and_studio_flow(
     try:
         win.show()
         assert win.tabs.count() == len(TABS) == 5
-        assert [win.tabs.tabText(i) for i in range(5)] == [t for _k, t in TABS]
+        assert [win.tabs.tabText(i)[2:].split(" · ")[0] for i in range(5)] == [
+            t for _k, t in TABS
+        ]  # ① 번호 + 배지 제외
         assert win.tabs.currentWidget() is win.studio
         tab = win.studio
         tab.open_inputs(bank.as_posix(), normals.as_posix())

@@ -109,7 +109,7 @@ def test_review_tab_flow(qapp: QApplication, output_root: Path, tmp_path: Path) 
 def test_main_window_has_review_tab(qapp: QApplication) -> None:
     win = MainWindow(start_worker=False)
     try:
-        assert win.tabs.tabText(4).startswith("검수") and isinstance(win.review, ReviewTab)
+        assert win.tabs.tabText(4).startswith("⑤ 검수") and isinstance(win.review, ReviewTab)
     finally:
         win.close()
         qapp.processEvents()

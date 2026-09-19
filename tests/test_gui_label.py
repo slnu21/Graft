@@ -263,7 +263,7 @@ def test_main_window_bank_saved_reprepares_studio(qapp: QApplication, tmp_path: 
         assert win.label.save_to_bank()
         assert _pump(qapp, lambda: ses.prepared is not None and ses.generation > gen)
         assert len(ses.prepared.bank) == n_before + 1
-        assert win.tabs.tabText(1).startswith("결함 표시")
+        assert win.tabs.tabText(0).startswith("① 결함 표시")
     finally:
         win.worker.stop()
         win.close()

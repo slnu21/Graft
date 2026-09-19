@@ -115,6 +115,11 @@ QToolButton#Reset {{ border: none; color: {COLORS["teal"]}; font-size: 13px; pad
 QToolButton#Reset:hover {{ color: {COLORS["tx"]}; }}
 QToolButton#ResetAll {{ border: 1px solid {COLORS["line2"]}; border-radius: 4px; color: {COLORS["teal"]}; font-size: 12px; padding: 0; background: transparent; }}
 QToolButton#ResetAll:hover {{ border-color: {COLORS["teal"]}; }}
+QPushButton#NextStep {{ border: 1px solid {COLORS["teal"]}; border-radius: 5px; color: {COLORS["teal"]}; padding: 3px 12px; margin: 0 8px 2px 0; background: transparent; }}
+QPushButton#NextStep:hover {{ background: {COLORS["teal"]}; color: #06231E; }}
+QPushButton#NextStep:disabled {{ border-color: {COLORS["line2"]}; color: {COLORS["tx3"]}; }}
+QFrame#Checklist {{ background: {COLORS["panel2"]}; border: 1px solid {COLORS["line"]}; border-radius: 10px; }}
+QLabel#H3 {{ font-size: 15px; font-weight: 600; }}
 QToolButton#Gallery {{ border: 1px solid {COLORS["line2"]}; border-radius: 4px; color: {COLORS["tx2"]}; padding: 2px 7px; background: transparent; }}
 QToolButton#Gallery:hover {{ border-color: {COLORS["teal"]}; color: {COLORS["tx"]}; }}
 QToolButton#Advanced {{ border: none; color: {COLORS["tx3"]}; font-size: 11.5px; padding: 2px 0; background: transparent; text-align: left; }}
