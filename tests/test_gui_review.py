@@ -102,7 +102,7 @@ def test_review_tab_flow(qapp: QApplication, output_root: Path, tmp_path: Path) 
     assert read_review(output_root / "review.csv")[first_ok] == ("accept", "좋음")
     # 정리본
     assert t.export_pruned(tmp_path / "pruned")
-    assert (tmp_path / "pruned" / "manifest.csv").is_file() and "정리본" in t.result.text()
+    assert (tmp_path / "pruned" / "manifest.csv").is_file() and "정리된 데이터셋" in t.result.text()
     t.close()
 
 
@@ -126,7 +126,7 @@ def test_review_tab_report_button(qapp: QApplication, output_root: Path, tmp_pat
     i = t.dist_key.findData("lighting")
     assert i >= 0
     t.dist_key.setCurrentIndex(i)
-    assert "조명 방향" in t.hist.title and "일관성 R" in t.hist.title
+    assert "밝은 쪽 방향" in t.hist.title and "일치도 R" in t.hist.title
     # 클래스 콤보(0.8): 외형 지표에서만 켜지고, 고르면 제목에 클래스·클래스별 R(n)
     # 클래스 콤보(0.8): 외형 지표에서만 켜지고(샘플은 조명 값이 없어 대비로), 고르면 제목에 클래스
     t.dist_key.setCurrentIndex(t.dist_key.findData("contrast"))
@@ -142,10 +142,10 @@ def test_review_tab_report_button(qapp: QApplication, output_root: Path, tmp_pat
     csv = tmp_path / "real.csv"
     csv.write_text("area\n10\n20\n30\n", encoding="utf-8")
     assert t.load_real_csv(csv) and t.btn_real_csv_clear.isEnabled()
-    assert "실제 = 실측 real.csv" in t.hist.title and sum(t.hist.hist.b) == 3
-    assert not t.load_real_csv(tmp_path / "none.csv") and "실측 CSV 실패" in t.result.text()
+    assert "실제 = 현장 측정값 real.csv" in t.hist.title and sum(t.hist.hist.b) == 3
+    assert not t.load_real_csv(tmp_path / "none.csv") and "현장 측정값 CSV 실패" in t.result.text()
     t.clear_real_csv()
-    assert not t.btn_real_csv_clear.isEnabled() and "실측" not in t.hist.title
+    assert not t.btn_real_csv_clear.isEnabled() and "현장 측정값" not in t.hist.title
     t.close()
 
 

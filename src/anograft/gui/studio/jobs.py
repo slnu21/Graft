@@ -111,7 +111,7 @@ def run_job(prep: runner.Prepared | None, job: PreviewJob) -> Any:
     if job.kind == KIND_THUMB:
         return make_thumb(job)
     if prep is None:
-        raise runner.PrepareError("은행·대상이 준비되지 않았습니다")
+        raise runner.PrepareError("보관함·바탕 이미지가 준비되지 않았습니다")
     return run_preview(prep, job)
 
 

@@ -83,14 +83,14 @@ def bank_root(tmp_path: Path) -> Path:
 
 def test_session_load_reload_and_summary(bank_root: Path, tmp_path: Path) -> None:
     s = BankSession()
-    assert not s.loaded and s.summary_text() == "은행 없음" and s.classes() == []
+    assert not s.loaded and s.summary_text() == "보관함 없음" and s.classes() == []
     with pytest.raises(BankSessionError):
         s.load(tmp_path / "nope")
     with pytest.raises(BankSessionError):
         s.reload()
     b = s.load(bank_root)
     assert s.loaded and len(s.rows()) == len(b) == 5 and s.classes() == ["spot", "crack"]
-    assert "소스 5" in s.summary_text() and "추정 4" in s.summary_text()
+    assert "조각 5" in s.summary_text() and "추정 마스크 4" in s.summary_text()
     assert s.source("spot/d0-01").cls == "spot"
     with pytest.raises(BankSessionError):
         s.source("spot/zzz")

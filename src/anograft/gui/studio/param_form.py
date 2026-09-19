@@ -83,7 +83,9 @@ class _Row(QWidget):
         self.toggle: QCheckBox | None = None
         if spec.optional:
             self.toggle = QCheckBox()
-            self.toggle.setToolTip("끄면 null (기본값·rng 소비 없음)")
+            self.toggle.setToolTip(
+                "켜면 이 옵션을 씁니다. 끄면 null — 난수도 쓰지 않아 기존 결과가 그대로입니다"
+            )
             self.toggle.toggled.connect(self._on_toggle)
             lay.addWidget(self.toggle)
         self.editors: list[QWidget] = []
@@ -123,7 +125,7 @@ class _Row(QWidget):
             if k == "path":
                 btn = QPushButton("…")
                 btn.setFixedWidth(26)
-                btn.setToolTip("폴더 선택")
+                btn.setToolTip("폴더 고르기")
                 btn.clicked.connect(self._pick_dir)
                 lay.addWidget(btn)
         self.setToolTip(spec.hint)
@@ -235,7 +237,7 @@ class ParamForm(QWidget):
         self.rows: dict[str, _Row] = {}
         self._labels: dict[str, QLabel] = {}
         self._signature: tuple[tuple[str, str, bool, tuple[str, ...]], ...] = ()
-        self.empty = QLabel("옵션 없음 · no options")
+        self.empty = QLabel("이 방법에는 조정할 값이 없습니다")
         self.empty.setObjectName("Muted")
         self.empty.hide()
         self.grid.addWidget(self.empty, 0, 0, 1, 2)

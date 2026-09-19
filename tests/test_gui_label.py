@@ -180,7 +180,7 @@ def test_keyboard_tools_and_brush_size(tab: LabelTab) -> None:
 def test_save_to_bank_writes_sources_and_reloads_classes(tab: LabelTab, tmp_path: Path) -> None:
     bank = tmp_path / "bank"
     assert not tab.save_to_bank()  # 은행 미지정
-    assert "은행 폴더" in tab.result.text()
+    assert "보관함 폴더" in tab.result.text()
     tab.set_bank(bank.as_posix())
     assert not tab.save_to_bank()  # 클래스 없음
     assert "클래스" in tab.result.text()
@@ -204,7 +204,7 @@ def test_save_to_bank_writes_sources_and_reloads_classes(tab: LabelTab, tmp_path
     assert (
         src.mask_origin == "manual:brush" and src.um_per_px == 4.0 and src.tags == ("gui", "직선형")
     )
-    assert "은행 저장 2개" in tab.result.text()
+    assert "보관함에 저장 2개" in tab.result.text()
     assert not tab.session.mask.any() and tab.session.can_undo  # 저장 뒤 비움(되돌리기 가능)
     assert [tab.cls.itemText(i) for i in range(tab.cls.count())] == ["scratch"]
     assert "scratch" in tab.note.text()
@@ -263,7 +263,7 @@ def test_main_window_bank_saved_reprepares_studio(qapp: QApplication, tmp_path: 
         assert win.label.save_to_bank()
         assert _pump(qapp, lambda: ses.prepared is not None and ses.generation > gen)
         assert len(ses.prepared.bank) == n_before + 1
-        assert win.tabs.tabText(1).startswith("라벨")
+        assert win.tabs.tabText(1).startswith("결함 표시")
     finally:
         win.worker.stop()
         win.close()
@@ -399,7 +399,7 @@ def test_main_window_recent_recipe_and_empty_state(qapp: QApplication, tmp_path:
     win = MainWindow(start_worker=False, settings=store)
     try:
         win.show_empty_state()
-        assert win.studio.canvas.message == EMPTY_STATE and "No recipe" in EMPTY_STATE
+        assert win.studio.canvas.message == EMPTY_STATE and "레시피가 없습니다" in EMPTY_STATE
         assert "샘플 데이터" in EMPTY_STATE  # 0.7.3+: 데이터 없는 사용자의 첫 행동
         win.open_recipe(recipe)
         qapp.processEvents()

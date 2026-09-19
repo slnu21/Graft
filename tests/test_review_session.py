@@ -503,7 +503,7 @@ def test_real_csv_replaces_bank_series(output_root: Path, tmp_path: Path) -> Non
         "class,area,contrast\nspot,100,\nspot,200,5\ncrack,300,7\nother,999,9\n", encoding="utf-8"
     )
     assert s.load_real_csv(csv) == 4
-    assert s.real_csv_keys() == {"area", "contrast"} and s.real_label() == "실측 real.csv"
+    assert s.real_csv_keys() == {"area", "contrast"} and s.real_label() == "현장 측정값 real.csv"
     # 레시피가 클래스를 제한하지 않으면 전부(빈 칸은 건너뜀) · 제한하면(spot·crack) other 제외
     assert sorted(s.real_values("area")) == [100.0, 200.0, 300.0, 999.0]
     assert s.real_by_class("contrast") == {"spot": [5.0], "crack": [7.0], "other": [9.0]}
@@ -515,12 +515,12 @@ def test_real_csv_replaces_bank_series(output_root: Path, tmp_path: Path) -> Non
     h = s.distribution("area")
     assert sum(h.b) == 3
     data = s.report_data()
-    assert data.bank_name == "실측 real.csv"
+    assert data.bank_name == "현장 측정값 real.csv"
     page = s.write_report(tmp_path / "r.html").read_text(encoding="utf-8")
-    assert "실제 = 실측 real.csv" in page
+    assert "실제 = 현장 측정값 real.csv" in page
     s.clear_real_csv()
     assert s.real_values("area") == bank_area and s.real_by_class("contrast") == bank_contrast
-    assert s.real_label().startswith("은행 ")
+    assert s.real_label().startswith("보관함 ")
     # 형식 오류
     bad = tmp_path / "bad.csv"
     bad.write_text("foo,bar\n1,2\n", encoding="utf-8")
@@ -540,9 +540,9 @@ def test_cli_dataset_report_real_csv(
     csv.write_text("area\n10\n20\n", encoding="utf-8")
     assert main(["dataset", "report", str(output_root), "--real-csv", str(csv)]) == EXIT_OK
     cap = capsys.readouterr()
-    assert "실측 real.csv" in cap.out and "2행" in cap.err
+    assert "현장 측정값 real.csv" in cap.out and "2행" in cap.err
     page = (output_root / "review-report.html").read_text(encoding="utf-8")
-    assert "실제 = 실측 real.csv" in page
+    assert "실제 = 현장 측정값 real.csv" in page
 
 
 # --- 대비 힌트(v0.8.3) — 합성 대비가 실제의 절반 미만인 클래스 → relative-paste 로 갈라 보라 ---------------

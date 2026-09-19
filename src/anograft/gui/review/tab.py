@@ -41,13 +41,13 @@ from anograft.preview import GT_EDGE
 
 THUMB = 176
 FILTER_LABELS: dict[str, str] = {
-    "all": "전체 all",
-    "unreviewed": "미검수 unreviewed",
-    "accept": "채택 accepted",
-    "reject": "반려 rejected",
-    "fallback": "폴백 fallback",
-    "skipped": "skipped",
-    "flipped": "조명 뒤집힘 의심 flipped lighting",
+    "all": "전체",
+    "unreviewed": "미검수",
+    "accept": "채택",
+    "reject": "반려",
+    "fallback": "대체 처리됨",
+    "skipped": "건너뜀",
+    "flipped": "빛 방향이 뒤집힌 듯함",
 }
 VERDICT_MARK: dict[str, str] = {"accept": "✓ ", "reject": "✗ ", "": ""}
 
@@ -115,7 +115,7 @@ class HistogramWidget(QWidget):
         p.setPen(QColor(SYNTH_COLOR))
         p.drawText(8, 32, f"■ 합성 {sum(h.a)}")
         p.setPen(QColor(REAL_COLOR))
-        p.drawText(8 + 90, 32, f"■ 실제(은행) {sum(h.b)}")
+        p.drawText(8 + 90, 32, f"■ 실제(보관함) {sum(h.b)}")
         p.end()
 
 
@@ -156,7 +156,8 @@ class ReviewTab(QWidget):
         h = QHBoxLayout(bar)
         h.setContentsMargins(14, 7, 14, 7)
         h.setSpacing(10)
-        lab = QLabel("출력 Output")
+        lab = QLabel("출력")
+        lab.setToolTip("Output — 일괄 생성이 만든 폴더(manifest.csv 가 있는 곳)")
         lab.setObjectName("Muted")
         h.addWidget(lab)
         self.root_edit = QLineEdit()
@@ -164,9 +165,16 @@ class ReviewTab(QWidget):
         self.root_edit.setMinimumWidth(260)
         self.btn_pick = QPushButton("폴더")
         self.btn_pick.setFixedWidth(44)
-        self.btn_open = QPushButton("열기 Open")
-        self.btn_prune = QPushButton("정리본 내보내기 Export")
-        self.btn_report = QPushButton("리포트 Report")
+        self.btn_open = QPushButton("열기")
+        self.btn_open.setToolTip("Open — 출력 폴더를 읽어 썸네일을 보여 줍니다")
+        self.btn_prune = QPushButton("반려 빼고 내보내기")
+        self.btn_prune.setToolTip(
+            "Export pruned — 반려한 것을 뺀 정리된 데이터셋을 새 폴더로 복사합니다(CLI anograft dataset prune)"
+        )
+        self.btn_report = QPushButton("리포트")
+        self.btn_report.setToolTip(
+            "Report — 분포·판정·경고를 HTML 한 장으로(CLI anograft dataset report)"
+        )
         h.addWidget(self.root_edit, 1)
         h.addWidget(self.btn_pick)
         h.addWidget(self.btn_open)
@@ -184,7 +192,7 @@ class ReviewTab(QWidget):
         v = QVBoxLayout(left)
         v.setContentsMargins(12, 12, 12, 12)
         v.setSpacing(6)
-        v.addWidget(h4("필터 Filter"))
+        v.addWidget(h4("필터"))
         self.f_which = QComboBox()
         for k in FILTERS:
             self.f_which.addItem(FILTER_LABELS[k], k)
@@ -192,29 +200,33 @@ class ReviewTab(QWidget):
         v.addWidget(self.f_which)
         v.addLayout(self._kv("클래스", self.f_cls))
         v.addSpacing(8)
-        v.addWidget(h4("분포 Distribution"))
+        v.addWidget(h4("분포"))
         self.dist_key = QComboBox()
-        self.dist_key.addItem("면적 area (px)", "area")
-        self.dist_key.addItem("긴 변 length (px)", "length")
-        self.dist_key.addItem("대비 contrast (gray)", "contrast")
-        self.dist_key.addItem("질감 texture (∇ 평균)", "texture")
-        self.dist_key.addItem("선명도 sharpness (∇² 분산)", "sharpness")
-        self.dist_key.addItem("조명 방향 lighting (°)", "lighting")
+        self.dist_key.addItem("면적 (px)", "area")
+        self.dist_key.addItem("긴 변 (px)", "length")
+        self.dist_key.addItem("밝기 차 (결함 − 주변)", "contrast")
+        self.dist_key.addItem("거칠기", "texture")
+        self.dist_key.addItem("선명도", "sharpness")
+        self.dist_key.addItem("밝은 쪽 방향 (°)", "lighting")
+        self.dist_key.setToolTip(
+            "Distribution — 합성 결함(반려 제외) vs 실제 결함 조각의 분포. area 면적 · length 긴 변 · contrast 밝기 차(마스크 안 − 둘레 링) · "
+            "texture 거칠기(마스크 안 그래디언트 평균) · sharpness 선명도(라플라시안 분산) · lighting 밝은 쪽 방향(0 = 오른쪽, 90 = 아래)"
+        )
         v.addWidget(self.dist_key)
         self.dist_class = (
             QComboBox()
         )  # 외형 지표만 클래스별(조명 방향은 클래스마다 달라 전체는 섞인다)
         self.dist_class.setToolTip(
-            "클래스별 분포 — 외형 지표(대비·질감·선명도·조명 방향)만 · Per-class distribution"
+            "Per-class — 외형 지표(밝기 차·거칠기·선명도·밝은 쪽 방향)만 클래스별로 볼 수 있습니다"
         )
         v.addWidget(self.dist_class)
         row = QHBoxLayout()
-        self.btn_real_csv = QPushButton("실측 CSV…")
+        self.btn_real_csv = QPushButton("현장 측정값…")
         self.btn_real_csv.setToolTip(
-            "실제 분포를 은행 대신 실측 CSV 로(열: class? + area/length/contrast/texture/sharpness/lighting) · "
-            "Use a measured CSV instead of the bank for the 'real' series"
+            "Measured CSV — '실제' 분포를 보관함 대신 현장 측정값 CSV 로 그립니다(열: class? + area/length/contrast/texture/sharpness/lighting)"
         )
-        self.btn_real_csv_clear = QPushButton("은행 bank")
+        self.btn_real_csv_clear = QPushButton("보관함으로")
+        self.btn_real_csv_clear.setToolTip("Use bank — '실제' 분포를 다시 보관함 조각으로")
         self.btn_real_csv_clear.setEnabled(False)
         row.addWidget(self.btn_real_csv)
         row.addWidget(self.btn_real_csv_clear)
@@ -256,24 +268,28 @@ class ReviewTab(QWidget):
         bl = QHBoxLayout(bar)
         bl.setContentsMargins(14, 5, 14, 5)
         bl.setSpacing(10)
-        self.btn_accept = QPushButton("채택 Accept (A)")
+        self.btn_accept = QPushButton("채택 (A)")
+        self.btn_accept.setToolTip("Accept — 학습에 쓴다")
         self.btn_accept.setObjectName("Primary")
-        self.btn_reject = QPushButton("반려 Reject (R)")
-        self.btn_clear = QPushButton("보류 Unreview (U)")
+        self.btn_reject = QPushButton("반려 (R)")
+        self.btn_reject.setToolTip("Reject — 학습에서 뺀다(내보내기 때 제외)")
+        self.btn_clear = QPushButton("판정 취소 (U)")
+        self.btn_clear.setToolTip("Unreview — 판정을 지워 미검수로 되돌린다")
         bl.addWidget(self.btn_accept)
         bl.addWidget(self.btn_reject)
         bl.addWidget(self.btn_clear)
-        self.cb_next = QCheckBox("판정 후 다음으로")
+        self.cb_next = QCheckBox("판정하면 다음으로")
+        self.cb_next.setToolTip("Advance after verdict — 판정하면 다음 항목을 자동으로 고릅니다")
         self.cb_next.setChecked(True)
         bl.addWidget(self.cb_next)
         self.btn_reject_shown = QPushButton("표시된 것 전부 반려")
         self.btn_reject_shown.setToolTip(
-            "현재 필터로 보이는 합성 결과를 모두 반려 — 예: 필터 '조명 뒤집힘 의심' 뒤에 한 번에"
+            "Reject all shown — 지금 필터로 보이는 합성 결과를 모두 반려합니다(예: 필터 '빛 방향이 뒤집힌 듯함' 뒤에 한 번에)"
         )
         bl.addWidget(self.btn_reject_shown)
         self.btn_next_unreviewed = QPushButton("다음 미검수 (N)")
         self.btn_next_unreviewed.setToolTip(
-            "현재 위치 다음의 미검수 합성 결과로 이동(끝이면 처음부터)"
+            "Next unreviewed — 다음 미검수 항목으로 갑니다(끝이면 처음부터)"
         )
         bl.addWidget(self.btn_next_unreviewed)
         bl.addStretch(1)
@@ -286,13 +302,13 @@ class ReviewTab(QWidget):
         v = QVBoxLayout(side)
         v.setContentsMargins(12, 12, 12, 12)
         v.setSpacing(6)
-        v.addWidget(h4("결과 Result"))
+        v.addWidget(h4("결과"))
         self.detail = QLabel("")
         self.detail.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.detail.setMinimumHeight(260)
         self.detail.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         v.addWidget(self.detail)
-        self.meta = QLabel("합성 결과를 고르면 상세가 여기에")
+        self.meta = QLabel("합성 결과를 고르면 상세가 여기에 나옵니다")
         self.meta.setObjectName("Hint")
         self.meta.setWordWrap(True)
         self.meta.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -358,7 +374,7 @@ class ReviewTab(QWidget):
         if not self.session.loaded:
             return
         f, _ = QFileDialog.getOpenFileName(
-            self, "실측 CSV", self.root_edit.text() or ".", "CSV (*.csv)"
+            self, "현장 측정값 CSV", self.root_edit.text() or ".", "CSV (*.csv)"
         )
         if f:
             self.load_real_csv(f)
@@ -368,11 +384,11 @@ class ReviewTab(QWidget):
         try:
             n = self.session.load_real_csv(path)
         except ReviewError as e:
-            self.result.setText(f"실측 CSV 실패: {e}")
+            self.result.setText(f"현장 측정값 CSV 실패: {e}")
             return False
         self.btn_real_csv_clear.setEnabled(True)
         self.result.setText(
-            f"실측 CSV {Path(path).name}: {n}행 ({', '.join(sorted(self.session.real_csv_keys()))}) — 그 열은 은행 대신"
+            f"현장 측정값 {Path(path).name}: {n}행 ({', '.join(sorted(self.session.real_csv_keys()))}) — 그 열은 보관함 대신 씁니다"
         )
         self.refresh_hist()
         return True
@@ -380,7 +396,7 @@ class ReviewTab(QWidget):
     def clear_real_csv(self) -> None:
         self.session.clear_real_csv()
         self.btn_real_csv_clear.setEnabled(False)
-        self.result.setText("실제 분포 = 은행")
+        self.result.setText("실제 분포 = 보관함")
         self.refresh_hist()
 
     def open_root(self, root: str | Path) -> bool:
@@ -450,7 +466,7 @@ class ReviewTab(QWidget):
                 item = QListWidgetItem(flat_icon(self._thumb(it)), label)
                 tip = f"{it.index} · {', '.join(it.classes) or '정상'} · {it.area_px:,} px"
                 if it.fallback:
-                    tip += " · 폴백"
+                    tip += " · 대체 처리됨"
                 if it.note:
                     tip += f" · {it.note}"
                 item.setToolTip(tip)
@@ -476,10 +492,10 @@ class ReviewTab(QWidget):
         title = {
             "area": "면적 px (로그 구간)",
             "length": "긴 변 px (로그 구간)",
-            "contrast": "대비 gray (마스크 − 링, 선형)",
-            "texture": "질감 — 마스크 안 그래디언트 평균 (선형)",
-            "sharpness": "선명도 — 마스크 안 라플라시안 분산 (선형)",
-            "lighting": "조명 방향 ° (0 = →, 90 = ↓; 링에서 밝은 쪽)",
+            "contrast": "밝기 차 gray (결함 − 주변)",
+            "texture": "거칠기 (마스크 안 그래디언트 평균)",
+            "sharpness": "선명도 (마스크 안 라플라시안 분산)",
+            "lighting": "밝은 쪽 방향 ° (0 = →, 90 = ↓)",
         }.get(key, key)
         if cls:
             title += f" · 클래스 {cls}"
@@ -489,14 +505,14 @@ class ReviewTab(QWidget):
                 rs, rr, ns, nr = self.session.lighting_r_for(cls)
                 title += f" · R 합성 {fmt(rs)} (n {ns}) / 실제 {fmt(rr)} (n {nr})"
                 if cls in self.session.directional_classes():
-                    title += " · 실제 방향 유의"
+                    title += " · 실제는 방향이 뚜렷함"
             else:
                 rs, rr = self.session.lighting_concentration()
-                title += f" · 일관성 R 합성 {fmt(rs)} / 실제 {fmt(rr)}"
+                title += f" · 방향 일치도 R 합성 {fmt(rs)} / 실제 {fmt(rr)}"
             per_class = self.session.lighting_concentration_by_class()
             broken = lighting_broken_classes(per_class, self.session.directional_classes())
             if broken and (not cls or cls in broken):
-                title += f" · ⚠ {', '.join(broken)} 회전이 조명을 뒤집음 → dent-graft"
+                title += f" · ⚠ {', '.join(broken)}: 회전이 빛 방향을 뒤집음 → 프리셋 dent-graft"
         hints = (
             [h for h in self.session.contrast_hints() if not cls or h.cls == cls]
             if key == "contrast"
@@ -515,7 +531,7 @@ class ReviewTab(QWidget):
         if key in self.session.real_csv_keys():
             title += f" · 실제 = {self.session.real_label()}"
         elif self.session.bank is None:
-            title += " — 은행 없음"
+            title += " — 보관함 없음"
         elif self.session.real_classes():
             title += f" · 실제 = {', '.join(self.session.real_classes() or [])}"
         self.hist.set_histogram(h, title)
@@ -526,7 +542,7 @@ class ReviewTab(QWidget):
         prev = str(self.dist_class.currentData() or "")
         self.dist_class.blockSignals(True)
         self.dist_class.clear()
-        self.dist_class.addItem("전체 all classes", "")
+        self.dist_class.addItem("전체 클래스", "")
         for c in options:
             self.dist_class.addItem(c, c)
         i = self.dist_class.findData(prev) if prev in options else 0
@@ -564,7 +580,7 @@ class ReviewTab(QWidget):
         if not ids:
             self.detail.clear()
             self.meta.setText(
-                "합성 결과를 고르면 상세가 여기에"
+                "합성 결과를 고르면 상세가 여기에 나옵니다"
                 if self.session.loaded
                 else "출력 폴더를 열어 주세요"
             )
@@ -572,7 +588,7 @@ class ReviewTab(QWidget):
             return
         if len(ids) > 1:
             self.detail.clear()
-            self.meta.setText(f"{len(ids)}개 선택 — A/R/U 로 한꺼번에 판정")
+            self.meta.setText(f"{len(ids)}개 선택 — A/R/U 로 한꺼번에 판정합니다")
             self.note.setText("")
             return
         it = self.session.item(ids[0])
@@ -594,9 +610,9 @@ class ReviewTab(QWidget):
         if it.status == "ok":
             lines.append(
                 f"클래스 {', '.join(it.classes)} · 결함 {len(it.classes)} · GT {it.area_px:,} px · blend {it.blend}"
-                + (" · <b>폴백</b>" if it.fallback else "")
+                + (" · <b>대체 처리됨</b>" if it.fallback else "")
             )
-            lines.append("소스 " + ", ".join(it.source_ids))
+            lines.append("결함 조각 " + ", ".join(it.source_ids))
             for inst in it.instances:
                 bb = inst.get("bbox") or [0, 0, 0, 0]
                 lines.append(
@@ -604,7 +620,7 @@ class ReviewTab(QWidget):
                 )
         elif it.status == "skipped":
             lines.append(f"skipped: {it.reason}")
-        lines.append(f"대상 {it.target}")
+        lines.append(f"바탕 {it.target}")
         for w in it.warnings[:3]:
             lines.append(f"⚠ {w}")
         self.meta.setText("<br>".join(lines))
@@ -697,7 +713,7 @@ class ReviewTab(QWidget):
             self._on_error("출력 폴더를 먼저 여세요")
             return
         start = (self.session.root.parent / f"{self.session.root.name}-pruned").as_posix()  # type: ignore[union-attr]
-        d = QFileDialog.getExistingDirectory(self, "정리본 폴더 (반려 제외 사본)", start)
+        d = QFileDialog.getExistingDirectory(self, "정리된 데이터셋 폴더 (반려 제외 사본)", start)
         if d:
             self.export_pruned(d)
 
@@ -708,7 +724,7 @@ class ReviewTab(QWidget):
             self._on_error(str(e))
             return False
         msg = (
-            f"정리본: {s.out.as_posix()} — 합성 {s.kept} 유지 · {s.dropped} 제외 · 정상 {s.normals} · 파일 {s.files}"
+            f"정리된 데이터셋: {s.out.as_posix()} — 합성 {s.kept} 유지 · {s.dropped} 제외 · 정상 {s.normals} · 파일 {s.files}"
             + (f" · 경고 {len(s.warnings)}" if s.warnings else "")
         )
         self.result.setText(msg)

@@ -4,6 +4,9 @@
 
 ## [Unreleased]
 
+### Changed
+- **GUI 용어·라벨(v0.9 사용성 ①)** — 화면 문구를 한국어 단독으로, 영어 이름·YAML 키는 툴팁 둘째 줄로. 탭 `결함 표시 · 결함 보관함 · 미리보기 · 일괄 생성 · 검수`, 7단계 `결함 고르기 · 크기·회전 · 위치 정하기 · 붙이기 · 색·밝기 맞추기 · 카메라 효과 · 정답 영역`(카드 제목 툴팁에 영어·`pipeline.<stage>`). 은행→결함 보관함 · 소스→결함 조각 · 대상→바탕 이미지 · 폴백→대체 처리 · skipped→건너뜀 · 정리본→정리된 데이터셋 · 실측 CSV→현장 측정값 · 저신뢰→마스크 신뢰도 낮음 · "배치" 두 뜻 분리(Batch = 일괄 생성 · Placement = 위치 정하기). 위젯 툴팁 +40(일괄 생성·보관함·퀵스타트 전부). README ko 사용자 문구 동일 갱신. CLI 서브커맨드·YAML 키·사이드카·핵심 경고 문장은 그대로(용어 사전 `docs/ux/2026-09-19-usability-review.md` §3).
+
 ### Added
 - **대비 힌트** — 검수 탭 대비 히스토그램 제목 · 리포트 문단 · `dataset report` stderr: 클래스별 합성 대비 중앙값이 실제(은행·실측 CSV)의 **50% 미만**(또는 극성 반대)이면 "이 클래스만 `relative-paste` 로 갈라(`recipe init --classes <cls>`) `dataset merge`" — MT blowhole −17 vs −48 이 학습 전에 보였던 신호(BENCHMARKS §2, 갈라서 +0.15)의 자동화. `appearance.contrast_hints`(순수, rng 0): 양쪽 n ≥ 5 · |실제| ≥ 8 · 중앙값 차 ≥ 12(MT crack −4.5 vs −13.7 은 블렌딩에 무차별이라 제외). MT 40장: poisson → blowhole 13% 힌트 · relative-paste → 힌트 없음. 기본값·출력 불변(진단만).
 

@@ -62,11 +62,19 @@ from anograft.gui.studio.panels import h4
 from anograft.io import imgio
 
 TOOL_BUTTONS: tuple[tuple[str, str, str], ...] = (
-    ("brush", "✎", "브러시 (B) — 왼쪽 드래그로 칠하기"),
-    ("eraser", "⌫", "지우개 (E)"),
-    ("polygon", "⬡", "폴리곤 (P) — 클릭으로 점, Enter/더블클릭 확정, Esc 취소"),
-    ("auto", "✧", "자동 선택 (A) — 결함 둘레로 박스를 끌면 마스크 추정(GrabCut/Otsu)"),
-    ("pan", "✋", "이동 (H) — 드래그로 이동, 휠로 확대. 가운데 버튼·Space 는 어느 도구에서나"),
+    ("brush", "✎", "브러시 (B) — 왼쪽 드래그로 칠합니다 · Brush"),
+    ("eraser", "⌫", "지우개 (E) — 드래그한 곳을 지웁니다 · Eraser"),
+    ("polygon", "⬡", "다각형 (P) — 클릭으로 꼭짓점, Enter/더블클릭으로 확정, Esc 취소 · Polygon"),
+    (
+        "auto",
+        "✧",
+        "자동 선택 (A) — 결함 둘레로 상자를 끌면 마스크를 추정합니다(GrabCut/Otsu) · Auto-select",
+    ),
+    (
+        "pan",
+        "✋",
+        "이동 (H) — 드래그로 옮기고 휠로 확대합니다. 가운데 버튼·Space 는 어느 도구에서나 · Pan",
+    ),
 )
 
 
@@ -123,17 +131,25 @@ class LabelTab(QWidget):
         h = QHBoxLayout(bar)
         h.setContentsMargins(14, 7, 14, 7)
         h.setSpacing(10)
-        self.btn_folder = QPushButton("폴더 열기 Folder")
-        self.btn_image = QPushButton("이미지 열기 Image")
+        self.btn_folder = QPushButton("폴더 열기")
+        self.btn_folder.setToolTip(
+            "Open folder — 결함 사진 폴더(옆에 labels/ 가 있으면 YOLO 초안도 읽습니다)"
+        )
+        self.btn_image = QPushButton("이미지 열기")
+        self.btn_image.setToolTip("Open image — 결함 사진 한 장")
         self.btn_mask = QPushButton("마스크 PNG 불러오기")
+        self.btn_mask.setToolTip(
+            "Load mask — 이미 있는 마스크 PNG(흰색 = 결함)를 현재 이미지에 얹습니다"
+        )
         h.addWidget(self.btn_folder)
         h.addWidget(self.btn_image)
         h.addWidget(self.btn_mask)
-        lab = QLabel("은행 Bank")
+        lab = QLabel("보관함")
+        lab.setToolTip("Bank — 저장할 결함 보관함 폴더")
         lab.setObjectName("Muted")
         h.addWidget(lab)
         self.bank_edit = QLineEdit()
-        self.bank_edit.setPlaceholderText("저장할 결함 은행 폴더 (없으면 새로 만든다)")
+        self.bank_edit.setPlaceholderText("저장할 결함 보관함 폴더 (없으면 새로 만듭니다)")
         self.bank_edit.setMinimumWidth(240)
         self.btn_bank = QPushButton("폴더")
         self.btn_bank.setFixedWidth(44)
@@ -170,15 +186,15 @@ class LabelTab(QWidget):
         self.tool_buttons["brush"].setChecked(True)
         tv.addSpacing(8)
         self.btn_dilate = QPushButton("＋")
-        self.btn_dilate.setToolTip("팽창 1px")
+        self.btn_dilate.setToolTip("마스크를 1px 넓힙니다 · Dilate")
         self.btn_erode = QPushButton("－")
-        self.btn_erode.setToolTip("침식 1px")
+        self.btn_erode.setToolTip("마스크를 1px 깎습니다 · Erode")
         self.btn_undo = QPushButton("↶")
-        self.btn_undo.setToolTip("되돌리기 (Ctrl+Z)")
+        self.btn_undo.setToolTip("되돌리기 (Ctrl+Z) · Undo")
         self.btn_redo = QPushButton("↷")
-        self.btn_redo.setToolTip("다시하기 (Ctrl+Y)")
+        self.btn_redo.setToolTip("다시 실행 (Ctrl+Y) · Redo")
         self.btn_clear = QPushButton("✕")
-        self.btn_clear.setToolTip("마스크 비우기")
+        self.btn_clear.setToolTip("마스크를 전부 지웁니다 · Clear")
         for b in (self.btn_dilate, self.btn_erode, self.btn_undo, self.btn_redo, self.btn_clear):
             b.setFixedSize(34, 34)
             tv.addWidget(b)
@@ -209,9 +225,10 @@ class LabelTab(QWidget):
         bl.setContentsMargins(14, 5, 14, 5)
         bl.setSpacing(10)
         self.cb_mask = QCheckBox("마스크 표시")
+        self.cb_mask.setToolTip("Show mask — 그린 마스크를 이미지 위에 겹쳐 보기")
         self.cb_mask.setChecked(True)
         bl.addWidget(self.cb_mask)
-        bl.addWidget(self._muted("불투명도"))
+        bl.addWidget(self._muted("마스크 불투명도"))
         self.opacity = QSlider(Qt.Orientation.Horizontal)
         self.opacity.setRange(0, 100)
         self.opacity.setValue(45)
@@ -226,9 +243,13 @@ class LabelTab(QWidget):
         self.brush_label = self._muted(f"{self.canvas.brush_px}px")
         self.brush_label.setFixedWidth(40)
         bl.addWidget(self.brush_label)
-        bl.addWidget(self._muted("자동 선택"))
+        bl.addWidget(self._muted("자동 선택 방법"))
         self.auto_method = QComboBox()
         self.auto_method.addItems(list(AUTO_METHODS))
+        self.auto_method.setToolTip(
+            "Auto-select method — 상자 안에서 결함을 추정하는 방법. grabcut = 전경 분리(느리지만 정확) · otsu = 밝기로 분리 · "
+            "ellipse = 상자에 내접한 타원 · rect = 상자 그대로 · hybrid = grabcut 이 미덥지 않으면 타원"
+        )
         bl.addWidget(self.auto_method)
         bl.addStretch(1)
         self.zoom_info = self._muted("")
@@ -244,15 +265,17 @@ class LabelTab(QWidget):
         v = QVBoxLayout(side)
         v.setContentsMargins(12, 12, 12, 12)
         v.setSpacing(6)
-        v.addWidget(h4("저장 대상 Save as"))
+        v.addWidget(h4("어디에 저장"))
         mode_row = QHBoxLayout()
         mode_row.setSpacing(10)
-        self.rb_bank = QRadioButton("은행 소스 Bank")
-        self.rb_bank.setToolTip("결함 마스크를 은행에 소스로 저장 (성분별 크롭 + 메타)")
-        self.rb_roi = QRadioButton("ROI 마스크 ROI")
+        self.rb_bank = QRadioButton("결함 보관함")
+        self.rb_bank.setToolTip(
+            "Bank source — 결함 마스크를 보관함에 결함 조각으로 저장합니다(떨어진 조각마다 크롭 + 메타)"
+        )
+        self.rb_roi = QRadioButton("붙일 수 있는 영역")
         self.rb_roi.setToolTip(
-            "정상 이미지에서 결함이 생겨도 되는 면을 칠해 <mask_dir>/<stem>.png 로 저장 — "
-            "레시피 placement.roi: {method: mask_dir, path: <mask_dir>} 가 읽는다"
+            "ROI mask — 바탕(정상) 이미지에서 결함이 생겨도 되는 면을 칠해 <mask_dir>/<stem>.png 로 저장합니다. "
+            "레시피 placement.roi: {method: mask_dir, path: <mask_dir>} 가 읽습니다"
         )
         self.rb_bank.setChecked(True)
         mode_row.addWidget(self.rb_bank)
@@ -266,7 +289,7 @@ class LabelTab(QWidget):
         dir_row = QHBoxLayout()
         dir_row.setSpacing(6)
         self.roi_dir = QLineEdit()
-        self.roi_dir.setPlaceholderText("ROI 마스크 폴더 (mask_dir) — 비면 <이미지 폴더>/../roi")
+        self.roi_dir.setPlaceholderText("영역 마스크 폴더 (mask_dir) — 비우면 <이미지 폴더>/../roi")
         self.btn_roi_dir = QPushButton("폴더")
         self.btn_roi_dir.setFixedWidth(44)
         dir_row.addWidget(self._muted("mask_dir"))
@@ -280,37 +303,39 @@ class LabelTab(QWidget):
         self.roi_box.hide()
         v.addSpacing(4)
 
-        v.addWidget(h4("YOLO 초안 Draft"))
-        self.draft_info = self._muted("없음 — labels/<stem>.txt 가 옆에 있으면 자동으로 찾는다")
+        v.addWidget(h4("YOLO 초안"))
+        self.draft_info = self._muted("없음 — labels/<stem>.txt 가 옆에 있으면 자동으로 찾습니다")
         self.draft_info.setWordWrap(True)
         v.addWidget(self.draft_info)
         draft_row = QHBoxLayout()
         draft_row.setSpacing(6)
         self.draft_cls = QComboBox()
         self.draft_cls.setToolTip(
-            "초안에 있는 클래스 — 고르면 그 클래스의 박스/폴리곤으로 마스크를 채운다"
+            "Draft class — 초안에 있는 클래스. 고르면 그 클래스의 상자/다각형으로 마스크를 채웁니다"
         )
-        self.btn_draft = QPushButton("채우기 Fill")
-        self.btn_draft.setToolTip("현재 마스크를 초안으로 교체 (Ctrl+Z 로 복구)")
+        self.btn_draft = QPushButton("초안으로 채우기")
+        self.btn_draft.setToolTip(
+            "Fill from draft — 현재 마스크를 초안으로 바꿉니다 (Ctrl+Z 로 복구)"
+        )
         draft_row.addWidget(self.draft_cls, 1)
         draft_row.addWidget(self.btn_draft)
         v.addLayout(draft_row)
-        self.btn_next_low = QPushButton("다음 저신뢰 소스 Next low-confidence")
+        self.btn_next_low = QPushButton("다음 신뢰도 낮은 조각")
         self.btn_next_low.setToolTip(
-            "은행 탭의 저신뢰 필터 순서대로 다음 소스를 열어 다듬는다 (은행 소스 편집 모드에서만)"
+            "Next low-confidence — 보관함 탭의 신뢰도 낮음 필터 순서대로 다음 조각을 열어 다듬습니다(보관함 조각 편집 중에만)"
         )
         self.btn_next_low.hide()
         v.addWidget(self.btn_next_low)
-        self.cb_draft_auto = QCheckBox("열 때 자동 채우기")
+        self.cb_draft_auto = QCheckBox("이미지를 열 때 초안으로 채우기")
         self.cb_draft_auto.setChecked(True)
         self.cb_draft_auto.setToolTip(
-            "이미지를 열 때 라벨이 있으면 첫 클래스 초안으로 마스크를 미리 채운다"
+            "Auto-fill — 이미지를 열 때 라벨이 있으면 첫 클래스 초안으로 마스크를 미리 채웁니다"
         )
         v.addWidget(self.cb_draft_auto)
         self._set_draft_enabled(False)
         v.addSpacing(4)
 
-        self.defect_title = h4("결함 정보 Defect")
+        self.defect_title = h4("결함 정보")
         v.addWidget(self.defect_title)
         self.cls = QComboBox()
         self.cls.setEditable(True)
@@ -330,20 +355,20 @@ class LabelTab(QWidget):
         self.um.setSingleStep(0.5)
         self.um.setSpecialValueText("모름")
         self.um.setToolTip(
-            "픽셀 피치 µm/px — 은행 소스에 저장돼 대상과의 축척 정합에 쓰인다. 0 = 모름"
+            "Pixel size — 1픽셀이 몇 µm 인지. 조각에 저장돼 바탕 이미지와 실제 크기를 맞추는 데 씁니다. 0 = 모름"
         )
         dv.addLayout(self._kv("µm/px", self.um))
         self.tags = QLineEdit()
         self.tags.setPlaceholderText("태그, 쉼표로 (예: 가공면, 직선형)")
         dv.addLayout(self._kv("태그", self.tags))
-        self.cb_whole = QCheckBox("성분을 나누지 않고 하나로 저장")
+        self.cb_whole = QCheckBox("떨어진 조각도 하나로 저장")
         self.cb_whole.setToolTip(
-            "끄면 떨어진 조각마다 소스 하나(기본). 한 결함이 여러 조각이면 켠다"
+            "Save as one — 켜면 떨어진 조각들을 한 결함 조각으로 저장합니다(끄면 조각마다 하나). 한 결함이 여러 덩어리일 때"
         )
         dv.addWidget(self.cb_whole)
         v.addWidget(self.defect_box)
         v.addSpacing(8)
-        v.addWidget(h4("마스크 통계 Mask"))
+        v.addWidget(h4("마스크 통계"))
         self.stats = QLabel("–")
         self.stats.setObjectName("Hint")
         self.stats.setWordWrap(True)
@@ -353,7 +378,8 @@ class LabelTab(QWidget):
         self.result.setObjectName("Muted")
         self.result.setWordWrap(True)
         v.addWidget(self.result)
-        self.btn_save = QPushButton("은행에 저장 Save to bank  (Ctrl+S)")
+        self.btn_save = QPushButton("보관함에 저장  (Ctrl+S)")
+        self.btn_save.setToolTip("Save to bank — 마스크를 결함 조각으로 보관함에 넣습니다")
         self.btn_save.setObjectName("Primary")
         v.addWidget(self.btn_save)
         side.setMinimumWidth(300)
@@ -493,15 +519,15 @@ class LabelTab(QWidget):
         self.edit_target = (root, source_id)
         self.set_mode(MODE_BANK)
         self.canvas.set_session(self.session)
-        self.origin.setText(f"은행 소스 {source_id}")
+        self.origin.setText(f"보관함 조각 {source_id}")
         self.cls.setEditText(source_id.split("/", 1)[0])
         self.result.setText("")
         self._set_draft_enabled(False)
-        self.draft_info.setText("은행 소스 편집 중 — 저장하면 같은 id 의 마스크를 덮어쓴다")
-        self.btn_save.setText("은행 소스 갱신 Update source  (Ctrl+S)")
+        self.draft_info.setText("보관함 조각 편집 중 — 저장하면 같은 id 의 마스크를 덮어씁니다")
+        self.btn_save.setText("보관함 조각 갱신  (Ctrl+S)")
         self.btn_next_low.show()
         self.refresh()
-        self.status.emit(f"은행 소스 편집: {source_id} — 다듬은 뒤 Ctrl+S")
+        self.status.emit(f"보관함 조각 편집: {source_id} — 다듬은 뒤 Ctrl+S")
         return True
 
     def request_next_low(self) -> None:
@@ -522,13 +548,13 @@ class LabelTab(QWidget):
         assert self.edit_target is not None and self.session.mask is not None
         root, sid = self.edit_target
         if not np.any(self.session.mask):
-            self._on_error("마스크가 비어 있습니다 — 소스를 지우려면 은행 탭에서 삭제")
+            self._on_error("마스크가 비어 있습니다 — 조각을 지우려면 보관함 탭에서 삭제하세요")
             return False
         used = self.session.tools_used - {"morph", "png"}
         tool = next(iter(used)) if len(used) == 1 else ("mixed" if used else "brush")
         self.source_updated.emit(root, sid, self.session.mask.copy(), tool)
         self.session.dirty = False
-        msg = f"은행 소스 갱신 요청: {sid} (manual:{tool})"
+        msg = f"보관함 조각 갱신 요청: {sid} (manual:{tool})"
         self.result.setText(msg)
         self.status.emit(msg)
         return True
@@ -612,9 +638,9 @@ class LabelTab(QWidget):
             "ROI 저장 Save ROI  (Ctrl+S)"
             if roi
             else (
-                "은행 소스 갱신 Update source  (Ctrl+S)"
+                "보관함 조각 갱신  (Ctrl+S)"
                 if self.edit_target is not None
-                else "은행에 저장 Save to bank  (Ctrl+S)"
+                else "보관함에 저장  (Ctrl+S)"
             )
         )
         if self.folder is not None:
@@ -639,7 +665,9 @@ class LabelTab(QWidget):
 
     def _pick_roi_dir(self) -> None:
         start = self.roi_dir.text().strip() or (self.folder.as_posix() if self.folder else ".")
-        d = QFileDialog.getExistingDirectory(self, "ROI 마스크 폴더 (mask_dir)", start)
+        d = QFileDialog.getExistingDirectory(
+            self, "붙일 수 있는 영역 마스크 폴더 (mask_dir)", start
+        )
         if d:
             self.roi_dir.setText(Path(d).as_posix())
             self._refresh_roi_hint()
@@ -647,7 +675,7 @@ class LabelTab(QWidget):
     def _refresh_roi_hint(self) -> None:
         d = self.roi_dir_path()
         if d is None:
-            self.roi_hint.setText("정상 이미지 폴더를 열면 기본 mask_dir 은 <폴더>/../roi")
+            self.roi_hint.setText("바탕(정상) 이미지 폴더를 열면 기본 mask_dir 은 <폴더>/../roi")
             return
         n = len(list(d.glob("*.png"))) if d.is_dir() else 0
         self.roi_hint.setText(
@@ -738,7 +766,7 @@ class LabelTab(QWidget):
             self.canvas.apply(lambda s: s.load_mask(f))
 
     def _pick_bank(self) -> None:
-        d = QFileDialog.getExistingDirectory(self, "결함 은행 폴더", self.bank_edit.text() or ".")
+        d = QFileDialog.getExistingDirectory(self, "결함 보관함 폴더", self.bank_edit.text() or ".")
         if d:
             self.set_bank(d)
 
@@ -765,9 +793,9 @@ class LabelTab(QWidget):
         self.cls.setEditText(current)
         self.cls.blockSignals(False)
         self.note.setText(
-            f"은행 클래스 {len(classes)}: {', '.join(classes)}"
+            f"보관함 클래스 {len(classes)}: {', '.join(classes)}"
             if classes
-            else ("새 은행(폴더가 만들어진다)" if root else "")
+            else ("새 보관함(폴더가 만들어집니다)" if root else "")
         )
 
     # ------------------------------------------------------------------ 저장
@@ -775,7 +803,7 @@ class LabelTab(QWidget):
     def save_to_bank(self) -> bool:
         root = self.bank_edit.text().strip()
         if not root:
-            self._on_error("은행 폴더를 지정하세요 (상단 은행 칸)")
+            self._on_error("보관함 폴더를 지정하세요 (상단 보관함 칸)")
             return False
         tags = [t for t in self.tags.text().split(",") if t.strip()]
         um = self.um.value() or None
@@ -792,9 +820,9 @@ class LabelTab(QWidget):
             return False
         ids = ", ".join(f"{a.cls}/{a.source_id}" for a in added)
         msg = (
-            f"은행 저장 {len(added)}개: {ids}"
+            f"보관함에 저장 {len(added)}개: {ids}"
             if added
-            else "저장된 소스 없음(성분이 전부 min_area 미만)"
+            else "저장된 조각 없음(덩어리가 전부 최소 면적 미만)"
         )
         if warns:
             msg += " · " + " · ".join(warns)
@@ -847,7 +875,7 @@ class LabelTab(QWidget):
             return
         st = self.session.stats(self.um.value() or None)
         if st.area_px == 0:
-            self.stats.setText("마스크 없음 — 브러시로 칠하거나 자동 선택(A)으로 박스를 끄세요")
+            self.stats.setText("마스크 없음 — 브러시로 칠하거나 자동 선택(A)으로 상자를 끄세요")
             return
         parts = [
             f"면적 {st.area_px:,} px · {st.area_ratio * 100:.2f}%",
@@ -855,7 +883,7 @@ class LabelTab(QWidget):
             + (
                 ""
                 if self.mode == MODE_ROI
-                else (" → 소스 하나로 저장" if self.cb_whole.isChecked() else " → 소스 각각")
+                else (" → 조각 하나로 저장" if self.cb_whole.isChecked() else " → 조각 각각")
             ),
             f"길이 {st.length_px:.0f} px"
             + (f" · {st.length_um / 1000:.2f} mm" if st.length_um else ""),

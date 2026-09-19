@@ -110,9 +110,11 @@ class StudioTab(QWidget):
         bar.setObjectName("Strip")
         bl = QHBoxLayout(bar)
         bl.setContentsMargins(14, 5, 14, 5)
-        self.cb_gt = QCheckBox("정답 마스크 GT")
+        self.cb_gt = QCheckBox("정답 영역")
+        self.cb_gt.setToolTip("GT mask — 학습에 쓰일 정답 영역을 겹쳐 보기")
         self.cb_gt.setChecked(True)
-        self.cb_roi = QCheckBox("배치 허용 영역 ROI")
+        self.cb_roi = QCheckBox("붙일 수 있는 영역")
+        self.cb_roi.setToolTip("ROI — 결함을 놓아도 되는 영역을 겹쳐 보기")
         self.cb_lab = QCheckBox("인스턴스 라벨")
         self.cb_lab.setChecked(True)
         for cb in (self.cb_gt, self.cb_roi, self.cb_lab):
@@ -127,7 +129,9 @@ class StudioTab(QWidget):
         split.addWidget(mid)
         # 오른쪽: 파이프라인
         self.pipe = PipelinePanel()
-        self.pipe.setMinimumWidth(300)
+        self.pipe.setMinimumWidth(
+            344
+        )  # 카드(라벨 108 + 두 스핀박스 · per_class 두 줄)가 잘리지 않는 최소 폭
         split.addWidget(self.pipe)
         split.setStretchFactor(0, 0)
         split.setStretchFactor(1, 1)
@@ -182,23 +186,21 @@ class StudioTab(QWidget):
         if ses.prepared is not None:
             b = ses.prepared.bank
             if ses.recipe.bankless:
-                head = f"은행 없음 — {ses.recipe.pipeline.source.method} (클래스 {ses.recipe.pipeline.source.cls})"
+                head = f"보관함 없음 — {ses.recipe.pipeline.source.method} (클래스 {ses.recipe.pipeline.source.cls})"
             else:
                 rows = ", ".join(
                     f"{r.cls} {r.count}"
                     + (
                         f"(추정 {r.estimated}"
-                        + (f" · 저신뢰 {r.low_conf}" if r.low_conf else "")
+                        + (f" · 신뢰도 낮음 {r.low_conf}" if r.low_conf else "")
                         + ")"
                         if r.estimated
                         else ""
                     )
                     for r in b.summary()
                 )
-                head = f"은행 {b.name}: {len(b)}개 — {rows}"
-            summary = (
-                f"{head}\n대상 {len(ses.prepared.targets)}장 · hash {ses.prepared.pipeline_hash}"
-            )
+                head = f"보관함 {b.name}: 조각 {len(b)}개 — {rows}"
+            summary = f"{head}\n바탕 이미지 {len(ses.prepared.targets)}장 · 설정 지문 {ses.prepared.pipeline_hash[:12]}"
         self.inputs.sync(ses.recipe, summary)
         self.strip.note.setText(self._note())
         self.context.emit(self._context())
@@ -207,7 +209,9 @@ class StudioTab(QWidget):
         ses = self.session
         parts = []
         if ses.long_side:
-            parts.append(f"미리보기는 긴 변 {ses.long_side}px 축소본 — 정확한 결과는 anograft run")
+            parts.append(
+                f"미리보기는 긴 변 {ses.long_side}px 축소본 · 실제 결과는 일괄 생성(원본 해상도)에서"
+            )
         if ses.warnings:
             parts.append(f"경고 {len(ses.warnings)}건: {ses.warnings[0]}")
         return " · ".join(parts)
@@ -216,7 +220,7 @@ class StudioTab(QWidget):
         ses = self.session
         t = ses.target
         return (
-            f"대상 {t.name if t else '–'} · 은행 {ses.prepared.bank.name if ses.prepared else '–'} · "
+            f"바탕 {t.name if t else '–'} · 보관함 {ses.prepared.bank.name if ses.prepared else '–'} · "
             f"레시피 {ses.recipe.name} ({ses.recipe.pipeline.preset}, seed {ses.recipe.seed})"
         )
 
@@ -231,7 +235,7 @@ class StudioTab(QWidget):
     def _sync_fix(self) -> None:
         """기하 카드의 '고치기' 버튼 — prepare 경고에 `geometry:`(조명) 가 있을 때만."""
         has = any(w.startswith("geometry:") for w in self.session.warnings)
-        self.pipe.cards["geometry"].set_fix("▶ 조명 클래스만 ±15°·안전한 flip" if has else None)
+        self.pipe.cards["geometry"].set_fix("▶ 빛 방향 클래스만 ±15°로 좁히기" if has else None)
 
     def _on_fix(self, stage: str) -> None:
         """기하 카드 '고치기' — 조명 의존 클래스에 `DENT_OVERRIDE` 를 per_class 로(다른 클래스는 그대로)."""
@@ -350,8 +354,8 @@ class StudioTab(QWidget):
             return
         self.session.prepared = None
         self.worker.set_prepared(None)
-        self.canvas.clear("은행·대상 로드 중…")
-        self.status.emit("은행·대상 로드 중…")
+        self.canvas.clear("보관함·바탕 이미지 읽는 중…")
+        self.status.emit("보관함·바탕 이미지 읽는 중…")
         self.worker.submit(
             PreviewJob(
                 KIND_PREPARE, self.session.generation, recipe=self.session.recipe, priority=0
@@ -404,7 +408,7 @@ class StudioTab(QWidget):
         cmd = self.session.run_command()
         QGuiApplication.clipboard().setText(cmd)
         self.send_to_batch_requested.emit()
-        self.status.emit(f"배치 탭으로 보냄 · 클립보드: {cmd}")
+        self.status.emit(f"일괄 생성 탭으로 보냈습니다 · 클립보드에 CLI 명령: {cmd}")
 
     # ------------------------------------------------------------------ 미리보기 요청·수신
 
@@ -449,7 +453,7 @@ class StudioTab(QWidget):
         self.pipe.sync(self.session.recipe)  # 표가 생긴 뒤 값 채우기 · 정보 줄 숨김
         self._sync_fix()
         self.status.emit(
-            f"준비 완료 — 은행 {len(prep.bank)}개 · 대상 {len(prep.targets)}장"
+            f"준비 완료 — 결함 조각 {len(prep.bank)}개 · 바탕 이미지 {len(prep.targets)}장"
             + (f" · 경고 {n_warn}건" if n_warn else "")
         )
         self.request_previews()
@@ -468,18 +472,20 @@ class StudioTab(QWidget):
             caption = ", ".join(sorted({i.cls for i in r.instances})) or "ok"
             low = self._low_confidence_sources(r)
             flipped = self._flipped_instances(r)
-            tooltip = "소스: " + ", ".join(self._source_ids(r))
+            tooltip = "결함 조각: " + ", ".join(self._source_ids(r))
             if low:
                 caption += " ⚠"
                 tooltip += (
-                    "\n⚠ 저신뢰 추정 마스크 소스: " + ", ".join(low) + " — 은행 탭에서 다듬기"
+                    "\n⚠ 마스크 신뢰도가 낮은 조각: "
+                    + ", ".join(low)
+                    + " — 보관함 탭에서 다듬으세요"
                 )
             if flipped:
                 caption += " ↯"
                 tooltip += (
-                    "\n↯ 조명 뒤집힘 의심: "
+                    "\n↯ 빛 방향이 뒤집힌 듯함: "
                     + ", ".join(f"{r.instances[i].cls}#{i + 1}" for i in flipped)
-                    + " — 하이라이트가 실제 소스와 반대쪽(기하 카드 ▶ 또는 dent-graft)"
+                    + " — 하이라이트가 실제 조각과 반대쪽입니다(크기·회전 카드의 고치기 또는 프리셋 dent-graft)"
                 )
             self.variants.set_result(k, promote_to_bgr(r.image), caption, tooltip)
         else:
@@ -517,7 +523,7 @@ class StudioTab(QWidget):
 
     def _on_failed(self, err: JobError) -> None:
         if err.job.kind == KIND_PREPARE:
-            self.canvas.clear("은행·대상을 열 수 없습니다")
+            self.canvas.clear("보관함·바탕 이미지를 열 수 없습니다")
             QMessageBox.warning(self, "준비 실패", err.message)
             self.status.emit(err.message.splitlines()[0])
         elif err.job.kind == KIND_PREVIEW and err.job.generation == self.session.generation:

@@ -165,15 +165,15 @@ class BankSession:
 
     def summary_text(self) -> str:
         if self.bank is None:
-            return "은행 없음"
+            return "보관함 없음"
         b = self.bank
         low = len(b.low_confidence())
         est = sum(r.estimated for r in b.summary())
-        parts = [f"{b.name}: 소스 {len(b)} · 클래스 {len(b.classes)}"]
+        parts = [f"{b.name}: 조각 {len(b)} · 클래스 {len(b.classes)}"]
         if est:
-            parts.append(f"추정 {est}" + (f" (저신뢰 {low})" if low else ""))
+            parts.append(f"추정 마스크 {est}" + (f" (신뢰도 낮음 {low})" if low else ""))
         if b.no_pitch_count():
-            parts.append(f"um_per_px 미지정 {b.no_pitch_count()}")
+            parts.append(f"픽셀 크기 미지정 {b.no_pitch_count()}")
         directional = self.directional_classes()
         if directional:
             parts.append(

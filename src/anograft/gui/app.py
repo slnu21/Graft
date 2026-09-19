@@ -46,24 +46,33 @@ from anograft.gui.studio.worker import PreviewWorker
 from anograft.gui.theme import apply_theme
 from anograft.samples.quickstart import Quickstart
 
-TABS: tuple[tuple[str, str], ...] = (
-    ("bank", "은행  Bank"),
-    ("label", "라벨  Label"),
-    ("studio", "스튜디오  Studio"),
-    ("batch", "배치  Batch"),
-    ("review", "검수  Review"),
+TABS: tuple[
+    tuple[str, str], ...
+] = (  # (키, 한국어 라벨) — 영어 이름은 TAB_TIPS 툴팁으로(v0.9 용어 사전)
+    ("bank", "결함 보관함"),
+    ("label", "결함 표시"),
+    ("studio", "미리보기"),
+    ("batch", "일괄 생성"),
+    ("review", "검수"),
 )
+TAB_TIPS: dict[str, str] = {
+    "bank": "Bank — 라벨링한 결함 조각(이미지·마스크·메타)을 모아 두는 곳 · CLI anograft bank",
+    "label": "Label — 결함 사진에 마스크를 그려 보관함에 넣습니다",
+    "studio": "Studio — 프리셋·값을 바꿔 가며 한 장씩 미리 봅니다",
+    "batch": "Batch — 레시피대로 데이터셋을 한꺼번에 만듭니다 · CLI anograft run",
+    "review": "Review — 만든 결과를 채택/반려하고 분포를 봅니다",
+}
 PLACEHOLDER: dict[str, str] = {}
 SETTINGS_ORG, SETTINGS_APP = "slnu21", "Graft"
 RECENT_RECIPE_KEY = "recent_recipe"
 EMPTY_STATE = (
-    "레시피가 열려 있지 않습니다 · No recipe loaded\n\n"
-    "⓪  데이터가 하나도 없으면 상단 '샘플 데이터'   No data at all? Click 'Sample…' at the top\n"
-    "①  라벨 탭에서 결함 사진 → 마스크 → 은행에 저장   Label tab: defect photo → mask → save to bank\n"
-    "②  왼쪽 '입력'에 은행 폴더와 정상 이미지 폴더 → 열기   Inputs (left): bank + normal-image folder → Open\n"
-    "③  프리셋을 고르고 대상을 클릭 → 미리보기   Pick a preset, click a target → preview\n"
-    "④  배치로 보내기 → 생성 시작   Send to batch → run\n\n"
-    "또는 상단 '레시피 열기'로 YAML (예: recipes/sample-poisson.yaml)   or 'Open recipe' at the top"
+    "열린 레시피가 없습니다\n\n"
+    "⓪  데이터가 하나도 없으면 상단 '샘플 데이터…' 로 시작하세요\n"
+    "①  결함 표시 탭에서 결함 사진에 마스크를 그려 결함 보관함에 저장합니다\n"
+    "②  왼쪽 '입력'에 결함 보관함 폴더와 바탕(정상) 이미지 폴더를 넣고 '열기'\n"
+    "③  프리셋을 고르고 바탕 이미지를 클릭하면 미리보기가 나옵니다\n"
+    "④  '일괄 생성으로 보내기' → '생성 시작'\n\n"
+    "또는 상단 '레시피 열기'로 YAML 을 엽니다 (예: recipes/sample-poisson.yaml)"
 )
 
 
@@ -131,6 +140,7 @@ class MainWindow(QMainWindow):
             else:
                 page = self._placeholder(PLACEHOLDER[key])
             self.tabs.addTab(page, label)
+            self.tabs.setTabToolTip(self.tabs.count() - 1, TAB_TIPS[key])
         self.tabs.setCurrentIndex(2)
         lay.addWidget(self.tabs, 1)
         self.setCentralWidget(central)
@@ -174,10 +184,10 @@ class MainWindow(QMainWindow):
         self.ctx.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.busy = QLabel("")
         self.busy.setObjectName("Muted")
-        self.btn_sample = QPushButton("샘플 데이터 Sample…")
+        self.btn_sample = QPushButton("샘플 데이터…")
         self.btn_sample.setToolTip(
-            "데이터가 없을 때 — 샘플 이미지·YOLO 라벨 → 은행 → 레시피까지 만들어 스튜디오에 엽니다\n"
-            "Generate sample images + labels, import them into a bank and open a recipe"
+            "데이터가 없을 때 — 샘플 이미지와 라벨을 만들어 결함 보관함에 넣고 레시피까지 열어 줍니다\n"
+            "Sample data — generate sample images + labels, import them into a bank and open a recipe"
         )
         self.btn_sample.clicked.connect(self._on_sample_clicked)
         h.addWidget(brand)
@@ -247,8 +257,7 @@ class MainWindow(QMainWindow):
     def show_empty_state(self) -> None:
         self.studio.canvas.clear(EMPTY_STATE)
         self.status_bar.showMessage(
-            "레시피 없음 — 라벨 탭에서 시작하거나 스튜디오 '열기'로 레시피를 여세요 · "
-            "No recipe: start in the Label tab or open a recipe"
+            "열린 레시피가 없습니다 — 결함 표시 탭에서 시작하거나 미리보기 탭의 '열기'로 레시피를 여세요"
         )
 
     def _on_batch_finished(self, summary) -> None:
@@ -307,7 +316,7 @@ class MainWindow(QMainWindow):
         self.tabs.setCurrentWidget(self.batch)
 
     def _on_busy(self, busy: bool) -> None:
-        self.busy.setText("● 계산 중" if busy else "")
+        self.busy.setText("● 계산 중…" if busy else "")
 
     def closeEvent(self, event) -> None:  # noqa: N802
         self.worker.stop()
