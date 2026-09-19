@@ -203,3 +203,50 @@ def test_summarize_table_and_short_names() -> None:
     assert tm.set_short_name(base) == "A-real-train"
     assert tm.set_short_name("B +poisson-graft (hybrid)") == "B-poisson-graft-hybrid"
     assert tm.set_short_name("B +dent-graft") == "B-dent-graft"
+
+
+def test_preset_spec_and_class_presets() -> None:
+    """0.8.2 — ``--presets`` 의 ``+dent:`` 접미 · ``--class-presets`` 그룹화 · 폴더 이름 안전화."""
+    assert tm.parse_preset_spec("poisson-graft") == tm.PresetSpec("poisson-graft")
+    sp = tm.parse_preset_spec("poisson-graft+dent:bent,color")
+    assert sp.preset == "poisson-graft" and sp.dent_classes == ("bent", "color")
+    assert sp.tag == "poisson-graft+dent.bent.color"
+    for bad in ("", "+dent:a", "x+flip:a", "x+dent:", "x+dent"):
+        with pytest.raises(ValueError):
+            tm.parse_preset_spec(bad)
+
+    classes = ["blowhole", "break", "crack"]
+    groups = tm.parse_class_presets(
+        ["blowhole=hard-paste", "break=poisson-graft", "crack=poisson-graft"], classes
+    )
+    assert groups == [("hard-paste", ["blowhole"]), ("poisson-graft", ["break", "crack"])]
+    label = tm.class_presets_label(groups)
+    assert label == "split[hard-paste:blowhole,poisson-graft:break+crack]"
+    # 표 이름 → 폴더 이름: Windows 금지 문자([ ] : ,) 없음
+    short = tm.set_short_name(f"B +{label} (hybrid)")
+    assert short == "B-split-hard-paste.blowhole-poisson-graft.break+crack-hybrid"
+    assert not set(short) & set('<>:"/\\|?*,[]')
+    with pytest.raises(ValueError, match="빠진 클래스"):
+        tm.parse_class_presets(["blowhole=hard-paste"], classes)
+    with pytest.raises(ValueError, match="두 번"):
+        tm.parse_class_presets(["blowhole=a", "blowhole=b", "break=a", "crack=a"], classes)
+    with pytest.raises(ValueError, match="없습니다"):
+        tm.parse_class_presets(["hole=a", "break=a", "crack=a"], classes)
+    with pytest.raises(ValueError, match="꼴"):
+        tm.parse_class_presets(["blowhole", "break=a", "crack=a"], classes)
+
+
+def test_split_counts_proportional_and_exact() -> None:
+    """최대 잉여법 — 합은 항상 total, 결정적(잉여 동률은 앞 그룹)."""
+    assert tm.split_counts(200, [1, 2]) == [67, 133]
+    assert tm.split_counts(200, [1, 1, 1]) == [67, 67, 66]
+    assert tm.split_counts(10, [1]) == [10]
+    assert tm.split_counts(0, [1, 2]) == [0, 0]
+    assert tm.split_counts(7, [3, 3]) == [4, 3]
+    assert tm.split_counts(5, []) == []
+    for total, sizes in ((200, [1, 2]), (199, [2, 3, 4]), (1, [5, 5, 5])):
+        assert sum(tm.split_counts(total, sizes)) == total
+    with pytest.raises(ValueError):
+        tm.split_counts(10, [0, 1])
+    with pytest.raises(ValueError):
+        tm.split_counts(-1, [1])

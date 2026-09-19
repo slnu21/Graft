@@ -4,21 +4,27 @@
         --classes bent color scratch --k 8 --count 200 --epochs 40 --out out/train-map
     <train-venv>/python tools/train_mvtec_map.py samples/magnetic-tile/pairs.csv --anograft .venv/Scripts/python.exe \\
         --classes blowhole break crack --roi none --mask-from grabcut hybrid --train-seeds 7 8 9 --out out/train-map-mt
+    # 결함 성격별 프리셋: 클래스 그룹마다 따로 합성(recipe init --classes) → dataset merge --dedupe-normals → B 셋 하나
+    <train-venv>/python tools/train_mvtec_map.py samples/magnetic-tile/pairs.csv --anograft .venv/Scripts/python.exe \\
+        --classes blowhole break crack --roi none --mask-from hybrid --presets \\
+        --class-presets blowhole=hard-paste break=poisson-graft crack=poisson-graft --train-seeds 7 8 9 --out out/train-map-mt
 
 절차(전부 로컬):
 1. 결함 이미지 → GT 마스크 성분 bbox → YOLO 박스 라벨. 클래스마다 ``--k`` 장은 **real-train**, 나머지는 **real-val**(홀드아웃).
    정상(MVTec ``test/good`` · pairs 는 ``normals.txt`` 앞 ``--n-good`` 장)은 반은 val 음성, 반은 train 음성. 합성 대상은
    MVTec ``train/good`` · pairs 는 그다음 ``--n-targets`` 장(``targets.txt``).
 2. 은행은 **real-train 의 박스만으로**(``anograft bank import-yolo`` — 사용자 흐름과 같음, val 누수 없음) → ``--mask-from`` 마다
-   은행 하나 → 프리셋별로 ``count`` 장 합성.
+   은행 하나 → 프리셋별로 ``count`` 장 합성. ``--presets`` 항목은 ``<preset>[+dent:<cls>,<cls>]``(``recipe init --dent-class`` —
+   한 레시피 안의 ``geometry.per_class``). ``--class-presets <cls>=<preset> …`` 는 프리셋별 클래스 그룹으로 갈라 합성(``count`` 를
+   클래스 수 비례로 나눔, ``source.classes``) 하고 ``dataset merge --dedupe-normals`` 로 합친 B 셋 하나 — "결함 성격별 프리셋" 가설용.
 3. 학습 A = real-train 만 · B = real-train + 합성(프리셋 × 은행) — 같은 모델·epoch·imgsz. 평가는 real-val 에서 mAP50 / mAP50-95.
    ``--train-seeds`` 로 학습 시드만 여러 개(분할·합성은 고정) → 표에 시드별 + 평균 Δ. 끝난 (셋, 시드) 는 ``results/`` 에 캐시되어
    같은 ``--out`` 으로 다시 부르면 건너뛴다(프리셋·은행을 나중에 보태는 흐름).
 4. 결과 표(markdown) — ``BENCHMARKS.md`` 에 옮긴다. 이 스크립트는 ultralytics 가 있는 **별도 venv** 에서 돌린다(코어 의존성 아님).
 
 **한 ``--out`` 폴더 = 한 분할**(``real/split.json``) — 다른 ``--split-seed``·``--k``·``--classes`` 면 새 폴더.
-순수 부분(``boxes_from_mask``·``split_per_class``·``parse_pairs_csv``·``split_normals``·``summarize``)은
-``tests/test_tools_train_map.py`` 가 고정한다.
+순수 부분(``boxes_from_mask``·``split_per_class``·``parse_pairs_csv``·``split_normals``·``summarize``·``parse_preset_spec``·
+``parse_class_presets``·``split_counts``·``safe_name``)은 ``tests/test_tools_train_map.py`` 가 고정한다.
 """
 
 from __future__ import annotations
@@ -241,6 +247,80 @@ def recipe_matches(recipe: Path, seed: int, count: int) -> bool:
     return f"seed: {seed}" in lines and f"count: {count}" in lines
 
 
+@dataclass(frozen=True)
+class PresetSpec:
+    """``--presets`` 항목 — ``<preset>`` 또는 ``<preset>+dent:<cls>,<cls>``(그 클래스만 ``geometry.per_class`` ±15°·flip 없음)."""
+
+    preset: str
+    dent_classes: tuple[str, ...] = ()
+
+    @property
+    def tag(self) -> str:
+        """폴더·표 이름 — ``poisson-graft`` · ``poisson-graft+dent.bent``."""
+        return self.preset + (f"+dent.{'.'.join(self.dent_classes)}" if self.dent_classes else "")
+
+
+def parse_preset_spec(spec: str) -> PresetSpec:
+    name, _, extra = spec.partition("+")
+    if not name:
+        raise ValueError(f"--presets 항목이 비었습니다: {spec!r}")
+    if not extra:
+        return PresetSpec(name)
+    key, _, value = extra.partition(":")
+    classes = tuple(c for c in value.split(",") if c)
+    if key != "dent" or not classes:
+        raise ValueError(f"--presets 접미는 '+dent:<cls>[,<cls>]' 만 됩니다: {spec!r}")
+    return PresetSpec(name, classes)
+
+
+def parse_class_presets(items: list[str], classes: list[str]) -> list[tuple[str, list[str]]]:
+    """``["blowhole=hard-paste", "break=poisson-graft", "crack=poisson-graft"]`` → ``[("hard-paste", ["blowhole"]),
+    ("poisson-graft", ["break", "crack"])]``(프리셋 첫 등장 순). ``classes`` 전부가 정확히 한 번씩 나와야 한다."""
+    groups: dict[str, list[str]] = {}
+    seen: list[str] = []
+    for it in items:
+        cls, sep, preset = it.partition("=")
+        if not sep or not cls or not preset:
+            raise ValueError(f"--class-presets 항목은 '<class>=<preset>' 꼴: {it!r}")
+        if cls not in classes:
+            raise ValueError(
+                f"--class-presets 의 클래스 {cls!r} 가 --classes {classes} 에 없습니다"
+            )
+        if cls in seen:
+            raise ValueError(f"--class-presets 에 클래스 {cls!r} 가 두 번 나옵니다")
+        seen.append(cls)
+        groups.setdefault(preset, []).append(cls)
+    missing = [c for c in classes if c not in seen]
+    if missing:
+        raise ValueError(f"--class-presets 에 빠진 클래스: {missing} (모든 --classes 를 배정)")
+    return list(groups.items())
+
+
+def split_counts(total: int, sizes: list[int]) -> list[int]:
+    """``total`` 을 ``sizes`` 비례로 정수 분배(최대 잉여법 — 합이 정확히 total, 결정적: 잉여가 같으면 앞 그룹 우선)."""
+    if total < 0 or any(n <= 0 for n in sizes):
+        raise ValueError("total ≥ 0, 그룹 크기 > 0 이어야 합니다")
+    if not sizes:
+        return []
+    whole = sum(sizes)
+    quotas = [total * n / whole for n in sizes]
+    counts = [int(q) for q in quotas]
+    order = sorted(range(len(sizes)), key=lambda i: (-(quotas[i] - counts[i]), i))
+    for i in order[: total - sum(counts)]:
+        counts[i] += 1
+    return counts
+
+
+def safe_name(text: str) -> str:
+    """표 이름 조각 → 폴더 이름(Windows 금지 문자 없이) — ``[``·``,`` → ``-`` · ``]`` 삭제 · ``:`` → ``.``."""
+    return text.replace("[", "-").replace(",", "-").replace("]", "").replace(":", ".")
+
+
+def class_presets_label(groups: list[tuple[str, list[str]]]) -> str:
+    """``split[hard-paste:blowhole,poisson-graft:break+crack]`` — 표 이름의 ``+`` 뒤 한 단어(공백 없음)."""
+    return "split[" + ",".join(f"{p}:{'+'.join(cs)}" for p, cs in groups) + "]"
+
+
 def synthesize(
     anograft: str,
     out: Path,
@@ -249,8 +329,14 @@ def synthesize(
     seed: int,
     roi: str,
     mask_from: str,
+    *,
+    classes: list[str] | None = None,
+    dent_classes: tuple[str, ...] = (),
+    tag: str | None = None,
 ) -> Path:
-    """은행(``bank-<mask_from>``, 없을 때만) → 레시피 → ``run``. 같은 seed·count 의 합성이 이미 있으면 건너뛴다."""
+    """은행(``bank-<mask_from>``, 없을 때만) → 레시피 → ``run``. 같은 seed·count 의 합성이 이미 있으면 건너뛴다.
+    ``classes`` 는 ``recipe init --classes``(그 클래스만), ``dent_classes`` 는 ``--dent-class``. ``tag`` 는 폴더 이름(기본 preset)."""
+    tag = tag or preset
     bank = out / f"bank-{mask_from}"
     if not (bank / "bank.yaml").exists():
         run(
@@ -272,8 +358,8 @@ def synthesize(
                 mask_from,
             ]
         )
-    syn = out / f"syn-{preset}-{mask_from}"
-    recipe = out / f"{preset}-{mask_from}.yaml"
+    syn = out / f"syn-{tag}-{mask_from}"
+    recipe = out / f"{tag}-{mask_from}.yaml"
     if (syn / "manifest.csv").is_file() and recipe_matches(recipe, seed, count):
         print(f"  (합성 재사용: {syn})", flush=True)
         return syn
@@ -300,9 +386,58 @@ def synthesize(
     ]
     if roi:
         args += ["--roi", roi]
+    if classes:
+        args += ["--classes", *classes]
+    for c in dent_classes:
+        args += ["--dent-class", c]
     run(args)
     run([anograft, "-m", "anograft", "run", str(recipe), "--workers", "4"])
     return syn
+
+
+def synthesize_split(
+    anograft: str,
+    out: Path,
+    groups: list[tuple[str, list[str]]],
+    count: int,
+    seed: int,
+    roi: str,
+    mask_from: str,
+) -> Path:
+    """프리셋별 클래스 그룹 → 그룹마다 ``source.classes`` 로 따로 합성(장수는 클래스 수 비례) → ``dataset merge --dedupe-normals``.
+    병합 폴더는 매번 다시 만든다(복사만이라 싸고, 그룹 합성은 각자 캐시)."""
+    counts = split_counts(count, [len(cs) for _, cs in groups])
+    parts = [
+        synthesize(
+            anograft,
+            out,
+            preset,
+            n,
+            seed,
+            roi,
+            mask_from,
+            classes=cs,
+            tag=safe_name(f"split.{preset}.{'+'.join(cs)}"),
+        )
+        for (preset, cs), n in zip(groups, counts, strict=True)
+    ]
+    merged = out / f"syn-{safe_name(class_presets_label(groups))}-{mask_from}"
+    if merged.exists():
+        shutil.rmtree(merged)
+    run(
+        [
+            anograft,
+            "-m",
+            "anograft",
+            "dataset",
+            "merge",
+            *map(str, parts),
+            "--out",
+            str(merged),
+            "--dedupe-normals",
+        ]
+    )
+    return merged
 
 
 def make_train_set(real: Path, syn_roots: list[Path], out: Path) -> Path:
@@ -383,7 +518,7 @@ def set_short_name(name: str) -> str:
     short = words[0] + "-" + words[1].strip("+")
     if "(" in name:
         short += "-" + name.split("(")[1].rstrip(")")
-    return short
+    return safe_name(short)
 
 
 def summarize(results: dict[str, dict[int, dict]], seeds: list[int], baseline: str) -> str:
@@ -435,7 +570,19 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--classes", nargs="+", default=["bent", "color", "scratch"])
     ap.add_argument("--k", type=int, default=8, help="클래스당 real-train 장수")
     ap.add_argument("--count", type=int, default=200)
-    ap.add_argument("--presets", nargs="+", default=["poisson-graft", "dent-graft"])
+    ap.add_argument(
+        "--presets",
+        nargs="*",
+        default=["poisson-graft", "dent-graft"],
+        help="프리셋(각각 B 셋). '<preset>+dent:<cls>,<cls>' 면 그 클래스만 geometry.per_class ±15°(recipe init --dent-class). 빈 값 = 없음",
+    )
+    ap.add_argument(
+        "--class-presets",
+        nargs="+",
+        default=None,
+        metavar="CLASS=PRESET",
+        help="결함 성격별 프리셋 — 클래스마다 프리셋을 배정(전부), 프리셋별로 따로 합성해 dataset merge → B 셋 하나 더",
+    )
     ap.add_argument("--roi", default="annulus")
     ap.add_argument(
         "--mask-from",
@@ -476,6 +623,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--skip-train", action="store_true", help="데이터만 만들고 학습은 생략")
     ap.add_argument("--force", action="store_true", help="results/ 캐시를 무시하고 다시 학습")
     a = ap.parse_args(argv)
+    specs = [parse_preset_spec(p) for p in a.presets]
+    groups = parse_class_presets(a.class_presets, a.classes) if a.class_presets else None
     a.out.mkdir(parents=True, exist_ok=True)
     a.anograft = str(Path(a.anograft).resolve())  # CreateProcess 는 상대 경로를 못 찾는다
     split_seed = a.seed if a.split_seed is None else a.split_seed
@@ -491,10 +640,26 @@ def main(argv: list[str] | None = None) -> int:
     baseline = "A real-train only"
     sets = {baseline: make_train_set(a.out / "real", [], a.out / "set-A")}
     for mf in a.mask_from:
-        for p in a.presets:
-            syn = synthesize(a.anograft, a.out, p, a.count, a.seed, a.roi, mf)
-            sets[f"B +{p} ({mf})"] = make_train_set(
-                a.out / "real", [syn], a.out / f"set-B-{p}-{mf}"
+        for sp in specs:
+            syn = synthesize(
+                a.anograft,
+                a.out,
+                sp.preset,
+                a.count,
+                a.seed,
+                a.roi,
+                mf,
+                dent_classes=sp.dent_classes,
+                tag=sp.tag,
+            )
+            sets[f"B +{sp.tag} ({mf})"] = make_train_set(
+                a.out / "real", [syn], a.out / f"set-B-{sp.tag}-{mf}"
+            )
+        if groups:
+            syn = synthesize_split(a.anograft, a.out, groups, a.count, a.seed, a.roi, mf)
+            label = class_presets_label(groups)
+            sets[f"B +{label} ({mf})"] = make_train_set(
+                a.out / "real", [syn], a.out / f"set-B-{safe_name(label)}-{mf}"
             )
     if a.skip_train:
         print("데이터만 만들었습니다:", {k: str(v) for k, v in sets.items()})
@@ -525,7 +690,7 @@ def main(argv: list[str] | None = None) -> int:
             print(name, s, r, flush=True)
     md = (
         summarize(results, train_seeds, baseline)
-        + f"\n\n{spec.name} · classes {a.classes} · real-train {a.k}/class · real-val {info['counts']['val']}(+good {info['counts']['val_neg']}) · 합성 {a.count}/프리셋(roi {a.roi}, mask_from {a.mask_from}, 대상 {info['targets']}) · {a.model} imgsz {a.imgsz} epochs {a.epochs} · split-seed {split_seed} · 합성 seed {a.seed} · 학습 seeds {train_seeds} · CPU\n"
+        + f"\n\n{spec.name} · classes {a.classes} · real-train {a.k}/class · real-val {info['counts']['val']}(+good {info['counts']['val_neg']}) · 합성 {a.count}/프리셋(roi {a.roi}, mask_from {a.mask_from}, presets {[sp.tag for sp in specs]}{f', class-presets {a.class_presets}' if groups else ''}, 대상 {info['targets']}) · {a.model} imgsz {a.imgsz} epochs {a.epochs} · split-seed {split_seed} · 합성 seed {a.seed} · 학습 seeds {train_seeds} · CPU\n"
     )
     (a.out / "result.md").write_text(md, encoding="utf-8")
     (a.out / "result.json").write_text(

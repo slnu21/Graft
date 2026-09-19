@@ -1,4 +1,5 @@
-"""5단계 조화 — ``none`` · ``stats`` · ``reinhard`` · ``histmatch`` (설계 §6). 마스크 링의 대상 통계를 참조해 **마스크 내부만** 바꾼다.
+"""5단계 조화 — ``none`` · ``stats`` · ``reinhard`` · ``histmatch`` · ``relative`` (설계 §6). 마스크 링의 대상 통계를 참조해
+**마스크 내부만** 바꾼다.
 
 - 링 ``R = dilate(placed_mask, ring_px) − placed_mask`` (대상 좌표 = ``ctx.placed_mask``).
 - 세 방법 모두 같은 틀(``harmonize_channels``): 컬러는 Lab로 바꿔 채널별로, 흑백은 세 채널이 같으므로 채널 0만 맞추고
@@ -10,6 +11,10 @@
   σ_R이 폭발하고(물체 200 / 배경 40 → σ 65), σ 정합이 내부 대비를 5배로 키워 경계에 검은 테두리가 생긴다(2026-09-14 골든
   64px 디스크에서 발견). 자른 링이 비면 자르지 않은 링으로(로그 ``ring_in_roi``).
 - ``strength == 0``이면 변환 없이 항등(Lab 왕복 손실도 없음). 링이나 내부가 비면 ``skipped``.
+- ``relative``(v0.8.2): 참조가 **소스 패치의 링**(``ctx.patch``·``ctx.patch_mask``, 기하 변환 뒤 패치 좌표)이다 —
+  ``x' = μ_Rt + (x − μ_Rs)``(``gain`` 이면 ``·σ_Rt/σ_Rs``). 위 세 방법은 내부 평균을 링에 맞춰 결함 대비를 정의상 (1−strength) 배로
+  줄이지만, 이건 결함의 상대 대비를 두고 소스·대상의 **노출 차이**만 없앤다(MT 타일처럼 대상마다 밝기가 다른 데이터에서 ``paste`` 가
+  배경보다 밝은 구멍을 만드는 것을 막는다 — BENCHMARKS §2 Magnetic Tile). L 채널만. ``paste`` 용 — poisson 뒤에는 이중 보정.
 """
 
 from __future__ import annotations
@@ -25,6 +30,7 @@ from anograft.core.recipe import (
     HistmatchHarmonizeConfig,
     NoneHarmonizeConfig,
     ReinhardHarmonizeConfig,
+    RelativeHarmonizeConfig,
     StatsHarmonizeConfig,
 )
 from anograft.core.registry import register
@@ -161,6 +167,58 @@ def harmonize_histmatch(
     return harmonize_channels(composite, mask, ring_px, strength, gray, match_hist, (0, 1, 2), roi)
 
 
+def source_ring_values(
+    patch: np.ndarray, patch_mask: np.ndarray, ring_px: int, gray: bool
+) -> np.ndarray:
+    """소스 패치(기하 변환 뒤)에서 마스크 바깥 ``ring_px`` 링의 L 값(float32, 1-D). 패치 경계를 넘는 링은 잘린다(반사 패딩된 픽셀은
+    소스 주변이라 그대로 씀). 비면 길이 0."""
+    ring = ring_of(patch_mask, ring_px)
+    plane = patch[:, :, 0] if gray else cv2.cvtColor(patch, cv2.COLOR_BGR2LAB)[:, :, 0]
+    return plane[ring].astype(np.float32)
+
+
+def match_relative(src_ring: np.ndarray, gain: bool) -> Matcher:
+    """``relative`` 의 matcher — ``values`` 내부 통계는 보지 않고 소스 링 → 대상 링 변환을 내부에 적용."""
+    mu_s, sd_s = float(src_ring.mean()), float(src_ring.std())
+
+    def fn(values: np.ndarray, ref: np.ndarray) -> np.ndarray:
+        mu_t, sd_t = float(ref.mean()), float(ref.std())
+        if gain and sd_s > _EPS:
+            return mu_t + (values - mu_s) * (sd_t / sd_s)
+        return values + (mu_t - mu_s)
+
+    return fn
+
+
+def harmonize_relative(
+    composite: np.ndarray,
+    mask: np.ndarray,
+    ring_px: int,
+    strength: float,
+    gray: bool,
+    roi: np.ndarray | None,
+    patch: np.ndarray | None,
+    patch_mask: np.ndarray | None,
+    gain: bool = False,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    """``relative``: 소스 링 → 대상 링 노출 오프셋(``gain`` 이면 배율도)을 마스크 안에. 패치가 없거나 소스 링이 비면 ``skipped``."""
+    if patch is None or patch_mask is None:
+        return composite, {"skipped": "패치 없음(relative 는 blend 뒤 ctx.patch 가 필요)"}
+    src_ring = source_ring_values(patch, patch_mask, ring_px, gray)
+    if src_ring.size == 0:
+        return composite, {"skipped": "소스 링이 비어 있음(마스크가 패치를 가득 채움)"}
+    out, stats = harmonize_channels(
+        composite, mask, ring_px, strength, gray, match_relative(src_ring, gain), (0,), roi
+    )
+    stats.update(
+        source_ring_px=int(src_ring.size),
+        mean_source_ring=float(src_ring.mean()),
+        std_source_ring=float(src_ring.std()),
+        gain=gain,
+    )
+    return out, stats
+
+
 def _inputs(ctx: Context) -> np.ndarray | None:
     return ctx.placed_mask if ctx.placement is not None else None
 
@@ -225,3 +283,35 @@ class HistmatchHarmonize(_RingHarmonize):
     methods: ClassVar[tuple[str, ...]] = ("histmatch",)
     method = "histmatch"
     _fn = staticmethod(harmonize_histmatch)
+
+
+@register
+class RelativeHarmonize:
+    """``relative`` — 소스 링 → 대상 링 노출 보정(내부 상대 대비 보존). ``ctx.patch``·``ctx.patch_mask`` 를 참조로 쓴다."""
+
+    stage: ClassVar[str] = "harmonize"
+    methods: ClassVar[tuple[str, ...]] = ("relative",)
+    requires: ClassVar[tuple[str, ...]] = ()
+
+    def __init__(self, cfg: RelativeHarmonizeConfig, deps: Mapping[str, Any]) -> None:
+        self.cfg = cfg
+
+    def apply(self, ctx: Context) -> Context:
+        mask = _inputs(ctx)
+        log: dict[str, Any] = {"method": "relative", "strength": self.cfg.strength}
+        if mask is None:
+            log["skipped"] = "placement 없음"
+            return ctx.with_log("harmonize", log)
+        out, stats = harmonize_relative(
+            ctx.composite,
+            mask,
+            self.cfg.ring_px,
+            self.cfg.strength,
+            ctx.target.gray,
+            ctx.roi,
+            ctx.patch,
+            ctx.patch_mask,
+            self.cfg.gain,
+        )
+        log.update(stats)
+        return replace(ctx, composite=out).with_log("harmonize", log)

@@ -1,0 +1,45 @@
+# Relative Paste (v0.8.2) — 대비가 곧 신호인 결함(블로우홀·검은 구멍·핏)용. hard-paste 의 픽셀 치환 + 노출 보정 `relative`.
+#
+#   왜 따로 두나: poisson·stats 계열은 결함 톤을 대상에 맞추며 정의상 옅게 만든다(Magnetic Tile blowhole: 합성 대비 −17 vs 실제 −48
+#   → mAP50 0.64 → 0.34, BENCHMARKS §2). 반대로 hard-paste 그대로는 대상마다 노출이 다른 데이터에서 절반이 "배경보다 밝은 구멍"
+#   이 된다(합성 대비 중앙값 0). `relative` 는 소스 패치의 링(결함 주변) 평균을 대상 링 평균에 맞추는 오프셋만 내부에 더해
+#   결함의 상대 대비를 그대로 두고 노출 차이만 없앤다. 흑백·컬러 모두 L 채널만.
+#   블렌딩은 paste — alpha 페더는 보정 전 톤이 페더 띠에 남아 이음새가 보인다(조화가 블렌딩 뒤에 온다). 열화는 alpha-paste 와 같게.
+#   회전 ±180·flip both = 텍스처성 결함 기본. 조명 의존(찍힘)이면 geometry.per_class 로 ±15°.
+pipeline:
+  source:
+    method: bank
+    classes: null
+    min_sources_warn: 10
+  geometry:
+    method: affine
+    scale: [0.8, 1.25]
+    rotate: [-180, 180]
+    flip: both
+    elastic: { alpha: 0, sigma: 4 }
+  placement:
+    method: sampled
+    roi: { method: otsu, invert: auto, erode_px: 8 }
+    distribution: uniform
+    margin_px: 8
+    max_tries: 50
+    shrink_on_fail: { factor: 0.8, rounds: 3 }
+  blend:
+    method: paste
+  harmonize:
+    method: relative
+    strength: 1.0            # 노출 보정은 전부(0.5 면 절반만 맞춘다)
+    ring_px: 12
+    gain: false              # true 면 σ 비로 대비 배율도 — 링이 작아 잡음, 기본 off
+  degrade:
+    method: camera
+    noise_sigma: [0, 2.0]
+    blur_sigma: [0, 0.6]
+    jpeg_quality: null
+    motion_blur_px: null
+    vignette: null
+    gamma: null
+  gtmask:
+    policy: source           # paste 는 마스크 밖을 바꾸지 않으므로 소스 마스크가 곧 GT
+    diff_threshold: 12
+    dilate_px: 0

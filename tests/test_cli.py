@@ -621,3 +621,51 @@ def test_recipe_init_roi_and_um_per_px(tmp_path: Path, capsys: pytest.CaptureFix
     with pytest.raises(KeyError):
         R.init_recipe_dict("poisson-graft", roi="nope")
     assert R.init_recipe_dict("poisson-graft")["inputs"]["um_per_px"] is None
+
+
+def test_recipe_init_classes(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """0.8.2 — ``--classes`` 는 ``source.classes`` 만 채운다(결함 성격별 프리셋을 클래스 부분집합에 → dataset merge). 은행 없는
+    프리셋은 거부."""
+    from anograft.core import recipe as R
+
+    target = tmp_path / "hole.yaml"
+    assert (
+        main(
+            [
+                "recipe",
+                "init",
+                "--preset",
+                "hard-paste",
+                "--classes",
+                "blowhole",
+                "crack",
+                "--write",
+                str(target),
+            ]
+        )
+        == EXIT_OK
+    )
+    text = target.read_text(encoding="utf-8")
+    data = yaml.safe_load(text)
+    assert data["pipeline"]["source"] == {
+        "method": "bank",
+        "classes": ["blowhole", "crack"],
+        "tags": {"include": [], "exclude": []},
+        "min_sources_warn": 10,
+        "redraw_on_empty": 2,
+        "single_class_per_image": False,
+    }
+    assert data["pipeline"]["blend"]["method"] == "paste"  # 나머지는 프리셋 그대로
+    assert "--classes blowhole crack" in text.splitlines()[0]
+    capsys.readouterr()
+    assert main(["recipe", "check", str(target)]) == EXIT_OK
+    capsys.readouterr()
+    # 기본은 None(은행 전체) · 은행 없는 프리셋엔 KeyError → CLI 는 EXIT_RECIPE_ERROR
+    assert R.init_recipe_dict("poisson-graft")["pipeline"]["source"]["classes"] is None
+    with pytest.raises(KeyError):
+        R.init_recipe_dict("self-cut", classes=["a"])
+    assert (
+        main(["recipe", "init", "--preset", "perlin-texture", "--classes", "a"])
+        == EXIT_RECIPE_ERROR
+    )
+    assert "은행을 쓰지 않아" in capsys.readouterr().err

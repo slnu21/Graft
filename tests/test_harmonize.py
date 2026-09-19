@@ -15,11 +15,14 @@ from anograft.core.stages.harmonize import (
     HistmatchHarmonize,
     NoneHarmonize,
     ReinhardHarmonize,
+    RelativeHarmonize,
     StatsHarmonize,
     dilate_mask,
     match_hist,
+    match_relative,
     match_stats,
     ring_of,
+    source_ring_values,
 )
 from anograft.core.types import Context, Placement, TargetImage
 from tests.fixtures import context
@@ -316,3 +319,147 @@ def test_ring_is_clipped_to_roi_so_background_does_not_inflate_sigma(method: str
     none = st.apply(replace(base, roi=np.zeros((H, W), dtype=bool)))
     assert none.log["harmonize"]["ring_in_roi"] is False
     assert np.array_equal(none.composite, no_roi.composite)
+
+
+# ---------------------------------------------------------------------------
+# relative(v0.8.2) — 소스 링 → 대상 링 노출 보정, 내부 상대 대비 보존
+# ---------------------------------------------------------------------------
+
+PH, PW = 24, 32
+
+
+def _relative_scene(gray: bool, seed: int = 1) -> tuple[Context, np.ndarray, float]:
+    """_scene(대상 180 · 내부 60)에 소스 패치를 붙인다: 패치 링 120±8 · 패치 내부 = 대상 마스크 안 픽셀 그대로(paste 로 옮긴 셈).
+    반환 (ctx, mask, 소스 상대 대비 = L(내부) − L(소스 링) ≈ −60)."""
+    ctx, mask = _scene(gray, seed=seed)
+    rng = np.random.default_rng(seed + 100)
+    patch_mask = np.zeros((PH, PW), dtype=np.uint8)
+    patch_mask[4:20, 4:28] = 255  # 마스크 16×24 = 대상 마스크와 같은 크기, 링 4px 여유
+    plane = np.clip(rng.normal(120, 8, (PH, PW)), 0, 255).astype(np.uint8)
+    if gray:
+        patch = np.repeat(plane[:, :, None], 3, axis=2)
+    else:
+        patch = np.stack([plane, np.clip(plane.astype(int) + 20, 0, 255), plane], axis=2).astype(
+            np.uint8
+        )
+    patch[patch_mask > 0] = ctx.composite[mask > 0]  # 같은 픽셀 수(384) — paste 결과와 일치
+    ring_vals = source_ring_values(patch, patch_mask, 6, gray)
+    src_contrast = float(_lum(patch, gray)[patch_mask > 0].mean() - ring_vals.mean())
+    return replace(ctx, patch=patch, patch_mask=patch_mask), mask, src_contrast
+
+
+def test_match_relative_offset_and_gain() -> None:
+    src_ring = np.array([100.0, 110.0, 120.0])  # μ 110 · σ ≈ 8.2
+    v = np.array([40.0, 50.0, 60.0])  # 소스 링보다 60 어두움
+    ref = np.array([170.0, 180.0, 190.0])  # 대상 링 μ 180
+    out = match_relative(src_ring, gain=False)(v, ref)
+    assert np.allclose(out, v + 70)  # 오프셋 = 180 − 110, 내부 분산·상대 대비 불변
+    assert out.mean() - ref.mean() == pytest.approx(v.mean() - src_ring.mean())
+    ref2 = np.array([160.0, 180.0, 200.0])  # σ 두 배
+    out2 = match_relative(src_ring, gain=True)(v, ref2)
+    assert out2.mean() == pytest.approx(180 + (50 - 110) * 2) and out2.std() == pytest.approx(
+        v.std() * 2
+    )
+    flat = match_relative(np.array([5.0, 5.0]), gain=True)(v, ref)  # σ_s 0 → 오프셋만
+    assert np.allclose(flat, v + 175)
+
+
+def test_source_ring_values_clips_to_patch() -> None:
+    patch = np.full((PH, PW, 3), 90, dtype=np.uint8)
+    pm = np.zeros((PH, PW), dtype=np.uint8)
+    pm[:, :] = 255
+    assert source_ring_values(patch, pm, 6, gray=True).size == 0  # 마스크가 패치 전체 → 링 없음
+    pm[:] = 0
+    pm[8:16, 8:24] = 255
+    vals = source_ring_values(patch, pm, 6, gray=True)
+    assert vals.size == int(ring_of(pm, 6).sum()) and (vals == 90).all()
+
+
+@pytest.mark.parametrize("gray", [False, True])
+def test_relative_keeps_contrast_and_fixes_exposure(gray: bool) -> None:
+    ctx, mask, src_contrast = _relative_scene(gray)
+    out = RelativeHarmonize(R.RelativeHarmonizeConfig(strength=1.0, ring_px=6), {}).apply(ctx)
+    inside, ring = mask > 0, ring_of(mask, 6)
+    assert np.array_equal(out.composite[~inside], ctx.composite[~inside])  # 마스크 밖 불변
+    lum = _lum(out.composite, gray)
+    # 보정 뒤 (내부 − 대상 링) ≈ 소스의 (내부 − 소스 링): 상대 대비 보존. stats 였다면 ≈ 0 이 됐을 것
+    assert lum[inside].mean() - lum[ring].mean() == pytest.approx(src_contrast, abs=2.5)
+    assert src_contrast < -50
+    # 내부 분산은 오프셋이라 그대로(gain off)
+    assert lum[inside].std() == pytest.approx(_lum(ctx.composite, gray)[inside].std(), abs=1.5)
+    log = out.log["harmonize"]
+    assert log["method"] == "relative" and log["gain"] is False and log["source_ring_px"] > 0
+    assert log["mean_after"] > log["mean_in"]  # 어두운 소스(링 120) → 밝은 대상(180): 위로 옮김
+    if gray:
+        c = out.composite
+        assert np.array_equal(c[:, :, 0], c[:, :, 1]) and np.array_equal(c[:, :, 1], c[:, :, 2])
+
+
+def test_relative_stats_would_erase_contrast_but_relative_does_not() -> None:
+    ctx, mask, _ = _relative_scene(False)
+    inside, ring = mask > 0, ring_of(mask, 6)
+    rel = RelativeHarmonize(R.RelativeHarmonizeConfig(strength=1.0, ring_px=6), {}).apply(ctx)
+    st = StatsHarmonize(R.StatsHarmonizeConfig(strength=1.0, ring_px=6), {}).apply(ctx)
+    lr, ls = _lum(rel.composite, False), _lum(st.composite, False)
+    assert abs(ls[inside].mean() - ls[ring].mean()) < 2.0  # stats: 대비 0
+    assert lr[inside].mean() - lr[ring].mean() < -50  # relative: 대비 유지
+
+
+def test_relative_half_strength_and_gain() -> None:
+    ctx, mask, _ = _relative_scene(False)
+    inside = mask > 0
+    full = RelativeHarmonize(R.RelativeHarmonizeConfig(strength=1.0, ring_px=6), {}).apply(ctx)
+    half = RelativeHarmonize(R.RelativeHarmonizeConfig(strength=0.5, ring_px=6), {}).apply(ctx)
+    m0 = _lum(ctx.composite, False)[inside].mean()
+    m1 = _lum(full.composite, False)[inside].mean()
+    mh = _lum(half.composite, False)[inside].mean()
+    assert m0 < mh < m1 and abs(mh - (m0 + m1) / 2) < 2.0
+    gain = RelativeHarmonize(R.RelativeHarmonizeConfig(ring_px=6, gain=True), {}).apply(ctx)
+    log = gain.log["harmonize"]
+    assert log["gain"] is True and log["std_source_ring"] > 0
+    # σ_Rt(≈10) / σ_Rs(≈8) > 1 → 내부 분산이 커진다
+    assert _lum(gain.composite, False)[inside].std() > _lum(full.composite, False)[inside].std()
+
+
+def test_relative_skips_without_patch_or_source_ring() -> None:
+    ctx, _mask, _ = _relative_scene(False)
+    no_patch = RelativeHarmonize(R.RelativeHarmonizeConfig(), {}).apply(
+        replace(ctx, patch=None, patch_mask=None)
+    )
+    assert np.array_equal(no_patch.composite, ctx.composite)
+    assert "패치 없음" in no_patch.log["harmonize"]["skipped"]
+    full_mask = np.full((PH, PW), 255, dtype=np.uint8)
+    no_ring = RelativeHarmonize(R.RelativeHarmonizeConfig(), {}).apply(
+        replace(ctx, patch_mask=full_mask)
+    )
+    assert np.array_equal(no_ring.composite, ctx.composite)
+    assert "소스 링" in no_ring.log["harmonize"]["skipped"]
+    zero = RelativeHarmonize(R.RelativeHarmonizeConfig(strength=0.0), {}).apply(ctx)
+    assert np.array_equal(zero.composite, ctx.composite)
+    assert zero.log["harmonize"]["skipped"] == "strength 0"
+    assert (
+        RelativeHarmonize(R.RelativeHarmonizeConfig(), {})
+        .apply(context())
+        .log["harmonize"]["skipped"]
+        == "placement 없음"
+    )
+
+
+def test_relative_config_in_recipe_union() -> None:
+    rec = R.Recipe.from_dict(
+        {
+            "version": 1,
+            "name": "t",
+            "seed": 1,
+            "inputs": {"bank": "b", "targets": "t"},
+            "output": {"root": "o", "count": 1},
+            "pipeline": {"preset": "relative-paste"},
+        }
+    )
+    h = rec.pipeline.harmonize
+    assert h.method == "relative" and h.strength == 1.0 and h.gain is False and h.ring_px == 12
+    assert rec.pipeline.blend.method == "paste" and rec.pipeline.gtmask.policy == "source"
+    with pytest.raises(
+        Exception, match=r"gain|extra"
+    ):  # 다른 method 의 키는 거부(조용히 무시 금지)
+        R.StatsHarmonizeConfig(gain=True)

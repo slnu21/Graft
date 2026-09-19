@@ -29,7 +29,14 @@ def test_schema_methods_match_design_matrix_v01() -> None:
     assert registry.schema_methods("roi") == ["otsu", "none", "mask_dir", "grabcut", "annulus"]
     assert registry.schema_methods("placement") == ["sampled", "structure-aware"]
     assert registry.schema_methods("blend") == ["paste", "alpha", "poisson", "multiband"]
-    assert registry.schema_methods("harmonize") == ["none", "stats", "reinhard", "histmatch"]
+    # harmonize 는 v0.8.2(class-preset-merge)에서 relative(노출 보정) 가 붙었다
+    assert registry.schema_methods("harmonize") == [
+        "none",
+        "stats",
+        "reinhard",
+        "histmatch",
+        "relative",
+    ]
     assert registry.schema_methods("degrade") == ["none", "camera"]
     assert registry.schema_methods("gtmask") == ["source", "diff", "union"]
 
