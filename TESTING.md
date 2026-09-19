@@ -1,4 +1,4 @@
-# TESTING — 받아서 확인할 것 (v0.8.0 · v0.8.1)
+# TESTING — 받아서 확인할 것 (v0.8.0 · v0.8.1 · v0.8.2)
 
 > 자율 세션(2026-09-16 저녁 ~ 09-17 새벽)이 만든 것을 **다른 PC 에서 그대로 따라 하며** 확인하는 절차. 각 항목은 *무엇을 → 기대 결과 → 어긋나면*. 실데이터가 있으면 `KNOWN-ISSUES.md` "2차 적용 절차"를 먼저, 없으면 아래 공개 데이터로.
 > English summary at the end.
@@ -7,7 +7,7 @@
 
 ```powershell
 # A) 파이썬 없이 — 릴리스 zip 을 풀고
-.\anograft.exe doctor                      # 버전 0.8.1 · gui ok 인지
+.\anograft.exe doctor                      # 버전 0.8.2 · gui ok 인지
 # B) 소스 —
 .\bootstrap.ps1 -Gui                       # = venv + pip install -e ".[dev,gui]"
 anograft doctor --json > doctor.json       # 문제 보고 첫 줄
@@ -56,6 +56,14 @@ python tools/fetch_public_datasets.py screw --import            # (선택) 흑�
 | 20 | (v0.8.1 뒤) 같은 `--out` 으로 `--train-seeds 7 8 9 --split-seed 7 --mask-from grabcut hybrid` 를 두 번 | 두 번째는 `== cached …`·`(합성 재사용: …)` 만 찍고 학습 없이 표를 다시 씀. `--split-seed 8` 로 같은 폴더를 주면 `다른 분할이 있습니다` 거부 |
 | 21 | `samples/magnetic-tile/pairs.csv --classes blowhole break crack --roi none --epochs 1 --count 8 --k 2` | `real sets: … 'dataset': 'magnetic-tile', 'targets': 220, 'normals': 952` · `targets.txt` 220줄 · 은행 `bank-grabcut`/`bank-hybrid` · 1 epoch 표 |
 
+### v0.8.2 추가 항목
+
+| # | 무엇을 | 기대 결과 |
+|---|---|---|
+| 22 | `anograft recipe init --preset relative-paste --bank bank/magnetic-tile --targets samples/magnetic-tile/normals.txt --roi none --classes blowhole --write a.yaml` · 같은 은행으로 `--preset poisson-graft --classes break crack --write b.yaml` → `run` 둘 → `dataset merge out/a out/b --out out/ab --dedupe-normals` | `a.yaml` 의 `source.classes: [blowhole]`(헤더 주석에 `--classes blowhole`) · `out/a` 사이드카 `harmonize.method: relative`(마스크 밖 바이트는 paste 와 동일) · merge 결과 `data.yaml` names 가 은행 순서 그대로(blowhole·break·crack), 정상 한 벌. `--preset self-cut --classes x` 는 거부(은행 없음) |
+| 23 | 검수 탭 분포 → 클래스 `blowhole` → 대비 | `out/a`(relative-paste) 합성 중앙값이 실제(은행) 쪽으로(≈ −37 vs −48); 같은 은행의 poisson 출력은 0 쪽(≈ −17) |
+| 24 | `tools/train_mvtec_map.py samples/magnetic-tile/pairs.csv --classes blowhole break crack --roi none --presets poisson-graft relative-paste --class-presets blowhole=relative-paste break=poisson-graft crack=poisson-graft --mask-from hybrid --epochs 1 --count 9 --k 2` | 표에 `B +split relative-paste(blowhole) poisson-graft(break+crack) (hybrid)` 행 · `syn-split-…` 폴더가 `merge.json` 을 가짐 · 합성 9 = 3 + 6(클래스 수 비례) |
+
 `real.csv` 예시(항목 8·9):
 
 ```
@@ -78,9 +86,10 @@ scratch,10000,220
 
 ## English (summary)
 
-1. **Install**: unzip the release and run `anograft.exe doctor` (expect 0.8.1, `gui ok`), or `.\bootstrap.ps1 -Gui` + `pytest -q` (all green).
+1. **Install**: unzip the release and run `anograft.exe doctor` (expect 0.8.2, `gui ok`), or `.\bootstrap.ps1 -Gui` + `pytest -q` (all green).
 2. **Data**: `python tools/fetch_public_datasets.py metal_nut magnetic-tile --import` (MVTec is CC BY-NC-SA — local dev only).
 3. **Check** (table above): dry-run `fit` rows now show short/long side + reason; `source:` warning for whole-part classes; `targets:` warning when mask PNGs sit next to images; `dataset merge` (refuses different class lists; merges same-bank outputs with `d<k>_` prefixes and re-indexed manifest); review tab **per-class combo** and **measured CSV** button; `dataset report --real-csv`; `--mask-from hybrid` (opt-in; default unchanged); `tools/bench_mask_from_box.py`.
 4. **v0.8.1**: `source.redraw_on_empty` (tiny sources no longer skip the image), `output.root` follows the recipe folder when inputs fell back, `run --roi-cache N`, `source.single_class_per_image` (no mixed classes for the MVTec writer), the Sample-data options dialog, `geometry.tps` (thin-plate warp, off by default), and `BENCHMARKS.md` (box→mask IoU · synthetic vs. no-synthetic mAP).
 5. **After v0.8.1** (`tools/train_mvtec_map.py`): `--train-seeds 7 8 9` repeats only the training seed on a fixed split/synthesis and prints per-seed + mean Δ; `--mask-from grabcut hybrid` builds one B set per bank; a `pairs.csv` (Magnetic Tile) is accepted as the dataset; finished (set, seed) pairs are cached under `results/` so re-running the same `--out` skips training. Expect exact (3-decimal) reproduction for the same seed and data.
-6. **Report**: `doctor.json`, the exact command output, screenshots, and any reversed decision in `KNOWN-ISSUES.md`.
+6. **v0.8.2**: `recipe init --classes A B` restricts a preset to those bank classes (refused for self-cut/perlin); `harmonize.relative` / preset `relative-paste` keeps the defect's contrast and only compensates exposure (review tab: blowhole median contrast ≈ −37 vs real −48, poisson ≈ −17); `train_mvtec_map.py --class-presets cls=preset …` synthesizes per class group and merges (`syn-split-…/merge.json`).
+7. **Report**: `doctor.json`, the exact command output, screenshots, and any reversed decision in `KNOWN-ISSUES.md`.

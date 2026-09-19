@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-09-19
+
+**결함 성격별 프리셋** — `harmonize.relative`(노출 보정) + 프리셋 `relative-paste` · `recipe init --classes`(프리셋을 클래스 부분집합에만) → `run` × n → `dataset merge --dedupe-normals`. Magnetic Tile 에서 blowhole 만 갈라 mAP50 0.460 → 0.605(+0.15, 학습 시드 3/3). 기본값·기존 프리셋·골든·은행 결과 불변(새 프리셋·옵션만 추가).
+
 ### Added
 - **`harmonize.relative`**(+ 프리셋 **`relative-paste`**) — 노출 보정: 소스 패치의 링(결함 주변) 평균을 대상 링 평균에 맞추는 **오프셋**을 마스크 안에 더한다(`gain: true` 면 σ 비로 배율도). stats·reinhard·histmatch 는 내부를 링에 맞춰 정의상 결함 대비를 (1−strength) 배로 줄이지만, 이건 결함의 *상대* 대비를 두고 소스·대상의 노출 차이만 없앤다. 대비가 곧 신호인 결함(블로우홀·검은 구멍)용 — Magnetic Tile blowhole 합성 대비 중앙값: poisson+stats 0.3 −17 · hard-paste 0(노출이 다른 타일에서 절반이 배경보다 밝은 구멍) · **relative-paste −37**(실제 −48). `paste` 뒤에 쓰는 것(poisson 뒤엔 이중 보정). L 채널만, 마스크 밖 불변, 패치/소스 링 없으면 skipped. 골든 +2(기존 불변).
 - `anograft recipe init --classes A B` → `source.classes` — 프리셋을 은행의 일부 클래스에만. **결함 성격별 프리셋** 흐름: `init --classes` 로 레시피 둘 → `run` 둘 → `dataset merge --dedupe-normals`(같은 은행 = 같은 클래스 id, 정상 한 벌). 은행 없는 프리셋(self-cut·perlin)엔 거부.
@@ -247,7 +251,8 @@ v0.4 — CPU 알고리즘 확장. **여전히 샘플 데이터로만 검증**(�
 - GUI는 스튜디오 탭만. 재현은 같은 OS·OpenCV 부버전 범위(`seamlessClone` 솔버).
 - `release.yml`의 Windows zip 잡은 첫 push 전이라 CI에서 미검증(로컬 `tools/build_zip.ps1`와 같은 절차).
 
-[Unreleased]: https://github.com/slnu21/Graft/compare/v0.8.1...HEAD
+[Unreleased]: https://github.com/slnu21/Graft/compare/v0.8.2...HEAD
+[0.8.2]: https://github.com/slnu21/Graft/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/slnu21/Graft/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/slnu21/Graft/compare/v0.7.7...v0.8.0
 [0.7.7]: https://github.com/slnu21/Graft/compare/v0.7.6...v0.7.7
