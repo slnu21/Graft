@@ -1,11 +1,19 @@
-"""다크 톤 — ``docs/mockup.html``의 CSS 변수를 그대로. 팔레트(``QPalette``) + 스타일시트(QSS) 한 쌍."""
+"""테마 — 다크(기본, ``docs/mockup.html`` CSS 변수)·라이트 팔레트 + 글자 크기 배율(v0.9 사용성 ⑦). 팔레트(``QPalette``) + 스타일시트(QSS).
+
+``COLORS`` 는 위젯이 만들어질 때(인라인 스타일)와 그릴 때(캔버스) 읽는 **하나의 dict** — ``apply_theme(app, mode=…)`` 가 제자리에서
+바꾼다. 그래서 테마·글자 크기는 **앱 시작 때** 적용된다(설정 대화상자는 저장만 하고 "다시 시작하면 적용"). 설정 키 ``ui/theme``
+(dark|light) · ``ui/font_scale``(1.0 · 1.15 · 1.3).
+"""
 
 from __future__ import annotations
 
+import re
+
+from PySide6.QtCore import QSettings
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 
-COLORS: dict[str, str] = {
+DARK: dict[str, str] = {
     "bg": "#14171B",
     "panel": "#1A1E23",
     "panel2": "#20252B",
@@ -14,7 +22,7 @@ COLORS: dict[str, str] = {
     "line2": "#39424C",
     "tx": "#E3E8ED",
     "tx2": "#98A4B0",
-    "tx3": "#697683",
+    "tx3": "#87939F",  # 0.8 까지 #697683(bg 대비 4.1:1) → bg·panel·panel2 모두 4.5:1 이상(보조 텍스트도 읽히게)
     "stage": "#31363C",
     "teal": "#00A188",
     "amber": "#C8841C",
@@ -22,7 +30,33 @@ COLORS: dict[str, str] = {
     "ok": "#3FBF8F",
     "warn": "#D9822B",
     "bad": "#E05260",
+    "hl_text": "#06231E",
 }
+LIGHT: dict[str, str] = {
+    "bg": "#F3F5F7",
+    "panel": "#FFFFFF",
+    "panel2": "#EEF1F4",
+    "raise": "#E5E9EE",
+    "line": "#D5DBE2",
+    "line2": "#B9C2CC",
+    "tx": "#1B2129",
+    "tx2": "#3E4B58",
+    "tx3": "#5E6B78",
+    "stage": "#DEE3E8",
+    "teal": "#007A66",  # 흰 바탕에서 4.5:1 이상
+    "amber": "#9B5E0C",
+    "mask": "#E0304F",
+    "ok": "#1F8A63",
+    "warn": "#A8600F",
+    "bad": "#C0323F",
+    "hl_text": "#FFFFFF",
+}
+THEMES: dict[str, dict[str, str]] = {"dark": DARK, "light": LIGHT}
+FONT_SCALES: tuple[float, ...] = (1.0, 1.15, 1.3)
+THEME_KEY = "ui/theme"
+FONT_SCALE_KEY = "ui/font_scale"
+
+COLORS: dict[str, str] = dict(DARK)  # 현재 팔레트(제자리 갱신)
 
 # 검수 히스토그램 계열색(CLAUDE.md 규약): 합성 teal · 실제 amber. 캔버스 오버레이도 같은 계열을 쓴다.
 SYNTH_COLOR = COLORS["teal"]
@@ -34,7 +68,44 @@ def qcolor(name: str) -> QColor:
     return QColor(COLORS[name])
 
 
-def apply_theme(app: QApplication) -> None:
+def theme_settings(store: QSettings | None) -> tuple[str, float]:
+    """저장된 (테마, 글자 배율) — 없거나 이상하면 기본(dark, 1.0)."""
+    if store is None:
+        return "dark", 1.0
+    mode = str(store.value(THEME_KEY, "dark"))
+    try:
+        scale = float(store.value(FONT_SCALE_KEY, 1.0))
+    except (TypeError, ValueError):
+        scale = 1.0
+    if mode not in THEMES:
+        mode = "dark"
+    if scale not in FONT_SCALES:
+        scale = 1.0
+    return mode, scale
+
+
+def save_theme_settings(store: QSettings, mode: str, scale: float) -> None:
+    store.setValue(THEME_KEY, mode)
+    store.setValue(FONT_SCALE_KEY, scale)
+    store.sync()
+
+
+def stylesheet(scale: float = 1.0) -> str:
+    """현재 ``COLORS`` 로 QSS 를 만들고 ``font-size: Npx`` 를 배율만큼 키운다."""
+    css = _build_stylesheet()
+    if scale == 1.0:
+        return css
+    return re.sub(
+        r"font-size:\s*([0-9.]+)px",
+        lambda m: f"font-size: {float(m.group(1)) * scale:.1f}px",
+        css,
+    )
+
+
+def apply_theme(app: QApplication, *, mode: str = "dark", font_scale: float = 1.0) -> None:
+    """팔레트를 제자리에서 바꾸고(위젯·캔버스가 같은 dict 를 읽는다) QSS 를 다시 씌운다. 위젯을 만들기 **전에** 부른다."""
+    COLORS.clear()
+    COLORS.update(THEMES.get(mode, DARK))
     app.setStyle("Fusion")
     pal = QPalette()
     pal.setColor(QPalette.ColorRole.Window, qcolor("bg"))
@@ -45,7 +116,7 @@ def apply_theme(app: QApplication) -> None:
     pal.setColor(QPalette.ColorRole.Button, qcolor("panel2"))
     pal.setColor(QPalette.ColorRole.ButtonText, qcolor("tx2"))
     pal.setColor(QPalette.ColorRole.Highlight, qcolor("teal"))
-    pal.setColor(QPalette.ColorRole.HighlightedText, QColor("#06231E"))
+    pal.setColor(QPalette.ColorRole.HighlightedText, qcolor("hl_text"))
     pal.setColor(QPalette.ColorRole.ToolTipBase, qcolor("raise"))
     pal.setColor(QPalette.ColorRole.ToolTipText, qcolor("tx"))
     pal.setColor(QPalette.ColorRole.PlaceholderText, qcolor("tx3"))
@@ -53,10 +124,11 @@ def apply_theme(app: QApplication) -> None:
     pal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, qcolor("tx3"))
     pal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText, qcolor("tx3"))
     app.setPalette(pal)
-    app.setStyleSheet(STYLESHEET)
+    app.setStyleSheet(stylesheet(font_scale))
 
 
-STYLESHEET = f"""
+def _build_stylesheet() -> str:
+    return f"""
 QWidget {{ font-size: 12.5px; }}
 QMainWindow, QDialog {{ background: {COLORS["bg"]}; }}
 QToolTip {{ background: {COLORS["raise"]}; color: {COLORS["tx"]}; border: 1px solid {COLORS["line2"]}; padding: 4px 6px; }}
@@ -97,7 +169,7 @@ QComboBox QAbstractItemView {{ background: {COLORS["panel2"]}; border: 1px solid
 QPushButton {{ background: {COLORS["panel2"]}; border: 1px solid {COLORS["line2"]}; border-radius: 5px; padding: 5px 12px; color: {COLORS["tx2"]}; }}
 QPushButton:hover {{ border-color: {COLORS["tx3"]}; color: {COLORS["tx"]}; }}
 QPushButton:disabled {{ color: {COLORS["tx3"]}; border-color: {COLORS["line"]}; }}
-QPushButton#Primary {{ background: {COLORS["teal"]}; border-color: {COLORS["teal"]}; color: #06231E; font-weight: 600; }}
+QPushButton#Primary {{ background: {COLORS["teal"]}; border-color: {COLORS["teal"]}; color: {COLORS["hl_text"]}; font-weight: 600; }}
 QPushButton#Primary:hover {{ background: #12B39A; }}
 QPushButton#Fix {{ border-color: {COLORS["amber"]}; color: {COLORS["amber"]}; padding: 2px 8px; font-size: 11px; }}
 QCheckBox {{ color: {COLORS["tx2"]}; spacing: 6px; }}
@@ -106,7 +178,7 @@ QCheckBox::indicator:checked {{ background: {COLORS["teal"]}; border-color: {COL
 
 /* 카드·리스트 */
 QFrame#StageCard {{ background: {COLORS["panel2"]}; border: 1px solid {COLORS["line"]}; border-radius: 7px; }}
-QFrame#StageCard QLabel#StageNo {{ color: #06231E; background: {COLORS["teal"]}; border-radius: 9px; min-width: 18px; max-width: 18px; min-height: 18px; max-height: 18px; font-size: 10.5px; font-weight: 700; qproperty-alignment: AlignCenter; }}
+QFrame#StageCard QLabel#StageNo {{ color: {COLORS["hl_text"]}; background: {COLORS["teal"]}; border-radius: 9px; min-width: 18px; max-width: 18px; min-height: 18px; max-height: 18px; font-size: 10.5px; font-weight: 700; qproperty-alignment: AlignCenter; }}
 QFrame#StageCard QLabel#StageTitle {{ font-weight: 600; }}
 QFrame#StageCard QLabel#StageParams {{ color: {COLORS["tx2"]}; font-size: 11.5px; }}
 QFrame#StageCard QLabel#StageParams[modified="true"] {{ color: {COLORS["teal"]}; font-weight: 600; }}
@@ -126,8 +198,9 @@ QFrame#Notice[level="error"] QLabel#NoticeIcon {{ color: {COLORS["bad"]}; }}
 QFrame#Notice QLabel#NoticeText {{ color: {COLORS["tx2"]}; font-size: 11.5px; }}
 QFrame#Notice[level="error"] QLabel#NoticeText {{ color: {COLORS["bad"]}; }}
 QFrame#Notice QPushButton#NoticeAction {{ border-color: {COLORS["amber"]}; color: {COLORS["amber"]}; padding: 2px 8px; font-size: 11px; }}
+QPushButton#Settings {{ padding: 2px 0; font-size: 14px; }}
 QPushButton#NextStep {{ border: 1px solid {COLORS["teal"]}; border-radius: 5px; color: {COLORS["teal"]}; padding: 3px 12px; margin: 0 8px 2px 0; background: transparent; }}
-QPushButton#NextStep:hover {{ background: {COLORS["teal"]}; color: #06231E; }}
+QPushButton#NextStep:hover {{ background: {COLORS["teal"]}; color: {COLORS["hl_text"]}; }}
 QPushButton#NextStep:disabled {{ border-color: {COLORS["line2"]}; color: {COLORS["tx3"]}; }}
 QFrame#Checklist {{ background: {COLORS["panel2"]}; border: 1px solid {COLORS["line"]}; border-radius: 10px; }}
 QLabel#H3 {{ font-size: 15px; font-weight: 600; }}
@@ -155,3 +228,6 @@ QTableWidget {{ background: {COLORS["bg"]}; border: 1px solid {COLORS["line"]}; 
 QHeaderView::section {{ background: {COLORS["panel2"]}; color: {COLORS["tx3"]}; border: none; border-bottom: 1px solid {COLORS["line"]}; padding: 3px 6px; }}
 QSplitter::handle {{ background: {COLORS["line"]}; }}
 """
+
+
+STYLESHEET = _build_stylesheet()  # 호환(다크 · 배율 1.0)

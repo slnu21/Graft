@@ -44,7 +44,7 @@ from anograft.gui.studio import param_form
 from anograft.gui.studio.session import StudioSession
 from anograft.gui.studio.tab import StudioTab
 from anograft.gui.studio.worker import PreviewWorker
-from anograft.gui.theme import apply_theme
+from anograft.gui.theme import apply_theme, theme_settings
 from anograft.gui.workflow import (
     NEXT_HINT,
     STEPS,
@@ -283,8 +283,28 @@ class MainWindow(QMainWindow):
         h.addWidget(sub)
         h.addWidget(self.ctx, 1)
         h.addWidget(self.btn_sample)
+        self.btn_settings = QPushButton("⚙")
+        self.btn_settings.setObjectName("Settings")
+        self.btn_settings.setFixedWidth(30)
+        self.btn_settings.setToolTip("Settings — 테마(다크/라이트) · 글자 크기. 다시 시작하면 적용")
+        self.btn_settings.clicked.connect(self.open_settings)
+        h.addWidget(self.btn_settings)
         h.addWidget(self.busy)
         return bar
+
+    def open_settings(self) -> bool:
+        """설정 대화상자 — 저장하면 상태바에 "다시 시작하면 적용". 반환 = 저장했는가."""
+        from anograft.gui.settings_dialog import SettingsDialog
+
+        dlg = SettingsDialog(self.settings, self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return False
+        mode, scale = dlg.values()
+        self.status_bar.showMessage(
+            f"설정 저장 — 테마 {mode} · 글자 {scale * 100:.0f} %: 앱을 다시 열면 적용됩니다"
+            + ("" if self.settings is not None else " (이 세션은 설정을 기억하지 않습니다)")
+        )
+        return True
 
     # ------------------------------------------------------------------ 샘플 데이터
 
@@ -421,8 +441,9 @@ class MainWindow(QMainWindow):
 
 def run_app(recipe: str | None = None, argv: list[str] | None = None) -> int:
     app = QApplication.instance() or QApplication(argv if argv is not None else sys.argv)
-    apply_theme(app)
     store = settings()
+    mode, scale = theme_settings(store)
+    apply_theme(app, mode=mode, font_scale=scale)  # 위젯을 만들기 전에(팔레트는 생성 때 읽힌다)
     win = MainWindow(settings=store)
     win.show()
     start = Path(recipe) if recipe else recent_recipe(store)
