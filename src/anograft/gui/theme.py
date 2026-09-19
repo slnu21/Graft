@@ -115,6 +115,17 @@ QToolButton#Reset {{ border: none; color: {COLORS["teal"]}; font-size: 13px; pad
 QToolButton#Reset:hover {{ color: {COLORS["tx"]}; }}
 QToolButton#ResetAll {{ border: 1px solid {COLORS["line2"]}; border-radius: 4px; color: {COLORS["teal"]}; font-size: 12px; padding: 0; background: transparent; }}
 QToolButton#ResetAll:hover {{ border-color: {COLORS["teal"]}; }}
+QFrame#Notice {{ border-radius: 5px; border: 1px solid {COLORS["line"]}; background: {COLORS["panel2"]}; }}
+QFrame#Notice[level="warn"] {{ border-left: 3px solid {COLORS["amber"]}; }}
+QFrame#Notice[level="hint"] {{ border-left: 3px solid {COLORS["teal"]}; }}
+QFrame#Notice[level="error"] {{ border-left: 3px solid {COLORS["bad"]}; }}
+QFrame#Notice[level="info"] {{ border-left: 3px solid {COLORS["line2"]}; }}
+QFrame#Notice QLabel#NoticeIcon {{ color: {COLORS["amber"]}; font-size: 12px; }}
+QFrame#Notice[level="hint"] QLabel#NoticeIcon {{ color: {COLORS["teal"]}; }}
+QFrame#Notice[level="error"] QLabel#NoticeIcon {{ color: {COLORS["bad"]}; }}
+QFrame#Notice QLabel#NoticeText {{ color: {COLORS["tx2"]}; font-size: 11.5px; }}
+QFrame#Notice[level="error"] QLabel#NoticeText {{ color: {COLORS["bad"]}; }}
+QFrame#Notice QPushButton#NoticeAction {{ border-color: {COLORS["amber"]}; color: {COLORS["amber"]}; padding: 2px 8px; font-size: 11px; }}
 QPushButton#NextStep {{ border: 1px solid {COLORS["teal"]}; border-radius: 5px; color: {COLORS["teal"]}; padding: 3px 12px; margin: 0 8px 2px 0; background: transparent; }}
 QPushButton#NextStep:hover {{ background: {COLORS["teal"]}; color: #06231E; }}
 QPushButton#NextStep:disabled {{ border-color: {COLORS["line2"]}; color: {COLORS["tx3"]}; }}

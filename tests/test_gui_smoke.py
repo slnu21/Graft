@@ -204,8 +204,10 @@ def test_stage_cards_show_fail_soft_warnings_and_variant_tooltip(qapp: QApplicat
     panel.set_trace([], ws)
     shown = panel.stage_warnings()
     assert set(shown) == {"placement"}  # ROI 는 배치 카드의 하위 블록 → roi: 경고도 배치 카드에
-    lines = shown["placement"].splitlines()
-    assert lines[0] == "⚠ " + ws[0] and lines[1] == "⚠ " + ws[1][len("placement:") :].strip()
+    lines = [
+        ln for ln in shown["placement"].splitlines() if ln
+    ]  # Notice: 아이콘은 따로, 문장은 빈 줄로 구분
+    assert lines[0] == ws[0] and lines[1] == ws[1][len("placement:") :].strip()
     assert not panel.cards["blend"].note.isVisibleTo(panel)
     panel.set_trace([], ())  # 다음 결과가 정상이면 사라진다
     assert panel.stage_warnings() == {}
@@ -414,7 +416,7 @@ def test_geometry_card_shows_lighting_warning(
         assert _pump(qapp, lambda: ses.prepared is not None)
         assert any(m.startswith("geometry:") for m in ses.warnings)
         assert _pump(qapp, lambda: "geometry" in tab.pipe.stage_warnings())
-        assert "조명 의존" in tab.pipe.stage_warnings()["geometry"]
+        assert "빛 방향이 정해진 결함" in tab.pipe.stage_warnings()["geometry"]
         # 0.7.3+: 기하 카드 '고치기' 버튼 → 조명 의존 클래스만 per_class(±15·flip 끔) → 경고 사라짐 · 정보 줄
         card = tab.pipe.cards["geometry"]
         assert card.fix.isVisible() and "±15°" in card.fix.text() and not card.info.isVisible()

@@ -209,7 +209,7 @@ def test_contrast_hint_in_histogram_title(
     assert (
         "⚠ spot" in t.hist.title and not t.hint.isHidden()
     )  # 제목엔 클래스만(좁은 패널), 본문은 라벨
-    assert "⚠ spot: 합성 대비가 실제의 25%" in t.hint.text() and "relative-paste" in t.hint.text()
+    assert "spot: 합성 대비가 실제의 25%" in t.hint.text() and "relative-paste" in t.hint.text()
     assert "recipe init --classes spot" in t.hint.text() and t.hint.toolTip()
     t.dist_class.setCurrentIndex(t.dist_class.findData("crack"))
     assert "클래스 crack" in t.hist.title and "⚠" not in t.hist.title and t.hint.isHidden()

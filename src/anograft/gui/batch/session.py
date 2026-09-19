@@ -111,10 +111,7 @@ def run_batch(
     except runner.PrepareError as e:
         raise BatchError(str(e)) from e
     if warn is not None:
-        for w in (
-            prep.warnings
-        ):  # prepare 경고(축척·저신뢰·조명 …)도 로그에 — 종전엔 run 중 경고만 보였다
-            warn(w)
+        # prepare 경고(축척·신뢰도·조명)는 runner.run 이 시작하며 한 번 스트리밍한다 — 여기서 또 찍지 않는다(v0.9: 3중 표시 제거)
         fit = runner.fit_diagnostic(
             prep
         )  # 워커 스레드라 ROI 몇 장은 괜찮다(캐시로 run 이 이어 쓴다)

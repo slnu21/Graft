@@ -155,3 +155,26 @@ def test_card_header_and_stage_toggle(qapp: QApplication) -> None:
         assert geo.modified_count() == 0 and geo.form.rows["rotate"].spec.baseline == [-15.0, 15.0]
     finally:
         win.close()
+
+
+def test_notice_component(qapp: QApplication) -> None:
+    """v0.9 ⑥ Notice — 문장/버튼 중 하나라도 있으면 보이고, 둘 다 비면 숨는다 · level 속성 · action 시그널."""
+    from anograft.gui.notice import Notice
+
+    n = Notice("warn")
+    assert n.isHidden() and n.property("level") == "warn" and n.icon.text() == "⚠"
+    n.set_text("무엇이 · 왜 → 이렇게")
+    assert not n.isHidden() and n.text() == "무엇이 · 왜 → 이렇게" and n.button.isHidden()
+    fired: list[int] = []
+    n.action.connect(lambda: fired.append(1))
+    n.set_action("고치기")
+    assert not n.button.isHidden() and n.button.text() == "고치기"
+    n.button.click()
+    assert fired == [1]
+    n.set_text(None)
+    assert not n.isHidden()  # 버튼이 남아 있다
+    n.set_action(None)
+    assert n.isHidden()
+    n.set_level("hint")
+    assert n.property("level") == "hint" and n.icon.text() == "💡"
+    n.deleteLater()

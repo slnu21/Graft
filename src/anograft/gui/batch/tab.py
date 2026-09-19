@@ -280,7 +280,8 @@ class BatchTab(QWidget):
         self.btn_review.setEnabled(False)
         w = BatchWorker(rec, self.session.workers, self)
         w.progress.connect(self._on_progress)
-        w.warning.connect(lambda m: self._append(f"경고: {m}"))
+        self._logged_warnings: set[str] = set()
+        w.warning.connect(self._on_warning)
         w.finished_run.connect(self._on_finished)
         w.failed.connect(self._on_failed)
         w.finished.connect(self._on_thread_done)
@@ -306,12 +307,19 @@ class BatchTab(QWidget):
         if status != "ok":
             self._append(f"[{done - 1:06d}] {status}: {reason}")
 
+    def _on_warning(self, m: str) -> None:
+        self._logged_warnings.add(m)
+        self._append(f"경고: {m}")
+
     def _on_finished(self, summary: runner.RunSummary) -> None:
         self.last_summary = summary
         self.session.last_summary = summary
         self._append(summary_text(summary))
-        for w in summary.warnings:
-            self._append(f"경고: {w}")
+        for (
+            w
+        ) in summary.warnings:  # 실행 중 스트리밍된 경고는 이미 로그에 — writer 요약 경고 등 새것만
+            if w not in self._logged_warnings:
+                self._append(f"경고: {w}")
         self.progress_label.setText("취소됨" if summary.cancelled else "완료")
         self.btn_open_out.setEnabled(True)
         self.btn_review.setEnabled(summary.writer.n_ok > 0)
