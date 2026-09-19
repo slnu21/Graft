@@ -2,6 +2,7 @@
 
 최신순. 1 버전 = 1 파일. GitHub Release 본문은 각 파일을 그대로 쓴다.
 
+- [v0.9.0](v0.9.0.md) — 2026-09-19 · **사용성**: 한국어 단독 라벨(영어·YAML 키는 툴팁) · 7단계 동사형 · 카드 한글 라벨+설명 툴팁 · `anograft explain`/`PARAMS.md` · 바뀜 ↺·고급 접기·슬라이더 · 프리셋 갤러리 · 탭 흐름 배지·다음 →·체크리스트 · 경고/힌트 한 컴포넌트·대비 힌트 · 라이트 테마·글자 크기
 - [v0.8.2](v0.8.2.md) — 2026-09-19 · 결함 성격별 프리셋: `harmonize.relative`(노출 보정) + `relative-paste` · `recipe init --classes` → `run` × n → `dataset merge` · `BENCHMARKS.md` §2(Magnetic Tile blowhole 만 갈라 mAP50 0.46 → 0.61, +0.15 3/3)
 - [v0.8.1](v0.8.1.md) — 2026-09-17 · `BENCHMARKS.md`(합성 유/무 mAP 0.27 → 0.37 · 박스→마스크 IoU) · `source.redraw_on_empty`·`single_class_per_image` · `geometry.tps` · `output.root` 폴백 · `run --roi-cache` · `merge --dedupe-normals` · 샘플 데이터 대화상자
 - [v0.8.0](v0.8.0.md) — 2026-09-17 · 공개 데이터 리허설의 결과: `dataset merge` · 배치 가능성 진단 v2(짧은 변·정렬·축척) · `source:`/`targets:` 경고 · 검수 클래스 콤보·실측 CSV · `--mask-from hybrid`(옵션) · 벤치·받기 도구 · `TESTING.md`
