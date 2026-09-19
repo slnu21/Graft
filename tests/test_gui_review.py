@@ -181,3 +181,40 @@ def test_reject_shown_applies_to_filtered_rows(qapp: QApplication, output_root: 
     t.f_which.setCurrentIndex(t.f_which.findData("all"))
     assert t.verdict_shown("accept") == n_ok and t.session.counts()["accept"] == n_ok
     t.close()
+
+
+def test_contrast_hint_in_histogram_title(
+    qapp: QApplication,
+    output_root: Path,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """대비 분포 제목에 ⚠ 힌트(옅어진 클래스만) — 전체 보기와 그 클래스에서 보이고, 다른 클래스·다른 지표에선 없다."""
+    from anograft.gui.review.session import ReviewSession
+
+    t = ReviewTab()
+    t.open_root(output_root)
+    t.dist_key.setCurrentIndex(t.dist_key.findData("contrast"))
+    assert "⚠" not in t.hist.title and t.hint.isHidden()  # 픽스처는 소표본 → 힌트 없음
+    monkeypatch.setattr(
+        ReviewSession,
+        "synthetic_by_class",
+        lambda self, key: {"spot": [12.0] * 6, "crack": [40.0] * 6},
+    )
+    monkeypatch.setattr(
+        ReviewSession,
+        "real_by_class",
+        lambda self, key: {"spot": [48.0] * 6, "crack": [44.0] * 6},
+    )
+    t.refresh_hist()
+    assert (
+        "⚠ spot" in t.hist.title and not t.hint.isHidden()
+    )  # 제목엔 클래스만(좁은 패널), 본문은 라벨
+    assert "⚠ spot: 합성 대비가 실제의 25%" in t.hint.text() and "relative-paste" in t.hint.text()
+    assert "recipe init --classes spot" in t.hint.text() and t.hint.toolTip()
+    t.dist_class.setCurrentIndex(t.dist_class.findData("crack"))
+    assert "클래스 crack" in t.hist.title and "⚠" not in t.hist.title and t.hint.isHidden()
+    t.dist_class.setCurrentIndex(t.dist_class.findData("spot"))
+    assert "클래스 spot" in t.hist.title and "⚠ spot" in t.hist.title and not t.hint.isHidden()
+    t.dist_key.setCurrentIndex(t.dist_key.findData("texture"))
+    assert "⚠" not in t.hist.title and t.hint.isHidden()
+    t.close()

@@ -8,11 +8,18 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 
 import cv2
 import numpy as np
 
 RING_PX = 8  # 대비 링 폭
+CONTRAST_FADE_RATIO = 0.5  # 클래스의 합성 대비 중앙값이 실제의 이 비율 미만이면 '옅어짐' — MT blowhole −17/−48 = 0.35 가 mAP −0.30 의 신호였다
+CONTRAST_MIN_N = (
+    5  # 중앙값 비교는 양쪽 다 이보다 적으면 판단하지 않는다(퀵스타트·작은 은행의 헛경고 방지)
+)
+CONTRAST_REAL_MIN = 8.0  # 실제 대비 중앙값 절댓값이 이보다 작으면(저대비 결함 — screw 스크래치) 비율은 잡음이라 판단하지 않는다
+CONTRAST_GAP_MIN = 12.0  # 중앙값 차이(gray)가 이보다 작으면 비율이 낮아도 판단하지 않는다 — MT crack 은 −4.5 vs −13.7(비율 0.33, 차 9)인데 블렌딩 3종 mAP 무차별(0.50~0.54); blowhole 은 차 31~41 에서 −0.30 → +0.47. 카메라 노이즈·JPEG 수준의 차이는 프리셋을 가를 근거가 아니다
 LIGHT_RING_PX = 2  # 조명 방향은 얇은 링 — 하이라이트 림이 1~2 px 라 8 px 링에선 질감에 묻힌다(샘플 pit: R 0.78→0.99)
 LIGHT_REAL_MIN = 0.5  # 실제 소스의 R 이 이 이상이면 '조명 방향이 있는 클래스'
 LIGHT_SYNTH_MAX = 0.3  # 그 클래스의 합성 R 이 이 미만이면 회전이 방향을 뒤집고 있다
@@ -180,4 +187,52 @@ def flipped_instances(
         v = mask_lighting(gray, mask)
         if v is not None and angle_diff(v, real_dir[cls]) > max_deg:
             out.append(i)
+    return out
+
+
+@dataclass(frozen=True)
+class ContrastHint:
+    """한 클래스의 합성 대비가 실제(은행·실측)보다 옅다는 판정 — 중앙값끼리 비교. ``ratio`` < 0 은 극성 반전(배경보다 밝은 구멍)."""
+
+    cls: str
+    synth_median: float
+    real_median: float
+    n_synth: int
+    n_real: int
+
+    @property
+    def ratio(self) -> float:
+        return self.synth_median / self.real_median
+
+    @property
+    def flipped(self) -> bool:
+        return self.ratio < 0.0
+
+
+def contrast_hints(
+    synth: Mapping[str, Sequence[float]],
+    real: Mapping[str, Sequence[float]],
+    *,
+    fade_ratio: float = CONTRAST_FADE_RATIO,
+    min_n: int = CONTRAST_MIN_N,
+    real_min: float = CONTRAST_REAL_MIN,
+    gap_min: float = CONTRAST_GAP_MIN,
+) -> list[ContrastHint]:
+    """클래스별 대비(``mask_contrast``: 마스크 안 − 링, 부호 있음) 합성 vs 실제 → 옅어진 클래스 목록(클래스 이름순).
+
+    판정: 양쪽 n ≥ ``min_n`` · |실제 중앙값| ≥ ``real_min`` · |합성 − 실제 중앙값| ≥ ``gap_min`` · 합성 중앙값 / 실제 중앙값 <
+    ``fade_ratio``(부호가 반대면 음수라 항상 포함). poisson·stats 계열 조화는 정의상 결함 톤을 대상에 맞춰 옅게 만들고(MT blowhole 합성 −17 vs 실제 −48 →
+    mAP −0.30), hard-paste 는 노출이 다른 대상에서 절반이 극성 반전(중앙값 0) — 어느 쪽이든 그 클래스만
+    ``relative-paste`` 로 갈라(``recipe init --classes``) ``dataset merge`` 하라는 것이 BENCHMARKS §2 의 답(+0.15).
+    무작위성 없음 · 임계는 상수(스키마 아님)."""
+    out: list[ContrastHint] = []
+    for cls in sorted(set(synth) & set(real)):
+        a, b = [float(v) for v in synth[cls]], [float(v) for v in real[cls]]
+        if len(a) < min_n or len(b) < min_n:
+            continue
+        ma, mb = float(np.median(a)), float(np.median(b))
+        if abs(mb) < real_min or abs(ma - mb) < gap_min:
+            continue
+        if ma / mb < fade_ratio:
+            out.append(ContrastHint(cls, round(ma, 1), round(mb, 1), len(a), len(b)))
     return out

@@ -543,3 +543,104 @@ def test_cli_dataset_report_real_csv(
     assert "실측 real.csv" in cap.out and "2행" in cap.err
     page = (output_root / "review-report.html").read_text(encoding="utf-8")
     assert "실제 = 실측 real.csv" in page
+
+
+# --- 대비 힌트(v0.8.3) — 합성 대비가 실제의 절반 미만인 클래스 → relative-paste 로 갈라 보라 ---------------
+
+
+def test_contrast_hints_pure_function() -> None:
+    """appearance.contrast_hints: 중앙값 비율 < 0.5 · 양쪽 n ≥ 5 · |실제| ≥ 8 · 극성 반대는 항상 · 공통 클래스만 · 이름순 · rng 0."""
+    from anograft.core.appearance import (
+        CONTRAST_FADE_RATIO,
+        CONTRAST_GAP_MIN,
+        CONTRAST_MIN_N,
+        CONTRAST_REAL_MIN,
+        ContrastHint,
+        contrast_hints,
+    )
+    from anograft.io.report import contrast_hint_text, contrast_line
+
+    assert CONTRAST_FADE_RATIO == 0.5 and CONTRAST_MIN_N == 5 and CONTRAST_REAL_MIN == 8.0
+    assert CONTRAST_GAP_MIN == 12.0
+    real = {
+        "blowhole": [-48.0] * 8,
+        "break": [45.0] * 8,
+        "crack": [-5.0] * 8,
+        "only_real": [-40.0] * 8,
+    }
+    synth = {
+        "blowhole": [-17.0] * 200,  # MT poisson: 35% → 힌트
+        "break": [40.0] * 100,  # 89% → 없음
+        "crack": [-1.0] * 100,  # 실제 |−5| < 8 → 판단 안 함
+        "only_synth": [0.0] * 100,  # 실제 없음 → 건너뜀
+    }
+    hints = contrast_hints(synth, real)
+    assert hints == [ContrastHint("blowhole", -17.0, -48.0, 200, 8)]
+    h = hints[0]
+    assert abs(h.ratio - 17 / 48) < 1e-9 and not h.flipped
+    # 극성 반대(hard-paste 가 밝은 타일의 구멍을 어두운 타일에 붙임): 비율이 음수 → 항상 힌트, flipped
+    hf = contrast_hints({"b": [12.0] * 6}, {"b": [-48.0] * 6})
+    assert hf and hf[0].flipped and hf[0].ratio < 0
+    # 중앙값 0(절반이 반전) 도 힌트 · 소표본은 판단 안 함 · 경계(정확히 0.5)는 힌트 아님
+    assert contrast_hints({"b": [0.0] * 5}, {"b": [-48.0] * 5})[0].synth_median == 0.0
+    assert contrast_hints({"b": [0.0] * 4}, {"b": [-48.0] * 5}) == []
+    assert contrast_hints({"b": [0.0] * 5}, {"b": [-48.0] * 4}) == []
+    assert contrast_hints({"b": [-24.0] * 5}, {"b": [-48.0] * 5}) == []
+    assert contrast_hints({"b": [-23.0] * 5}, {"b": [-48.0] * 5}) != []
+    # 임계는 인자로 바꿀 수 있다(스키마 아님) · 이름순
+    two = contrast_hints(
+        {"z": [-10.0] * 3, "a": [-10.0] * 3}, {"z": [-40.0] * 3, "a": [-40.0] * 3}, min_n=3
+    )
+    assert [x.cls for x in two] == ["a", "z"]
+    assert contrast_hints({"b": [-30.0] * 5}, {"b": [-48.0] * 5}, fade_ratio=0.7) != []
+    # 중앙값 차이가 작으면(MT crack −4.5 vs −13.7: 비율 0.33 이지만 차 9 — 블렌딩에 무차별) 판단 안 함
+    assert contrast_hints({"c": [-4.5] * 13}, {"c": [-13.7] * 8}) == []
+    assert contrast_hints({"c": [-4.5] * 13}, {"c": [-13.7] * 8}, gap_min=0.0) != []
+    assert (
+        contrast_hints({"b": [-6.2] * 14}, {"b": [-47.6] * 8})[0].ratio < 0.14
+    )  # MT blowhole poisson 40장
+    # 텍스트: 비율 · 중앙값 · n · 처방(recipe init --classes <cls>) / 반전이면 '반대'
+    t = contrast_hint_text(h)
+    assert t.startswith("blowhole:") and "35%" in t and "-17 vs -48" in t and "n 200/8" in t
+    assert "relative-paste" in t and "recipe init --classes blowhole" in t
+    assert "반대" in contrast_hint_text(hf[0]) and "+12 vs -48" in contrast_hint_text(hf[0])
+    assert contrast_line(()) == "" and "<b>1</b> 클래스" in contrast_line(hints)
+    assert "50% 미만" in contrast_line(hints) and "BENCHMARKS.md" in contrast_line(hints)
+
+
+def test_contrast_hint_session_report_and_cli(
+    output_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """세션 → 리포트 문단 · `dataset report` stderr 한 줄 — 같은 목록. 픽스처(클래스당 2개)는 소표본이라 힌트 없음."""
+    s = ReviewSession()
+    s.load(output_root)
+    assert s.contrast_hints() == []
+    page = s.write_report(tmp_path / "none.html").read_text(encoding="utf-8")
+    assert "대비 힌트" not in page and s.report_data().contrast_hints == []
+    # 합성 spot 이 실제의 1/4, crack 은 그대로 → spot 만
+    monkeypatch.setattr(
+        ReviewSession,
+        "synthetic_by_class",
+        lambda self, key: {"spot": [12.0] * 6, "crack": [40.0] * 6},
+    )
+    monkeypatch.setattr(
+        ReviewSession,
+        "real_by_class",
+        lambda self, key: {"spot": [48.0] * 6, "crack": [44.0] * 6},
+    )
+    hints = s.contrast_hints()
+    assert [h.cls for h in hints] == ["spot"] and hints[0].ratio == 0.25
+    data = s.report_data()
+    assert data.contrast_hints == hints
+    page = s.write_report(tmp_path / "hint.html").read_text(encoding="utf-8")
+    assert "대비 힌트 <b>1</b> 클래스" in page and "spot: 합성 대비가 실제의 25%" in page
+    assert "recipe init --classes spot" in page
+    assert (
+        main(["dataset", "report", str(output_root), "--out", str(tmp_path / "cli.html")])
+        == EXIT_OK
+    )
+    cap = capsys.readouterr()
+    assert "대비 힌트: spot: 합성 대비가 실제의 25%" in cap.err and "relative-paste" in cap.err

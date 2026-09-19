@@ -663,6 +663,7 @@ def cmd_dataset_textures(args: argparse.Namespace) -> int:
 def cmd_dataset_report(args: argparse.Namespace) -> int:
     """검수 리포트 HTML(의존성 0) — 검수 탭 '리포트' 와 같은 내용."""
     from anograft.gui.review.session import ReviewError, ReviewSession
+    from anograft.io.report import contrast_hint_text
 
     s = ReviewSession()
     try:
@@ -685,6 +686,10 @@ def cmd_dataset_report(args: argparse.Namespace) -> int:
             else " · 은행 없음(실제 분포 없음)"
         )
     )
+    for h in (
+        s.contrast_hints()
+    ):  # 리포트의 대비 힌트와 같은 목록(옅어진 클래스 → relative-paste 로 갈라 보라)
+        _err(f"대비 힌트: {contrast_hint_text(h)}")
     for w in s.warnings:
         _err(f"경고: {w}")
     return EXIT_OK

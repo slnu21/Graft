@@ -36,7 +36,7 @@ from anograft.gui.review.session import FILTERS, Histogram, ReviewError, ReviewI
 from anograft.gui.studio.panels import flat_icon, h4
 from anograft.gui.theme import COLORS, REAL_COLOR, SYNTH_COLOR  # 검수 계열색 고정(색각 검증)
 from anograft.io import imgio
-from anograft.io.report import lighting_broken_classes
+from anograft.io.report import contrast_hint_text, lighting_broken_classes
 from anograft.preview import GT_EDGE
 
 THUMB = 176
@@ -221,6 +221,14 @@ class ReviewTab(QWidget):
         v.addLayout(row)
         self.hist = HistogramWidget()
         v.addWidget(self.hist, 1)
+        self.hint = QLabel(
+            ""
+        )  # 대비 힌트(옅어진 클래스 → relative-paste) — 제목은 좁은 패널에서 잘리므로 따로
+        self.hint.setObjectName("Warn")
+        self.hint.setWordWrap(True)
+        self.hint.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.hint.hide()
+        v.addWidget(self.hint)
         self.count = QLabel("")
         self.count.setObjectName("Hint")
         self.count.setWordWrap(True)
@@ -460,6 +468,7 @@ class ReviewTab(QWidget):
     def refresh_hist(self) -> None:
         if not self.session.loaded:
             self.hist.set_histogram(None)
+            self.hint.hide()
             return
         key = str(self.dist_key.currentData() or "area")
         cls = self._sync_class_combo(key)
@@ -488,6 +497,21 @@ class ReviewTab(QWidget):
             broken = lighting_broken_classes(per_class, self.session.directional_classes())
             if broken and (not cls or cls in broken):
                 title += f" · ⚠ {', '.join(broken)} 회전이 조명을 뒤집음 → dent-graft"
+        hints = (
+            [h for h in self.session.contrast_hints() if not cls or h.cls == cls]
+            if key == "contrast"
+            else []
+        )
+        self.hint.setText("\n\n".join("⚠ " + contrast_hint_text(h) for h in hints) if hints else "")
+        self.hint.setToolTip(
+            "합성 대비 중앙값이 실제의 절반 미만(또는 극성 반대) — BENCHMARKS §2 결함 성격별 프리셋 · "
+            "Synthetic median contrast below half of real: split this class onto relative-paste"
+            if hints
+            else ""
+        )
+        self.hint.setVisible(bool(hints))
+        if hints:
+            title += " · ⚠ " + ", ".join(h.cls for h in hints)
         if key in self.session.real_csv_keys():
             title += f" · 실제 = {self.session.real_label()}"
         elif self.session.bank is None:
