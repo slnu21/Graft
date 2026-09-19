@@ -63,6 +63,7 @@ python tools/fetch_public_datasets.py screw --import            # (선택) 흑�
 | 22 | `anograft recipe init --preset relative-paste --bank bank/magnetic-tile --targets samples/magnetic-tile/normals.txt --roi none --classes blowhole --write a.yaml` · 같은 은행으로 `--preset poisson-graft --classes break crack --write b.yaml` → `run` 둘 → `dataset merge out/a out/b --out out/ab --dedupe-normals` | `a.yaml` 의 `source.classes: [blowhole]`(헤더 주석에 `--classes blowhole`) · `out/a` 사이드카 `harmonize.method: relative`(마스크 밖 바이트는 paste 와 동일) · merge 결과 `data.yaml` names 가 은행 순서 그대로(blowhole·break·crack), 정상 한 벌. `--preset self-cut --classes x` 는 거부(은행 없음) |
 | 23 | 검수 탭 분포 → 클래스 `blowhole` → 대비 | `out/a`(relative-paste) 합성 중앙값이 실제(은행) 쪽으로(≈ −37 vs −48); 같은 은행의 poisson 출력은 0 쪽(≈ −17) |
 | 24 | `tools/train_mvtec_map.py samples/magnetic-tile/pairs.csv --classes blowhole break crack --roi none --presets poisson-graft relative-paste --class-presets blowhole=relative-paste break=poisson-graft crack=poisson-graft --mask-from hybrid --epochs 1 --count 9 --k 2` | 표에 `B +split relative-paste(blowhole) poisson-graft(break+crack) (hybrid)` 행 · `syn-split-…` 폴더가 `merge.json` 을 가짐 · 합성 9 = 3 + 6(클래스 수 비례) |
+| 25 | (v0.9) 미리보기 탭 카드의 아무 값에 마우스를 올린다 · `anograft explain geometry.rotate` · `anograft explain --markdown \| head` | 라벨이 한국어(`회전 (°)`), 툴팁 3줄(`회전 · rotate` / 설명 / `Rotation range · 실수 범위 …`) · CLI 도 같은 문장 + 프리셋별 값(dent-graft [-15, 15]) · `PARAMS.md` 첫 줄 |
 
 `real.csv` 예시(항목 8·9):
 

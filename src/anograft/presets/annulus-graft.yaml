@@ -6,6 +6,12 @@
 #   부품마다 한 번 맞춘다: 스튜디오에서 ROI 오버레이를 켜고 배치 카드의 r_inner/r_outer 를 링에 맞출 때까지 조정.
 #   center/radius 를 고정값으로 두면(지그 고정 촬영) 검출을 건너뛴다. 결함 패치가 링 폭보다 크면 배치가 실패하고 사유에
 #   "ROI 최대 폭 vs 패치" 진단이 붙는다 → geometry.scale 을 낮추거나 shrink_on_fail 을 늘린다.
+meta:
+  title: "링 면에만 붙이기"
+  summary: "poisson-graft + 붙일 수 있는 영역을 링(안쪽 0.55 ~ 바깥 0.9 반지름)으로 — 중심·반지름은 바탕마다 자동 검출"
+  use_for: "원형 부품의 가공 링 면(가운데 리세스에는 결함이 생기지 않는 부품)"
+  avoid: "원형이 아닌 부품"
+  evidence: "합성 토크스 링 적중 16/16(poisson-graft 0/4) — 데브로그 2026-09-15-09"
 pipeline:
   source:
     method: bank

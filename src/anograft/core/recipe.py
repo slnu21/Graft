@@ -922,8 +922,24 @@ def preset_names() -> list[str]:
     return sorted(p.name[: -len(".yaml")] for p in files.iterdir() if p.name.endswith(".yaml"))
 
 
+PRESET_META_KEYS: tuple[str, ...] = ("title", "summary", "use_for", "avoid", "evidence")
+
+
+def preset_meta(name: str) -> dict[str, str]:
+    """프리셋 파일의 ``meta:`` 블록(제목·한 줄·이럴 때·피할 때·근거, v0.9) — 없는 키는 빈 문자열. GUI 갤러리·``explain``·PARAMS.md 용.
+    ``load_preset`` 은 ``pipeline`` 만 읽으므로 meta 는 레시피 스키마·해시에 영향이 없다."""
+    files = importlib.resources.files(_PRESET_PACKAGE)
+    res = files / f"{name}.yaml"
+    if not res.is_file():
+        raise KeyError(f"프리셋이 없습니다: {name!r} (사용 가능: {', '.join(preset_names())})")
+    data = yaml.safe_load(res.read_text(encoding="utf-8"))
+    meta = data.get("meta") if isinstance(data, dict) else None
+    meta = meta if isinstance(meta, dict) else {}
+    return {k: str(meta.get(k) or "") for k in PRESET_META_KEYS}
+
+
 def load_preset(name: str) -> dict[str, Any]:
-    """프리셋 = ``pipeline`` 아래 기본값 딕셔너리. 파일의 최상위 키는 ``pipeline`` 하나."""
+    """프리셋 = ``pipeline`` 아래 기본값 딕셔너리. 파일의 최상위 키는 ``pipeline`` (+ 설명용 ``meta``)."""
     files = importlib.resources.files(_PRESET_PACKAGE)
     res = files / f"{name}.yaml"
     if not res.is_file():

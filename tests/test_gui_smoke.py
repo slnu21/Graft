@@ -17,7 +17,7 @@ import pytest
 pytest.importorskip("PySide6")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QPointF
+from PySide6.QtCore import QPointF, Qt
 from PySide6.QtWidgets import QApplication
 
 from anograft.bank.importers import yolo as Y
@@ -240,6 +240,17 @@ def test_stage_param_form_edits_recipe_and_shows_errors_inline(
             "tps.points",
             "tps.jitter",
         ]
+        # v0.9 param-help: 라벨은 한국어 + 단위, 툴팁 첫 줄 "라벨 · YAML 키", method 콤보는 한국어 표시명(데이터 = id)
+        lab = geo.form._labels["rotate"]
+        assert lab.text().startswith("회전 (°)")
+        assert lab.toolTip().startswith("회전 · rotate") and "Rotation range" in lab.toolTip()
+        assert geo.form.rows["scale"].toolTip().startswith("크기 배율 · scale")
+        assert geo.method.currentText() == "크기·회전·뒤집기"
+        assert geo.method.itemData(0, Qt.ItemDataRole.UserRole) == "affine"
+        bl = pipe.cards["blend"]
+        assert bl.method.itemData(bl.method.currentIndex(), Qt.ItemDataRole.UserRole) == "poisson"
+        assert "Poisson" in bl.method.currentText() and "poisson · Poisson" in bl.method.toolTip()
+        assert geo.title.toolTip().startswith("Geometry · YAML pipeline.geometry")
         # 1) 회전 범위 편집 → 디바운스 후 세션 반영
         row = geo.form.rows["rotate"]
         row.editors[0].setValue(-15.0)
