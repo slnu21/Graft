@@ -4,9 +4,14 @@
 
 ## [Unreleased]
 
+### Added
+- **`harmonize.relative`**(+ 프리셋 **`relative-paste`**) — 노출 보정: 소스 패치의 링(결함 주변) 평균을 대상 링 평균에 맞추는 **오프셋**을 마스크 안에 더한다(`gain: true` 면 σ 비로 배율도). stats·reinhard·histmatch 는 내부를 링에 맞춰 정의상 결함 대비를 (1−strength) 배로 줄이지만, 이건 결함의 *상대* 대비를 두고 소스·대상의 노출 차이만 없앤다. 대비가 곧 신호인 결함(블로우홀·검은 구멍)용 — Magnetic Tile blowhole 합성 대비 중앙값: poisson+stats 0.3 −17 · hard-paste 0(노출이 다른 타일에서 절반이 배경보다 밝은 구멍) · **relative-paste −37**(실제 −48). `paste` 뒤에 쓰는 것(poisson 뒤엔 이중 보정). L 채널만, 마스크 밖 불변, 패치/소스 링 없으면 skipped. 골든 +2(기존 불변).
+- `anograft recipe init --classes A B` → `source.classes` — 프리셋을 은행의 일부 클래스에만. **결함 성격별 프리셋** 흐름: `init --classes` 로 레시피 둘 → `run` 둘 → `dataset merge --dedupe-normals`(같은 은행 = 같은 클래스 id, 정상 한 벌). 은행 없는 프리셋(self-cut·perlin)엔 거부.
+- `tools/train_mvtec_map.py --class-presets blowhole=relative-paste break=poisson-graft crack=poisson-graft` — 클래스 그룹별로 따로 합성(`count` 클래스 수 비례)해 merge 한 B 셋 · `--presets <preset>+dent:<cls>`(한 레시피 안 `geometry.per_class`) · 표 이름 → 폴더 이름 안전화. `.gitignore /*.pt`.
+
 ### Changed
 - `tools/train_mvtec_map.py` — `--train-seeds 7 8 9`(분할·합성 고정, 학습 시드만 반복 → 시드별 + 평균 Δ 표) · `--mask-from grabcut hybrid`(은행마다 B 셋) · **`pairs.csv` 입력**(Magnetic Tile: `normals.txt` 앞 `--n-good` 은 음성, 그다음 `--n-targets` 는 합성 대상) · `results/` 캐시와 합성 재사용(프리셋·은행을 나중에 보태도 끝난 학습은 안 돌림) · 한 `--out` = 한 분할. GT 마스크 이진화 `> 127`(MT 의 JPEG 링 잡음 — MVTec 0/255 는 불변).
-- `BENCHMARKS.md` §2 — 분할 고정(split-seed 7) 학습 시드 3개 · dent-graft 분산 · Magnetic Tile 행.
+- `BENCHMARKS.md` §2 — 분할 고정(split-seed 7) 학습 시드 3개 · dent-graft 분산 · Magnetic Tile 행 · **결함 성격별 프리셋 절**(MT: blowhole 만 relative-paste 로 갈라 merge → mAP50 0.460 → 0.605, +0.15 3/3 · metal_nut: per_class/split ≈ poisson, bent 는 찍힘 아님).
 
 ## [0.8.1] - 2026-09-17
 

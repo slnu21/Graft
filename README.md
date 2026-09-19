@@ -12,7 +12,7 @@
 
 ![원본 | 합성 | GT](assets/preview.png)
 
-> **상태: v0.8.1** — CLI 코어(7단계 파이프라인 · 레시피 · 결함 은행 · YOLO/MVTec/COCO 출력 · 프리셋 9종 · 은행 없이 도는 self-cut/perlin · 구조 정합 배치 · GrabCut·annulus ROI · VisA·DTD 어댑터)와 GUI **은행 · 라벨 · 스튜디오 · 배치 · 검수** 5탭 — 결함 사진만 있으면 GUI 만으로 라벨링 → 은행 정리 → 미리보기 → 데이터셋 생성 → 검수·정리본까지. 실데이터 1차 적용(경면 금속 원형 부품)에서 나온 [알려진 문제 10건](KNOWN-ISSUES.md)을 v0.6 에서 보정. **2차 실데이터 적용은 아직 미검증**(데이터가 생기면 아래 3줄로 확인). 공개 데이터(MVTec metal_nut)에선 합성 유/무 YOLO mAP50 **0.31 → 0.38**(grabcut 은행) / **→ 0.45**(hybrid 은행) — 같은 분할·학습 시드 3개 평균(`BENCHMARKS.md`; Magnetic Tile 은 break +0.23 · blowhole −0.30 으로 갈려 합계 −0.02~−0.05 — 결함 성격별 프리셋이 필요하다는 신호). 표준셋 실제 사본(MVTec metal_nut·screw·grid·bottle·hazelnut·carpet · Magnetic Tile · VisA · DTD)으로는 v0.8 에서 리허설·벤치 완료 — `TESTING.md` · `KNOWN-ISSUES.md` 결정 근거 절.
+> **상태: v0.8.1** — CLI 코어(7단계 파이프라인 · 레시피 · 결함 은행 · YOLO/MVTec/COCO 출력 · 프리셋 10종 · 은행 없이 도는 self-cut/perlin · 구조 정합 배치 · GrabCut·annulus ROI · VisA·DTD 어댑터)와 GUI **은행 · 라벨 · 스튜디오 · 배치 · 검수** 5탭 — 결함 사진만 있으면 GUI 만으로 라벨링 → 은행 정리 → 미리보기 → 데이터셋 생성 → 검수·정리본까지. 실데이터 1차 적용(경면 금속 원형 부품)에서 나온 [알려진 문제 10건](KNOWN-ISSUES.md)을 v0.6 에서 보정. **2차 실데이터 적용은 아직 미검증**(데이터가 생기면 아래 3줄로 확인). 공개 데이터(MVTec metal_nut)에선 합성 유/무 YOLO mAP50 **0.31 → 0.38**(grabcut 은행) / **→ 0.45**(hybrid 은행) — 같은 분할·학습 시드 3개 평균(`BENCHMARKS.md`; Magnetic Tile 은 한 프리셋으론 break +0.23 · blowhole −0.30 으로 갈려 합계 −0.02 였지만, blowhole 만 `relative-paste` 로 갈라 `dataset merge` 하니 **0.46 → 0.61(+0.15, 3/3)** — 결함 성격별 프리셋). 표준셋 실제 사본(MVTec metal_nut·screw·grid·bottle·hazelnut·carpet · Magnetic Tile · VisA · DTD)으로는 v0.8 에서 리허설·벤치 완료 — `TESTING.md` · `KNOWN-ISSUES.md` 결정 근거 절.
 
 ## 왜
 
@@ -21,7 +21,7 @@
 Graft는 알고리즘을 새로 만드는 도구가 아니라 그 사이를 메우는 도구입니다.
 
 - **결함 은행** — 보유 YOLO 라벨(박스·폴리곤)이나 마스크 PNG에서 결함을 모읍니다. 박스만 있으면 마스크를 추정합니다(GrabCut 등, 출처를 `mask_origin`으로 끌고 다님). 데이터가 없으면 표준 산업 데이터셋(MVTec AD)을 로컬 사본에서 읽습니다.
-- **7단계 파이프라인** `소스 → 기하 → 배치 → 블렌딩 → 조화 → 열화 → 정답 마스크` — 알고리즘은 각 단계의 `method`로 고릅니다(블렌딩: paste · alpha · Poisson · multiband, 조화: stats · Reinhard · 히스토그램 매칭, 배치: sampled · structure-aware, ROI: otsu · grabcut · none · mask_dir). 프리셋으로 시작하고 필요할 때만 펼칩니다.
+- **7단계 파이프라인** `소스 → 기하 → 배치 → 블렌딩 → 조화 → 열화 → 정답 마스크` — 알고리즘은 각 단계의 `method`로 고릅니다(블렌딩: paste · alpha · Poisson · multiband, 조화: stats · Reinhard · 히스토그램 매칭 · relative(노출 보정), 배치: sampled · structure-aware, ROI: otsu · grabcut · none · mask_dir). 프리셋으로 시작하고 필요할 때만 펼칩니다.
 - **배치 허용 영역(ROI)** 이 기본값 — 배경에 붙은 결함은 학습에 해롭습니다.
 - **재현** — 레시피(YAML) + 시드가 같으면 워커 수와 무관하게 바이트 단위로 같은 데이터셋. 이미지마다 사이드카 JSON(소스 id · 변환 · 좌표 · 시드 · 파이프라인 해시).
 - **출력** — 정본은 이미지 + GT 마스크 + 사이드카 + `manifest.csv`. 그 위에 writer가 학습 형식을 덧붙입니다(YOLO `labels/*.txt` + `data.yaml` — 기존 학습셋에 그대로 합침 · `mvtec` — anomalib 이 읽는 `mvtec/<category>/{train,test,ground_truth}` 레이아웃, v0.4 · `coco` — `annotations.json`(instances: 폴리곤 segmentation(`segmentation: rle` 로 비압축 RLE — 조각·구멍 무손실)·bbox·area, categories = 은행 classes) — Detectron2·mmdetection 용, v0.7).
@@ -105,17 +105,20 @@ anograft-gui recipes/sample-poisson.yaml                                  # GUI 
 | `multiband-graft` | 라플라시안 피라미드 | multiband · histmatch 0.3 | 텍스처 보존이 좋고 경계 halo가 덜함 |
 | `alpha-paste` | 페더 합성 | alpha(feather 2) · Reinhard 0.5 | 빠름, 경계 색 정합 |
 | `hard-paste` | CutPaste(은행) | paste · 없음 | 가장 거친 대조군(학습 실험용) |
+| `relative-paste` | 노출 보정 paste | paste · **relative 1.0**(소스 링 → 대상 링 오프셋, 결함의 상대 대비 보존) · camera 열화 | **대비가 곧 신호인 결함**(블로우홀·검은 구멍·핏). poisson·stats 계열은 정의상 결함 톤을 옅게 만들고(MT blowhole 합성 대비 −17 vs 실제 −48 → mAP 하락), hard-paste 그대로는 노출이 다른 대상에서 **배경보다 밝은 구멍**이 된다(합성 대비 중앙값 0). relative 는 −37. MT 에서 blowhole 만 이 프리셋으로 갈라 merge → mAP50 +0.15(blowhole 0.34 → 0.81) (v0.8.2) |
 | `self-cut` | CutPaste·Scar | 소스 = 대상 자신의 사각/스카 패치 + 색 지터 · paste | **은행 불필요** — 정상 이미지만으로 시작 |
 | `perlin-texture` | DRAEM | 소스 = 펄린 노이즈 마스크 + 텍스처(대상 자신 증강 또는 `texture_dir`) · alpha β 0.4~1 | **은행 불필요** — 불규칙한 이상 영역 |
 | `structure-aware-graft` | 구조 정합 배치 | poisson-graft + 배치 `structure-aware`(그래디언트 큰 곳 선호 · 결·에지 방향에 정렬) · ROI `grabcut` | 스크래치가 결을 따르고 칩이 모서리에 생기는 부품. 무광·그림자로 Otsu가 안 갈리는 대상 |
 | `annulus-graft` | 링 ROI | poisson-graft + ROI `annulus`(중심·반경을 대상마다 자동 검출, `r_inner`/`r_outer` 비율) | **원형 부품의 가공 링 면에만** 결함을 놓는다 — otsu/grabcut 은 물체 전체를 허용해 중앙 리세스에도 떨어졌다. 촬영마다 부품이 움직여도 링이 따라간다 (v0.6) |
 | `dent-graft` | 조명 의존 결함 | poisson NORMAL + 회전 **±15°**·flip none(조명이 위/아래면 `horizontal` 로 두 배)·축척 0.9~1.1 · `structure-aware`(위치 균등, 방향은 결·접선 정렬, jitter 5°, **정렬 상한 30°** — 그 이상 돌려야 하는 자리는 정렬 안 함) · 조화 0.2 | **찍힘·덴트·눌림** — 3D 변형이라 보이는 모양이 곧 조명 효과. ±180° 로 돌리면 음영/하이라이트가 뒤집혀 물리적으로 불가능한 그림이 된다. 스크래치·얼룩은 다른 프리셋(±180 유지) (v0.6) |
 
+**결함 성격별 프리셋**(v0.8.2) — 한 은행의 클래스마다 맞는 블렌딩이 다르면(구멍은 `relative-paste`, 깨짐·얼룩은 `poisson-graft`) `recipe init --classes` 로 프리셋을 클래스 부분집합에만 적용해 따로 돌리고 `dataset merge --dedupe-normals` 로 한 학습셋을 만듭니다: `anograft recipe init --preset relative-paste --classes blowhole --write a.yaml` · `… --preset poisson-graft --classes break crack --write b.yaml` → `run a.yaml` · `run b.yaml` → `dataset merge out/a out/b --out out/ab --dedupe-normals`(같은 은행이라 클래스 id 일치, 정상은 한 벌만). 검수 탭 **대비 히스토그램**(합성 vs 은행 실제)이 학습 전에 어느 클래스가 옅어졌는지 보여 줍니다 — 합성 분포가 실제보다 0 쪽으로 몰려 있으면 그 클래스만 프리셋을 바꿉니다. `tools/train_mvtec_map.py --class-presets blowhole=relative-paste break=poisson-graft …` 가 같은 흐름을 mAP 비교까지 자동으로(`BENCHMARKS.md` §2 Magnetic Tile).
+
 한 은행에 스크래치(±180° 무방)와 찍힘(조명 의존)이 **섞여 있으면** 프리셋을 둘로 나누지 말고 `geometry.per_class` 로 그 클래스만 좁힙니다 — `per_class: {찍힘: {rotate: [-15, 15], flip: false}}` (준 필드만 덮어씀, 나머지 클래스는 그대로; `bank ls` 의 lightR ≥ 0.5 인 클래스가 후보, `run` 경고가 이 문법을 알려줍니다). `anograft recipe init --bank bank/mine --auto-dent` 가 그 클래스를 찾아 써 줍니다(`--dent-class 찍힘` 으로 직접도). 스튜디오에선 기하 카드 아래 **클래스별 표**(적용 · 회전 · flip)로 편집합니다.
 
 기하 스테이지의 작은 손잡이(v0.8.1, 전부 기본 off·기존 결과 불변): `geometry.tps: {points: 3, jitter: 0.06}` 은 제어점 격자를 흔들어 패치를 **휘고 늘리는** thin-plate spline(elastic 이 국소 잔물결이면 tps 는 전역 휘어짐) · `source.redraw_on_empty`(기본 2)는 축소 뒤 마스크가 사라진 아주 작은 소스를 그 자리에서 **다시 뽑아** 이미지가 skipped 되지 않게 · `source.single_class_per_image: true` 는 한 이미지의 결함을 첫 결함의 클래스로 묶어 MVTec writer 의 클래스 섞임을 없앱니다.
 
-기본값은 샘플 은행에서 "결함이 옅어지는 정도"(hard-paste 대비 마스크 안 L1 비율)를 재서 정했습니다 — 세 조화 방법 모두 정의상 결함 톤을 대상 쪽으로 당기므로 strength를 낮게 뒀습니다. 실데이터 학습 mAP 근거는 아직 없습니다(로드맵).
+기본값은 샘플 은행에서 "결함이 옅어지는 정도"(hard-paste 대비 마스크 안 L1 비율)를 재서 정했습니다 — stats·Reinhard·histmatch 세 조화 방법은 내부를 대상 링에 맞추므로 정의상 결함 톤을 (1−strength) 배로 옅게 만들어 strength 를 낮게 뒀고, 그래도 대비가 신호인 결함엔 `relative`(소스 자기 배경 → 대상 배경 오프셋만)를 씁니다. 실데이터 학습 mAP 근거는 아직 없습니다(공개 데이터 근거는 `BENCHMARKS.md`).
 
 ### 조명 의존 결함 한 바퀴 (찍힘·덴트)
 
@@ -241,17 +244,20 @@ Same seed and target across the four presets (`preview --compare-methods blend|h
 | `multiband-graft` | Laplacian pyramid | multiband · histmatch 0.3 | Best texture preservation, fewer halos |
 | `alpha-paste` | Feathered paste | alpha (feather 2) · Reinhard 0.5 | Fast, colour-matched edges |
 | `hard-paste` | CutPaste (bank) | paste · none | Crudest baseline for training experiments |
+| `relative-paste` | Exposure-compensated paste | paste · **relative 1.0** (offset source ring → target ring, keeps the defect's relative contrast) · camera degrade | **Defects whose contrast is the signal** (blowholes, dark holes, pits). Poisson/stats fade the defect by construction (MT blowhole synthetic contrast −17 vs real −48 → mAP drop), while plain hard-paste on targets with varying exposure yields **holes brighter than the background** (median contrast 0). relative gives −37. On MT, splitting only blowhole onto this preset and merging → mAP50 +0.15 (blowhole 0.34 → 0.81) (v0.8.2) |
 | `self-cut` | CutPaste · Scar | source = rect/scar patch cut from the target itself + colour jitter · paste | **No bank needed** — start from normal images only |
 | `perlin-texture` | DRAEM | source = Perlin-noise mask + texture (augmented self-window or `texture_dir`) · alpha β 0.4–1 | **No bank needed** — irregular anomaly regions |
 | `structure-aware-graft` | Structure-aware placement | poisson-graft + `structure-aware` placement (prefers high-gradient spots · aligns to grain/edge direction) · `grabcut` ROI | Parts where scratches follow the grain and chips sit on edges; matte/shadowed parts Otsu cannot segment |
 | `annulus-graft` | Ring ROI | poisson-graft + `annulus` ROI (centre/radius auto-detected per target, `r_inner`/`r_outer` as ratios) | **Round parts whose defects only occur on the machined ring** — otsu/grabcut allow the whole object and dropped defects into the central recess. The ring follows the part as it shifts between shots (v0.6) |
 | `dent-graft` | Lighting-dependent defects | poisson NORMAL + rotation **±15°**, flip none (`horizontal` doubles the data when the light comes from above/below), scale 0.9–1.1 · `structure-aware` (uniform position, axis aligned to grain/tangent, 5° jitter, **alignment capped at 30°** — spots needing more are left unaligned) · harmonize 0.2 | **Dents, dings, indentations** — 3D deformations whose appearance *is* the lighting. Rotating ±180° flips shadow/highlight against a light that did not move, which the eye catches first. Scratches and stains keep ±180° in the other presets (v0.6) |
 
+**Per-defect-type presets** (v0.8.2) — when classes in one bank want different blending (holes → `relative-paste`, breaks/stains → `poisson-graft`), apply a preset to a subset of classes with `recipe init --classes`, run each, and merge with `dataset merge --dedupe-normals`: `anograft recipe init --preset relative-paste --classes blowhole --write a.yaml` · `… --preset poisson-graft --classes break crack --write b.yaml` → `run a.yaml` · `run b.yaml` → `dataset merge out/a out/b --out out/ab --dedupe-normals` (same bank → same class ids; normals kept once). The review tab's **contrast histogram** (synthetic vs bank real) shows before training which class got washed out — if the synthetic distribution piles up near 0 compared to real, change the preset for that class only. `tools/train_mvtec_map.py --class-presets blowhole=relative-paste break=poisson-graft …` automates the same flow through to the mAP comparison (`BENCHMARKS.md` §2 Magnetic Tile).
+
 When one bank **mixes** scratches (±180° is fine) and dents (lighting-dependent), do not split the recipe — narrow only that class with `geometry.per_class`: `per_class: {dent: {rotate: [-15, 15], flip: false}}` (only the given fields override; other classes are untouched; classes with `lightR` ≥ 0.5 in `bank ls` are the candidates, and the `run` warning spells out the syntax). `anograft recipe init --bank bank/mine --auto-dent` finds those classes and writes the override for you (`--dent-class dent` to name them yourself); in the Studio, edit it in the **per-class table** under the geometry card (enable · rotation · flip).
 
 Small geometry knobs (v0.8.1, all off by default — existing outputs unchanged): `geometry.tps: {points: 3, jitter: 0.06}` bends and stretches the patch with a thin-plate spline over a jittered control grid (elastic is local ripple, tps is global bending) · `source.redraw_on_empty` (default 2) redraws a source whose mask vanished after scaling instead of skipping the image · `source.single_class_per_image: true` keeps one class per image so the MVTec writer never sees mixed classes.
 
-Defaults were chosen by measuring how much each method fades the defect on the sample bank (in-mask L1 relative to hard-paste); all three harmonize methods pull defect tone toward the target by construction, so strengths are kept low. No real-data mAP evidence yet (roadmap).
+Defaults were chosen by measuring how much each method fades the defect on the sample bank (in-mask L1 relative to hard-paste); stats/Reinhard/histmatch match the inside to the target ring and therefore fade the defect to (1−strength) by construction, so strengths are kept low — and for defects whose contrast is the signal, `relative` (only an offset from the source's own surroundings to the target's) keeps it. No real-data mAP evidence yet (public-data evidence in `BENCHMARKS.md`).
 
 ### The lighting-dependent loop (dents, dings)
 

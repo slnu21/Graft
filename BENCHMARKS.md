@@ -81,8 +81,41 @@ MVTec 이 아닌 레이아웃의 첫 카테고리(`tools/train_mvtec_map.py samp
 - **합성이 전체 mAP50 을 올리지 못했다** — grabcut 은행은 세 시드 모두 −(평균 −0.05), hybrid 는 −0.06 ~ +0.01(평균 −0.02, 잡음 안). mAP50-95 는 둘 다 내려갔다(0.205 → 0.142 / 0.168 — 박스가 헐거워짐). 클래스별로는 방향이 갈린다 — **break**(타일 모서리 깨짐)는 0.21 → 0.30(grabcut) / **0.44**(hybrid) 로 세 시드 모두 오르고, **blowhole**(작은 검은 구멍)은 0.64 → 0.39 / 0.34 로 세 시드 모두 크게 내리며, crack 은 ±(0.53 → 0.54). blowhole 은 §1 에서 IoU 가 가장 좋은 클래스(사슬 0.79)라 마스크 탓이 아니다. 검수 세션의 대비 지표(마스크 안 − 링)로 재 보면 **합성 blowhole 의 대비 중앙값 −17 vs 은행 실제 −48** — Poisson(`normal` 모드) + harmonize 0.3 이 작고 어두운 구멍의 톤을 대상에 빨아들여 실제의 1/3 로 옅어졌고, 그런 "희미한 구멍" 57장(합성 199장 중)이 실제 8장의 신호를 덮은 것으로 읽힌다(세 시드 모두 같은 방향이라 학습 운이 아니다). crack 도 −4 vs −14 로 옅지만 가늘어서 대비보다 형상이 특징이라 ±. break 는 큰 밝은 결손이라 블렌딩에 덜 민감하고(−3 vs −6) 24장으로는 못 배우던 것을 합성이 채웠다. (metal_nut color 도 −10 vs −28 로 옅어졌지만 +0.13 — 색 얼룩은 옅어도 색이 남는다. 옅어짐이 곧 해는 아니고, **대비 자체가 특징인 결함**에서 문제.)
 - screw(위)에 이어 **"흑백·저대비 결함엔 박스 추정 은행 + 기본 블렌딩이 도움이 안 될 수 있다"** 의 두 번째 사례 — 단, 여기선 클래스별로 +0.23 과 −0.30 이 상쇄된 것이라 "합성이 소용없다"가 아니라 **결함 성격별 프리셋(blowhole 은 `hard-paste`/`alpha` + harmonize 0, break 는 poisson)** 이 필요하다는 신호. `source.classes` 로 클래스를 갈라 두 번 합성해 `dataset merge` 하는 흐름이 그것. 검수 탭 **대비 히스토그램**(합성 vs 은행 실제)이 학습 전에 이걸 보여 준다 — 합성 분포가 실제보다 0 쪽으로 몰려 있으면 블렌딩을 바꿀 것.
 
+### 결함 성격별 프리셋 — 클래스를 갈라 합성하고 `dataset merge` (Magnetic Tile, 2026-09-19)
+
+위 MT 표의 가설("break +0.23 / blowhole −0.30 이 상쇄된 것이니 결함 성격별로 프리셋을 갈라 합성하면 풀린다") 검증. 같은 분할·같은 은행(hybrid)·같은 합성 seed 7 에서 **blowhole 은 paste 계열, break·crack 은 poisson-graft** 로 따로 합성(`recipe init --classes`, 장수는 클래스 수 비례 67 + 133)해 `dataset merge --dedupe-normals` 한 학습셋(합성 200 · 정상 220 — 다른 B 셋과 같은 크기). `tools/train_mvtec_map.py --class-presets blowhole=<preset> break=poisson-graft crack=poisson-graft`.
+
+| 학습셋 | s7 | s8 | s9 | mAP50 평균(Δ) | mAP50-95 평균 | 클래스별 mAP50 평균 (blowhole · break · crack) |
+|---|---|---|---|---|---|---|
+| **A** real-train 24장만 | 0.451 | 0.466 | 0.464 | **0.460** | 0.205 | 0.64 · 0.21 · 0.53 |
+| **B** +`poisson-graft` 전 클래스 (hybrid, 위 표) | 0.442 (−0.01) | 0.404 (−0.06) | 0.473 (+0.01) | **0.440** (−0.02) | 0.168 | 0.34 · 0.44 · 0.54 |
+| **B** +split **`hard-paste`(blowhole)** / poisson(break·crack) | 0.547 (+0.10) | 0.509 (+0.04) | 0.580 (+0.12) | **0.545** (**+0.09**, 3/3 +) | **0.237** | **0.70** · 0.44 · 0.50 |
+| **B** +split **`relative-paste`(blowhole)** / poisson(break·crack) | 0.606 (+0.15) | 0.642 (+0.18) | 0.568 (+0.10) | **0.605** (**+0.15**, 3/3 +) | 0.262 | **0.81** · **0.47** · 0.53 |
+| **B** +`relative-paste` 전 클래스 | 0.598 (+0.15) | 0.542 (+0.08) | 0.576 (+0.11) | **0.572** (+0.11) | **0.269** | 0.80 · 0.39 · 0.53 |
+
+- **상쇄가 풀렸다** — blowhole 을 poisson 에서 빼고 paste 로 붙이자 blowhole 이 0.34 → **0.70**(실제 24장만의 0.64 보다도 높다)으로 돌아오고, break 는 poisson 의 이득 0.44 를 그대로 가져와 **전체 mAP50 이 세 시드 모두 +**(+0.04 ~ +0.12), mAP50-95 도 처음으로 A 위(0.205 → 0.237). 같은 합성 장수·같은 은행·같은 홀드아웃에서 **블렌딩만 클래스별로 바꾼 결과**라 "합성이 소용없다"가 아니라 "프리셋이 결함 성격을 따라가야 한다"는 것이 MT 에서의 답. crack 은 ±(0.53 → 0.50, s8 0.38 하나가 끌어내림).
+- **hard-paste 는 그대로 쓸 게 아니다** — 이 합성의 blowhole 대비 중앙값은 **0**(실제 −48): MT 타일은 노출이 제각각(링 밝기 55~120)이라 밝은 타일의 구멍(내부 102)을 어두운 타일(55)에 그대로 붙이면 **배경보다 밝은 구멍**(+50)이 되고 어두운 타일의 구멍은 더 어두워진다 — 절반이 극성이 뒤집힌 채로도 mAP 가 오른 것은 형상(작은 동그란 얼룩)이 남아서다. 그래서 **`harmonize.relative`**(v0.8.2)를 추가했다: 소스 패치 자기 링 → 대상 링의 **오프셋만** 내부에 더해 결함의 상대 대비를 두고 노출 차이만 없앤다(stats·reinhard·histmatch 는 내부를 대상 링에 맞추므로 정의상 대비를 (1−strength) 배로 줄인다 — 위 표의 −17 이 그것). `relative-paste` 프리셋(paste + relative 1.0)의 합성 blowhole 대비 중앙값 **−37**(실제 −48, 같은 소스·같은 배치). 아래 행이 그 학습 결과.
+- **극성까지 맞추면 더 오른다** — blowhole 을 relative-paste 로 붙인 두 셋 모두 blowhole **0.80~0.81**(hard-paste 0.70 · poisson 0.34 · 실제만 0.64). 갈라서 merge 한 셋이 **+0.15(3/3, +0.10 ~ +0.18)** 로 이 벤치의 MT 최고 — 세 클래스 모두 A 이상(0.81/0.47/0.53 vs 0.64/0.21/0.53). 같은 홀드아웃에서 "합성이 소용없다(−0.02)" 가 "블렌딩을 결함 성격에 맞추면 +0.15" 로 바뀐 것.
+- **break 는 poisson 이 낫다**(0.47 vs relative 전 클래스 0.39) — 타일 모서리의 큰 밝은 결손은 경계의 그래디언트 정합이 곧 사실감이라 Poisson 이 맞고, 작은 어두운 구멍은 대비가 곧 신호라 paste + 노출 보정이 맞다. 그래서 relative-paste 를 전 클래스에 쓰는 것(0.572)보다 클래스별로 가른 것(0.605)이 높다. crack 은 세 방법 모두 0.50~0.54 로 무차별(가늘어서 형상이 특징).
+- 은행 마스크는 그대로 hybrid(blowhole 2/8 이 ellipse 폴백, 그중 291052 는 633 px 과라벨 원반) — 그런데도 0.81. 마스크 품질(§1)과 블렌딩 선택은 별개의 축이고 둘 다 중요하다.
+
+같은 것을 **metal_nut**(모든 클래스가 poisson 에서 이득을 본 카테고리)에서 — bent 를 dent-graft 로, color·scratch 를 poisson 으로 갈라 merge 한 셋과, 한 레시피 안에서 `geometry.per_class`(`recipe init --dent-class bent` = bent 만 ±15°·flip 없음, 나머지 poisson ±180)로 좁힌 셋:
+
+| 학습셋 (metal_nut · annulus · split 7 · hybrid 은행) | s7 | s8 | s9 | mAP50 평균(Δ) | mAP50-95 평균 | 클래스별 mAP50 평균 (bent · color · scratch) |
+|---|---|---|---|---|---|---|
+| **A** real-train 24장만 | 0.267 | 0.310 | 0.341 | **0.306** | 0.175 | 0.36 · 0.34 · 0.22 |
+| **B** +`poisson-graft` 전 클래스 (위 표) | 0.462 (+0.19) | 0.431 (+0.12) | 0.450 (+0.11) | **0.448** (+0.14) | 0.234 | 0.45 · 0.47 · 0.42 |
+| **B** +`dent-graft` 전 클래스 (위 표) | 0.399 (+0.13) | 0.388 (+0.08) | 0.407 (+0.07) | **0.398** (+0.09) | 0.202 | 0.40 · 0.51 · 0.28 |
+| **B** +poisson + `per_class` bent ±15° (한 레시피) | 0.393 (+0.13) | 0.441 (+0.13) | 0.480 (+0.14) | **0.438** (+0.13) | 0.230 | 0.41 · 0.52 · 0.39 |
+| **B** +split `dent-graft`(bent) / poisson(color·scratch) (merge) | 0.464 (+0.20) | 0.465 (+0.15) | 0.427 (+0.09) | **0.452** (+0.15) | **0.241** | 0.41 · 0.53 · 0.41 |
+
+- **모든 클래스가 한 프리셋에서 이득을 보는 카테고리에선 갈라도 그대로다** — split 0.452 · per_class 0.438 vs poisson 0.448(학습 잡음 ±0.04 안). MT 처럼 어느 클래스가 공용 프리셋에 **해**를 입을 때(blowhole −0.30) 갈라야 하고, 그걸 알려 주는 게 클래스별 대비 히스토그램·클래스별 mAP 다.
+- **metal_nut `bent` 는 찍힘이 아니다** — 회전을 ±15° 로 좁혀도(dent 0.40 · per_class 0.41 · split 0.41) poisson ±180° 의 0.45 를 넘지 못한다. MVTec bent 는 너트 날이 휜 부품 전체 변형이라 방향을 좁힐 이유가 없고, 은행 lightR 0.42(유의 미달)가 이미 그렇게 말했다. `--auto-dent`(lightR 기준)가 bent 를 고르지 않는 것이 맞다. per_class 로 좁힌 것이 scratch 에는 손해를 주지 않는다(0.39~0.41 vs 0.42 — dent-graft 전체 적용의 0.28 과 다르다: 한 클래스만 좁히면 나머지의 방향 다양성은 그대로).
+- 두 방식(한 레시피 per_class vs 갈라서 merge)의 차이는 **기하 밖의 것**(배치 structure-aware·조화 0.2)이 bent 에만 적용되는가인데, 결과는 같다(0.41/0.41). 기하만 다르면 per_class 한 레시피가 간단하고(사이드카·시드 하나), 블렌딩·조화까지 달라야 하면(MT blowhole) 갈라서 merge 한다.
+
 읽는 법:
 - **합성이 mAP50 을 0.27 → 0.37 로 올렸다**(같은 홀드아웃 57장). 가장 큰 이득은 **scratch**(0.17 → 0.35)와 color(0.28 → 0.40) — 실제 24장으로는 못 배우던 가늘고 긴 결함을 합성 179장이 보탠다. `dent-graft`(±15°·flip 없음)는 이 시드에선 **bent** 에서 가장 좋고(0.36 → 0.40; 시드 3개로는 잡음 안 — "분산 분리" 절) scratch 에선 poisson(±180°)보다 확실히 못하다(세 시드 모두) — 회전 범위가 결함 성격을 따라가야 한다는 것(`geometry.per_class` 의 근거).
 - **마스크 품질이 곧 검출력이다**: 같은 합성 절차에서 은행 마스크만 hybrid 로 바꿔 mAP50 0.37 → 0.46(§1 의 IoU 0.37 → 0.50 과 같은 방향). 실데이터 2차에서 `hybrid` 기본 전환(`KNOWN-ISSUES.md` 결정 대기)을 지지하는 두 번째 근거 — 단, 아래 분산 주의.
+- **프리셋은 결함 성격을 따라가야 한다** — MT 에서 한 프리셋(poisson)으로는 −0.02 였던 합성이, blowhole 만 paste 계열로 갈라 `dataset merge` 하니 **+0.09(3/3)**·mAP50-95 도 상승. 검수 탭의 클래스별 대비 히스토그램(합성 vs 은행 실제)이 학습 전에 어느 클래스가 옅어졌는지 보여 주고, `recipe init --classes` × n → `run` × n → `dataset merge --dedupe-normals` 가 그 흐름. 대비가 신호인 결함엔 `relative-paste`(노출 보정 paste).
 - **분산은 학습 운(±0.04)보다 분할(0.18~0.40)에서 온다** — 결정에 쓰려면 학습 시드보다 **분할을 3개 이상** 잡고, 실데이터에서 같은 절차(`TESTING.md` §3). 실제 NG 24장뿐인 소표본에서 합성 200장이 mAP50 을 올리면 도구의 전제가 살아 있는 것이고, 내리면 합성 결함이 실제 분포와 다르다는 뜻(검수 탭 분포·조명 R 로 원인을 좁힌다). 같은 시드·같은 데이터는 소수 셋째 자리까지 재현된다(`deterministic=True`, CPU).
-- 재현: `<train-venv>/python tools/train_mvtec_map.py samples/mvtec/metal_nut --anograft .venv/Scripts/python.exe --k 8 --count 200 --presets poisson-graft dent-graft --mask-from grabcut hybrid --epochs 40 --split-seed 7 --train-seeds 7 8 9 --out out/train-map-split7`(A 3 + B 12 학습 ≈ 5 h; 분할만 바꾸려면 `--seed 8 --out out/train-map-s8`). 끝난 (셋, 시드) 는 `results/` 캐시라 프리셋·은행을 나중에 보태도 다시 돌지 않는다. Magnetic Tile: `samples/magnetic-tile/pairs.csv --classes blowhole break crack --roi none`.
+- 재현: `<train-venv>/python tools/train_mvtec_map.py samples/mvtec/metal_nut --anograft .venv/Scripts/python.exe --k 8 --count 200 --presets poisson-graft dent-graft --mask-from grabcut hybrid --epochs 40 --split-seed 7 --train-seeds 7 8 9 --out out/train-map-split7`(A 3 + B 12 학습 ≈ 5 h; 분할만 바꾸려면 `--seed 8 --out out/train-map-s8`). 끝난 (셋, 시드) 는 `results/` 캐시라 프리셋·은행을 나중에 보태도 다시 돌지 않는다. Magnetic Tile: `samples/magnetic-tile/pairs.csv --classes blowhole break crack --roi none`. 결함 성격별 분할: `--presets poisson-graft relative-paste --class-presets blowhole=relative-paste break=poisson-graft crack=poisson-graft --mask-from hybrid`(hard-paste 행은 `blowhole=hard-paste`; 한 번에 `--class-presets` 하나, 결과는 `results/` 에 쌓여 표는 합쳐 읽는다).
