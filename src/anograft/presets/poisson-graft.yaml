@@ -2,6 +2,12 @@
 # 2026-09-14(#759 샘플 실측, 데브로그 07): MIXED는 얼룩처럼 그래디언트가 약한 결함을 대상 텍스처로 덮어 지운다(hard-paste 대비 0.19)
 #   → 기본 NORMAL. 스크래치·핏처럼 그래디언트가 강한 결함은 `poisson_mode: mixed`가 더 자연스럽다.
 #   harmonize strength 0.5 → 0.3: 세 조화 방법 모두 정의상 결함 톤을 옅게 만든다(0.5에서 대비 0.51 → 0.3에서 0.60).
+meta:
+  title: "경계 자연스럽게 붙이기"
+  summary: "보관함 조각을 Poisson 으로 붙이고 평균·분산을 살짝 맞춘 뒤 카메라 효과 — 기본"
+  use_for: "얼룩·스크래치·핏 등 표면 결함 대부분"
+  avoid: "대비가 곧 신호인 구멍·검은 점(→ relative-paste) · 빛 방향이 정해진 찍힘(→ dent-graft)"
+  evidence: "metal_nut mAP50 0.31 → 0.38(grabcut 보관함) / 0.45(hybrid 보관함), 학습 시드 3개 평균 — BENCHMARKS §2"
 pipeline:
   source:
     method: bank

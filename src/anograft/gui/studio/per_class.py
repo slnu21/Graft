@@ -60,7 +60,7 @@ class _Row(QWidget):
             sp.setValue(v)
             sp.setSuffix("°")
             sp.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
-            sp.setMinimumWidth(48)
+            sp.setMinimumWidth(54)
         self.flip = QComboBox()
         for label, val in FLIP_CHOICES:
             self.flip.addItem(label, val)

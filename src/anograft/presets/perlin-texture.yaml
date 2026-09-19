@@ -3,6 +3,12 @@
 # 2026-09-14(v0.4 source-selfcut-perlin): 마스크가 이미 무작위라 geometry 는 항등, 블렌딩은 alpha feather 1 + DRAEM β(opacity).
 #   DRAEM 원본은 β 0.2~1.0 이지만 0.2 는 육안으로 거의 안 보이는데 GT 는 남는다(라벨 노이즈) → 기본 0.4~1.0(샘플 preview 05 근거).
 #   더 옅은 이상까지 학습시키려면 0.2 로 내리고, 보이는 곳만 라벨하려면 gtmask policy: diff.
+meta:
+  title: "노이즈 텍스처 결함"
+  summary: "펄린 노이즈 마스크 + 텍스처(바탕 자신 또는 DTD 폴더)를 알파 0.4~1 로 겹칩니다(DRAEM). 보관함 불필요"
+  use_for: "불규칙한 이상 영역을 흉내낼 때 · 재구성 계열 모델 학습"
+  avoid: "실제 결함 모양을 배워야 하는 검출기"
+  evidence: ""
 pipeline:
   source:
     method: perlin-texture

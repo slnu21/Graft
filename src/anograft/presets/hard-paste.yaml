@@ -1,4 +1,10 @@
 # Hard Paste — CutPaste 계열(은행 소스). 마스크 내부를 그대로 치환, 정합·열화 없음. 가장 거친 기준선 = 학습 실험의 대조군
+meta:
+  title: "그대로 붙이기 (대조군)"
+  summary: "마스크 안 픽셀 치환, 색·밝기 맞춤·카메라 효과 없음 — 가장 거친 기준선"
+  use_for: "학습 실험의 대조군"
+  avoid: "노출이 제각각인 바탕 — 절반이 배경보다 밝은 구멍이 됩니다(→ relative-paste)"
+  evidence: "MT blowhole 합성 대비 중앙값 0(실제 −48) — BENCHMARKS §2"
 pipeline:
   source:
     method: bank

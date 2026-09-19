@@ -26,6 +26,7 @@ from anograft.bank.mask_from_box import METHODS as MASK_METHODS
 from anograft.core import recipe as R
 from anograft.core import registry
 from anograft.core.appearance import LIGHT_REAL_MIN, gray_of, mask_lighting
+from anograft.core.help import method_help
 from anograft.datasets import DatasetError, adapter_names, get_adapter, info_lines
 from anograft.io import imgio
 from anograft.io.targets import load_target
@@ -88,9 +89,43 @@ def cmd_methods(args: argparse.Namespace) -> int:
         else:
             state = f"불가 — {i.reason}"
         req = f"  (requires: {', '.join(i.requires)})" if i.requires else ""
-        print(f"  {i.method.ljust(width)}  {state}{req}")
+        h = method_help(i.stage, i.method)
+        summary = f"  {h.label} — {h.summary}" if h else ""
+        print(f"  {i.method.ljust(width)}  {state}{req}{summary}")
     print()
-    print(f"프리셋: {', '.join(R.preset_names())}")
+    print(f"프리셋: {', '.join(R.preset_names())}  (설명: anograft explain preset:<이름>)")
+    return EXIT_OK
+
+
+def cmd_explain(args: argparse.Namespace) -> int:
+    """파라미터·method·프리셋 도움말(v0.9) — GUI 카드 툴팁과 같은 원천(core/help.py)."""
+    from anograft.core import explain as E
+
+    if args.markdown or args.out:
+        md = E.markdown()
+        if args.out:
+            Path(args.out).write_text(md, encoding="utf-8", newline="\n")  # LF — 리다이렉트는 CRLF
+            print(f"{args.out}: {len(md.splitlines())}줄")
+        else:
+            print(md, end="")
+        return EXIT_OK
+    if not args.query:
+        from anograft.core.help import STAGE_HELP
+
+        print("스테이지:")
+        for k, h in STAGE_HELP.items():
+            print(f"  {k:<10} {h.label} — {h.desc}")
+        print("그 외: inputs · output · preset:<이름> · <stage>:<method> · <stage>.<field>")
+        print("전체 표: anograft explain --markdown (= PARAMS.md)")
+        return EXIT_OK
+    try:
+        for i, q in enumerate(args.query):
+            if i:
+                print()
+            print(E.explain_text(q))
+    except KeyError as e:
+        _err(str(e.args[0]) if e.args else str(e))
+        return EXIT_RECIPE_ERROR
     return EXIT_OK
 
 
@@ -845,6 +880,23 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("methods", help="스테이지별 선택 가능한 알고리즘(method)과 가용 여부")
     p.add_argument("--stage", choices=registry.STAGE_ORDER, default=None)
     p.set_defaults(func=cmd_methods)
+
+    p = sub.add_parser(
+        "explain",
+        help="파라미터·method·프리셋 도움말 — 예: explain geometry.scale · explain blend:poisson · explain preset:dent-graft",
+    )
+    p.add_argument(
+        "query",
+        nargs="*",
+        help="<stage> · <stage>.<field> · placement.roi.<field> · inputs[.<field>] · output[.<field>] · <stage>:<method> · preset:<이름>",
+    )
+    p.add_argument(
+        "--markdown", action="store_true", help="전체 표를 Markdown 으로(PARAMS.md 재생성)"
+    )
+    p.add_argument(
+        "--out", default=None, help="Markdown 을 이 파일에 LF 로 저장(예: --out PARAMS.md)"
+    )
+    p.set_defaults(func=cmd_explain)
 
     p = sub.add_parser("recipe", help="레시피 만들기·검증")
     rsub = p.add_subparsers(dest="recipe_command", metavar="<action>")

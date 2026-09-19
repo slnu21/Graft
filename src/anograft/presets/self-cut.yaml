@@ -1,6 +1,12 @@
 # Self-Cut — CutPaste 계열(Li et al. 2021, 3-way: 사각 패치 + 스카). **은행 불필요** — 대상 자신에서 잘라 붙인다.
 # 결함 "모양"을 배우는 자기지도 기준선. 실제 결함 은행이 생기면 poisson-graft 등으로 갈아탄다.
 # 2026-09-14(v0.4 source-selfcut-perlin): 스카 회전 −45~45°는 geometry rotate 로, 색 지터 0.1(CutPaste 기본), paste 블렌딩·조화 없음.
+meta:
+  title: "정상 부위 잘라 붙이기"
+  summary: "바탕 이미지 자신에서 네모/띠 조각을 잘라 색을 흔들어 붙입니다(CutPaste). 보관함 불필요"
+  use_for: "라벨링한 결함이 하나도 없을 때의 자기지도 기준선"
+  avoid: "실제 결함 조각이 생기면 poisson-graft 등으로"
+  evidence: ""
 pipeline:
   source:
     method: self-cut

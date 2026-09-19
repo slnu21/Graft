@@ -128,7 +128,7 @@ class _Row(QWidget):
                 btn.setToolTip("폴더 고르기")
                 btn.clicked.connect(self._pick_dir)
                 lay.addWidget(btn)
-        self.setToolTip(spec.hint)
+        self.setToolTip(spec.tooltip)
         self.set_value(spec.value)
 
     def _add(self, lay: QHBoxLayout, w: QSpinBox | QDoubleSpinBox, signal: str) -> None:
@@ -266,9 +266,9 @@ class ParamForm(QWidget):
             lab.setObjectName("StageParams")
             lab.setFixedWidth(LABEL_W)
             lab.setText(
-                QFontMetrics(lab.font()).elidedText(s.name, Qt.TextElideMode.ElideMiddle, LABEL_W)
+                QFontMetrics(lab.font()).elidedText(s.title, Qt.TextElideMode.ElideRight, LABEL_W)
             )
-            lab.setToolTip(f"{s.name}\n{s.hint}")
+            lab.setToolTip(s.tooltip)
             row = _Row(s)
             row.changed.connect(self.value_changed.emit)
             self.grid.addWidget(lab, i, 0, Qt.AlignmentFlag.AlignVCenter)

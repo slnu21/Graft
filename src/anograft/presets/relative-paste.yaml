@@ -6,6 +6,12 @@
 #   결함의 상대 대비를 그대로 두고 노출 차이만 없앤다. 흑백·컬러 모두 L 채널만.
 #   블렌딩은 paste — alpha 페더는 보정 전 톤이 페더 띠에 남아 이음새가 보인다(조화가 블렌딩 뒤에 온다). 열화는 alpha-paste 와 같게.
 #   회전 ±180·flip both = 텍스처성 결함 기본. 조명 의존(찍힘)이면 geometry.per_class 로 ±15°.
+meta:
+  title: "대비 지키며 붙이기"
+  summary: "그대로 붙인 뒤 조각 주변과 바탕 주변의 밝기 차만큼만 옮깁니다(노출 보정) — 결함의 상대 대비 보존"
+  use_for: "대비가 곧 신호인 결함 — 블로우홀·검은 구멍·핏"
+  avoid: "경계 정합이 곧 사실감인 큰 결손·깨짐(→ poisson-graft)"
+  evidence: "Magnetic Tile blowhole 만 이 프리셋으로 갈라 merge → mAP50 0.460 → 0.605(+0.15, 3/3) — BENCHMARKS §2"
 pipeline:
   source:
     method: bank

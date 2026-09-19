@@ -1,7 +1,8 @@
 """스테이지 설정(pydantic 모델) → 위젯 스펙. Qt 없음 — ``panels.py`` 의 ``ParamForm`` 이 스펙대로 위젯을 만든다.
 
 "스키마가 곧 UI": 새 method 의 설정 모델을 ``recipe.py`` 에 추가하면 카드 편집기는 저절로 생긴다(GUI 수정 0).
-필드 이름은 레시피 YAML 키 그대로 보인다 — CLI·레시피 파일과 같은 어휘라 번역하지 않는다.
+라벨·설명·단위는 ``core/help.py``(한 원천)에서 — 라벨은 한국어, YAML 키·영어·형식은 툴팁(v0.9). 도움말이 없는 필드는
+``tests/test_param_help.py`` 가 잡는다.
 
 - ``method``/``policy`` 는 카드 콤보가 맡고, ``placement.roi`` 는 하위 스테이지(자기 method 콤보 + 폼)라 여기서 제외.
 - 중첩 모델(``elastic``·``shrink_on_fail``·``jitter``)은 ``elastic.alpha`` 처럼 점 경로로 평탄화.
@@ -19,6 +20,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
+
+from anograft.core.help import field_help
 
 Kind = Literal["int", "float", "int_range", "range", "bool", "choice", "text", "list", "path"]
 
@@ -54,10 +57,33 @@ class FieldSpec:
     hi_open: bool = False
     on_default: Any = None  # optional 을 켤 때 넣을 값
     hint: str = ""  # 툴팁 — 형식·제약 요약
+    label: str = ""  # 한국어 라벨(core/help.py). 비면 name 을 그대로 보인다
+    desc: str = ""  # 무엇 · 올리면/내리면
+    unit: str = ""  # px · ° · 배 · gray · 회 · 개
+    en: str = ""  # 영어 한 줄
+    advanced: bool = False  # 카드에서 "고급 옵션"으로 접히는 필드
 
     @property
     def enabled(self) -> bool:
         return not (self.optional and self.value is None)
+
+    @property
+    def title(self) -> str:
+        """폼 라벨 — 한국어 라벨 + 단위(없으면 YAML 키)."""
+        base = self.label or self.name
+        return f"{base} ({self.unit})" if self.unit else base
+
+    @property
+    def tooltip(self) -> str:
+        """3줄 툴팁 — 라벨 · YAML 키 / 설명 / 영어 · 형식·범위."""
+        head = f"{self.label} · {self.name}" if self.label else self.name
+        lines = [head]
+        if self.desc:
+            lines.append(self.desc)
+        tail = " · ".join(x for x in (self.en, self.hint) if x)
+        if tail:
+            lines.append(tail)
+        return "\n".join(lines)
 
 
 @dataclass
@@ -203,6 +229,7 @@ def field_specs(
         kind, choices = kind_choices
         lo, hi, lo_open, hi_open = _bounds(a.metadata)
         on_default = ON_DEFAULTS.get(name, _kind_default(kind, lo, hi)) if a.optional else None
+        h = field_help(type(cfg), name)
         specs.append(
             FieldSpec(
                 name=f"{prefix}{name}",
@@ -216,6 +243,11 @@ def field_specs(
                 hi_open=hi_open,
                 on_default=on_default,
                 hint=_hint(kind, lo, hi, lo_open, hi_open, a.optional),
+                label=h.label if h else "",
+                desc=h.desc if h else "",
+                unit=h.unit if h else "",
+                en=h.en if h else "",
+                advanced=h.advanced if h else False,
             )
         )
     return specs

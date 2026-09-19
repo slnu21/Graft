@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 
 from anograft.core import recipe as R
 from anograft.core import registry
+from anograft.core.help import STAGE_HELP, method_help
 from anograft.core.pipeline import TraceStep
 from anograft.gui.qt_image import to_qpixmap
 from anograft.gui.studio.param_form import ParamForm
@@ -39,25 +40,19 @@ from anograft.gui.studio.per_class import PerClassEditor
 from anograft.gui.theme import COLORS
 from anograft.preview import fit_long_side
 
-STAGE_TITLES: tuple[
-    tuple[str, str], ...
-] = (  # (스테이지 키, 한국어 제목) — 영어·YAML 키는 STAGE_TIPS 툴팁으로
-    ("source", "결함 고르기"),
-    ("geometry", "크기·회전"),
-    ("placement", "위치 정하기"),
-    ("blend", "붙이기"),
-    ("harmonize", "색·밝기 맞추기"),
-    ("degrade", "카메라 효과"),
-    ("gtmask", "정답 영역"),
+STAGE_ORDER: tuple[str, ...] = (
+    "source",
+    "geometry",
+    "placement",
+    "blend",
+    "harmonize",
+    "degrade",
+    "gtmask",
 )
+# (스테이지 키, 한국어 제목) — 문안은 core/help.STAGE_HELP 한 원천. 영어·YAML 키는 STAGE_TIPS 툴팁으로
+STAGE_TITLES: tuple[tuple[str, str], ...] = tuple((k, STAGE_HELP[k].label) for k in STAGE_ORDER)
 STAGE_TIPS: dict[str, str] = {
-    "source": "Source · YAML pipeline.source — 어떤 결함 조각을 쓸지(보관함 · 정상 부위 잘라 붙이기 · 노이즈 텍스처)",
-    "geometry": "Geometry · pipeline.geometry — 조각의 크기·회전·뒤집기·휘어짐",
-    "placement": "Placement · pipeline.placement — 바탕 이미지의 어디에 놓을지(붙일 수 있는 영역 안에서)",
-    "blend": "Blend · pipeline.blend — 조각을 바탕에 어떻게 붙일지(그대로 · 가장자리 부드럽게 · Poisson · 다중 대역)",
-    "harmonize": "Harmonize · pipeline.harmonize — 붙인 결함의 색·밝기를 주변에 맞추기",
-    "degrade": "Degrade · pipeline.degrade — 노이즈·흐림·JPEG 등 카메라 느낌 입히기",
-    "gtmask": "GT mask · pipeline.gtmask — 학습용 정답 영역을 무엇으로 삼을지",
+    k: f"{h.en} · YAML pipeline.{k} — {h.desc}" for k, h in STAGE_HELP.items() if k != "roi"
 }
 LONG_SIDES: tuple[tuple[str, int], ...] = (
     ("긴 변 1024px", 1024),
@@ -65,6 +60,17 @@ LONG_SIDES: tuple[tuple[str, int], ...] = (
     ("긴 변 512px", 512),
     ("원본 해상도", 0),
 )
+
+
+def preset_tip(name: str) -> str:
+    """프리셋 콤보 항목 툴팁 — meta(제목 · 한 줄 · 이럴 때 · 피할 때)."""
+    m = R.preset_meta(name)
+    lines = [f"{name} — {m['title']}", m["summary"]]
+    if m["use_for"]:
+        lines.append(f"이럴 때: {m['use_for']}")
+    if m["avoid"]:
+        lines.append(f"피할 때: {m['avoid']}")
+    return "\n".join(lines)
 
 
 def flat_icon(pm: QPixmap) -> QIcon:
@@ -104,8 +110,9 @@ class StripBar(QWidget):
         lay.setSpacing(14)
 
         self.preset = QComboBox()
-        for name in R.preset_names():
+        for i, name in enumerate(R.preset_names()):
             self.preset.addItem(name, name)
+            self.preset.setItemData(i, preset_tip(name), Qt.ItemDataRole.ToolTipRole)
         self.preset.currentIndexChanged.connect(
             lambda _i: self.preset_changed.emit(self.preset.currentData())
         )
@@ -172,6 +179,8 @@ class StripBar(QWidget):
         return box
 
     def sync(self, recipe: R.Recipe, n_variants: int, long_side: int) -> None:
+        if recipe.pipeline.preset:
+            self.preset.setToolTip(preset_tip(recipe.pipeline.preset))
         """세션 → 위젯 (시그널 억제)."""
         for w in (self.preset, self.seed, self.variants, self.long_side):
             w.blockSignals(True)
@@ -513,9 +522,7 @@ class StageCard(QFrame):
             sub.setSpacing(8)
             sub_title = QLabel("붙일 수 있는 영역")
             sub_title.setObjectName("H4")
-            sub_title.setToolTip(
-                "ROI · placement.roi — 바탕 이미지에서 결함을 놓아도 되는 영역(배경·리세스 제외)"
-            )
+            sub_title.setToolTip(f"ROI · placement.roi — {STAGE_HELP['roi'].desc}")
             sub.addWidget(sub_title, 1)
             self.roi_method = QComboBox()
             self.roi_method.setMinimumWidth(96)
@@ -539,8 +546,14 @@ class StageCard(QFrame):
     def _fill_methods(combo: QComboBox, stage: str) -> None:
         model = QStandardItemModel(combo)
         for info in registry.list_methods(stage):
-            item = QStandardItem(info.method)
+            h = method_help(stage, info.method)
+            item = QStandardItem(h.label if h else info.method)
             item.setData(info.method, Qt.ItemDataRole.UserRole)
+            if h:
+                tip = f"{info.method} · {h.en}\n{h.summary}" + (
+                    f"\n이럴 때: {h.when}" if h.when else ""
+                )
+                item.setToolTip(tip)
             if not info.usable:
                 item.setEnabled(False)
                 item.setToolTip(info.reason or "아직 구현되지 않음")
@@ -565,14 +578,24 @@ class StageCard(QFrame):
         """세션 → 카드. method 콤보·폼(스펙은 스키마에서)·제목 툴팁(한 줄 요약)."""
         self._select(self.method, registry.config_method(cfg))
         self.form.set_specs(field_specs(cfg))
-        self.title.setToolTip(params_text(cfg))
+        self.title.setToolTip(f"{STAGE_TIPS[self.stage]}\n{params_text(cfg)}")
+        self.method.setToolTip(self._method_tip(self.stage, registry.config_method(cfg)))
         if self.per_class is not None:
             self.per_class.set_value(dict(getattr(cfg, "per_class", {}) or {}))
         if self.roi_method is not None and self.roi_form is not None:
             roi = cfg.roi
             self._select(self.roi_method, registry.config_method(roi))
             self.roi_form.set_specs(field_specs(roi))
-            self.roi_method.setToolTip(params_text(roi))
+            self.roi_method.setToolTip(
+                f"{self._method_tip('roi', registry.config_method(roi))}\n{params_text(roi)}"
+            )
+
+    @staticmethod
+    def _method_tip(stage: str, method: str) -> str:
+        h = method_help(stage, method)
+        if h is None:
+            return method
+        return f"{method} · {h.en}\n{h.summary}" + (f"\n이럴 때: {h.when}" if h.when else "")
 
     def set_fix(self, label: str | None) -> None:
         """경고 옆 '고치기' 버튼 — None 이면 숨김."""

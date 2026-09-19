@@ -5,6 +5,12 @@
 #         자리에 방향이 없으면(coherence < min_coherence) 또는 결함이 둥글면(anisotropy < min_anisotropy) geometry 회전 유지.
 #   ROI: grabcut(rect 초기화, 긴 변 1024 작업) — Otsu 로 전경/배경이 안 갈리는 무광 부품·그림자에 강하다. 텍스처 카테고리는 none.
 #   geometry rotate 는 그대로 ±180 — 정렬이 덮어쓰므로 둥근 결함에만 의미가 있다.
+meta:
+  title: "표면 결을 따라 붙이기"
+  summary: "poisson-graft + 결·에지가 있는 곳 선호, 조각을 결 방향에 정렬 + GrabCut 영역"
+  use_for: "스크래치가 결을 따르고 칩이 모서리에 생기는 부품(무광·헤어라인)"
+  avoid: "평탄한 면의 얼룩(→ prefer: flat 또는 poisson-graft) · 빛 방향이 정해진 결함(정렬 회전이 조명을 돌림)"
+  evidence: ""
 pipeline:
   source:
     method: bank
