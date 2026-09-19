@@ -1,4 +1,4 @@
-# TESTING — 받아서 확인할 것 (v0.8.0 · v0.8.1 · v0.8.2)
+# TESTING — 받아서 확인할 것 (v0.8.0 · v0.8.1 · v0.8.2 · v0.9.0)
 
 > 자율 세션(2026-09-16 저녁 ~ 09-17 새벽)이 만든 것을 **다른 PC 에서 그대로 따라 하며** 확인하는 절차. 각 항목은 *무엇을 → 기대 결과 → 어긋나면*. 실데이터가 있으면 `KNOWN-ISSUES.md` "2차 적용 절차"를 먼저, 없으면 아래 공개 데이터로.
 > English summary at the end.
@@ -7,7 +7,7 @@
 
 ```powershell
 # A) 파이썬 없이 — 릴리스 zip 을 풀고
-.\anograft.exe doctor                      # 버전 0.8.2 · gui ok 인지
+.\anograft.exe doctor                      # 버전 0.9.0 · gui ok 인지
 # B) 소스 —
 .\bootstrap.ps1 -Gui                       # = venv + pip install -e ".[dev,gui]"
 anograft doctor --json > doctor.json       # 문제 보고 첫 줄
@@ -63,6 +63,16 @@ python tools/fetch_public_datasets.py screw --import            # (선택) 흑�
 | 22 | `anograft recipe init --preset relative-paste --bank bank/magnetic-tile --targets samples/magnetic-tile/normals.txt --roi none --classes blowhole --write a.yaml` · 같은 은행으로 `--preset poisson-graft --classes break crack --write b.yaml` → `run` 둘 → `dataset merge out/a out/b --out out/ab --dedupe-normals` | `a.yaml` 의 `source.classes: [blowhole]`(헤더 주석에 `--classes blowhole`) · `out/a` 사이드카 `harmonize.method: relative`(마스크 밖 바이트는 paste 와 동일) · merge 결과 `data.yaml` names 가 은행 순서 그대로(blowhole·break·crack), 정상 한 벌. `--preset self-cut --classes x` 는 거부(은행 없음) |
 | 23 | 검수 탭 분포 → 클래스 `blowhole` → 대비 | `out/a`(relative-paste) 합성 중앙값이 실제(은행) 쪽으로(≈ −37 vs −48); 같은 은행의 poisson 출력은 0 쪽(≈ −17) |
 | 24 | `tools/train_mvtec_map.py samples/magnetic-tile/pairs.csv --classes blowhole break crack --roi none --presets poisson-graft relative-paste --class-presets blowhole=relative-paste break=poisson-graft crack=poisson-graft --mask-from hybrid --epochs 1 --count 9 --k 2` | 표에 `B +split relative-paste(blowhole) poisson-graft(break+crack) (hybrid)` 행 · `syn-split-…` 폴더가 `merge.json` 을 가짐 · 합성 9 = 3 + 6(클래스 수 비례) |
+
+### v0.9.0 추가 항목(사용성)
+
+| # | 무엇을 | 기대 결과 |
+|---|---|---|
+| 25 | (v0.9) 미리보기 탭 카드의 아무 값에 마우스를 올린다 · `anograft explain geometry.rotate` · `anograft explain --markdown \| head` | 라벨이 한국어(`회전 (°)`), 툴팁 3줄(`회전 · rotate` / 설명 / `Rotation range · 실수 범위 …`) · CLI 도 같은 문장 + 프리셋별 값(dent-graft [-15, 15]) · `PARAMS.md` 첫 줄 |
+| 26 | (v0.9) 미리보기 탭 색·밝기 맞추기 카드 `맞추는 세기` 슬라이더를 끌기 → ↺ · 헤더 ↺ · `▸ 고급 옵션` · 헤더 체크 끄기 | 라벨이 teal 로 바뀌고 행 끝 ↺ 표시, 헤더에 `바뀜 1`; ↺ 로 프리셋 값(0.3) 복귀; 고급 옵션을 펼치면 `주변 링 폭` 등장(다시 열어도 기억); 체크를 끄면 method 가 `none`, 켜면 `stats` 로 복귀 |
+| 27 | (v0.9) 미리보기 탭 프리셋 옆 `고르기…` | 카드 10장, 각 카드 썸네일이 현재 바탕 이미지의 합성(annulus 는 링 위치, hard-paste 는 거친 경계) · 더블클릭하면 콤보·카드가 그 프리셋으로 · 바탕을 고르기 전에는 썸네일 없이 문안만 |
+| 28 | (v0.9) GUI 를 레시피 없이 열기 → 체크리스트 버튼 → 탭 오른쪽 위 `다음 →` | 캔버스 자리에 6단계 체크리스트(첫 미완 버튼 강조), 탭 이름이 `① 결함 표시 … ⑤ 검수`, 보관함을 열면 `② 결함 보관함 · 19` 처럼 배지, `다음: 일괄 생성 →` 로 탭 이동(검수에서는 비활성) |
+| 29 | (v0.9) 샘플 레시피로 미리보기 → 크기·회전 카드 · 일괄 생성 24장 → 로그 · 검수 분포 `밝은 쪽 방향`/`밝기 차` | 카드 경고가 아이콘·문장·`▶ 빛 방향 클래스만 ±15°로 좁히기` 버튼 한 상자(문장은 '… 섞입니다. → 프리셋 dent-graft …'), 로그에 같은 경고 1번, 검수 히스토그램 아래 💡 상자에 조명/대비 힌트 |
 | 30 | (v0.9) 상단 ⚙ → 테마 라이트 · 글자 130 % → 저장 → 앱 다시 열기 | 상태바 '다시 열면 적용' · 재실행 뒤 밝은 배경·큰 글자(모든 탭). 다크로 되돌리기도 같은 길 |
 
 `real.csv` 예시(항목 8·9):
@@ -87,10 +97,11 @@ scratch,10000,220
 
 ## English (summary)
 
-1. **Install**: unzip the release and run `anograft.exe doctor` (expect 0.8.2, `gui ok`), or `.\bootstrap.ps1 -Gui` + `pytest -q` (all green).
+1. **Install**: unzip the release and run `anograft.exe doctor` (expect 0.9.0, `gui ok`), or `.\bootstrap.ps1 -Gui` + `pytest -q` (all green).
 2. **Data**: `python tools/fetch_public_datasets.py metal_nut magnetic-tile --import` (MVTec is CC BY-NC-SA — local dev only).
 3. **Check** (table above): dry-run `fit` rows now show short/long side + reason; `source:` warning for whole-part classes; `targets:` warning when mask PNGs sit next to images; `dataset merge` (refuses different class lists; merges same-bank outputs with `d<k>_` prefixes and re-indexed manifest); review tab **per-class combo** and **measured CSV** button; `dataset report --real-csv`; `--mask-from hybrid` (opt-in; default unchanged); `tools/bench_mask_from_box.py`.
 4. **v0.8.1**: `source.redraw_on_empty` (tiny sources no longer skip the image), `output.root` follows the recipe folder when inputs fell back, `run --roi-cache N`, `source.single_class_per_image` (no mixed classes for the MVTec writer), the Sample-data options dialog, `geometry.tps` (thin-plate warp, off by default), and `BENCHMARKS.md` (box→mask IoU · synthetic vs. no-synthetic mAP).
 5. **After v0.8.1** (`tools/train_mvtec_map.py`): `--train-seeds 7 8 9` repeats only the training seed on a fixed split/synthesis and prints per-seed + mean Δ; `--mask-from grabcut hybrid` builds one B set per bank; a `pairs.csv` (Magnetic Tile) is accepted as the dataset; finished (set, seed) pairs are cached under `results/` so re-running the same `--out` skips training. Expect exact (3-decimal) reproduction for the same seed and data.
 6. **v0.8.2**: `recipe init --classes A B` restricts a preset to those bank classes (refused for self-cut/perlin); `harmonize.relative` / preset `relative-paste` keeps the defect's contrast and only compensates exposure (review tab: blowhole median contrast ≈ −37 vs real −48, poisson ≈ −17); `train_mvtec_map.py --class-presets cls=preset …` synthesizes per class group and merges (`syn-split-…/merge.json`).
-7. **Report**: `doctor.json`, the exact command output, screenshots, and any reversed decision in `KNOWN-ISSUES.md`.
+7. **v0.9.0 (usability)**: Korean-first UI (English/YAML keys in tooltips), stage names as verbs, parameter labels + 3-line tooltips (also `anograft explain <stage>.<field>` and `PARAMS.md`), modified-from-preset marker + ↺ reset, advanced-options fold, sliders, preset gallery with live thumbnails, numbered workflow tabs with badges and a Next button, start checklist, one notice component, light theme and font scale (⚙).
+8. **Report**: `doctor.json`, the exact command output, screenshots, and any reversed decision in `KNOWN-ISSUES.md`.

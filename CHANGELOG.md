@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-09-19
+
+**사용성 릴리스** — 기능은 v0.8.2 그대로, 화면·문구·설명만 바꿨다(알고리즘·스키마 값·출력·골든 불변). 한국어 단독 라벨(영어·YAML 키는 툴팁) · 7단계 동사형 이름 · 카드 폼 한글 라벨+설명 툴팁 · `anograft explain`/`PARAMS.md` · 프리셋 대비 바뀜 ↺·고급 접기·슬라이더 · 프리셋 갤러리(현재 바탕 썸네일) · 탭 흐름 순서+배지+다음 → · 시작 체크리스트 · 경고/힌트 한 컴포넌트 · 대비 힌트 · 라이트 테마·글자 크기. 근거 `docs/ux/2026-09-19-usability-review.md`(로컬).
+
 ### Changed
 - **GUI 용어·라벨(v0.9 사용성 ①)** — 화면 문구를 한국어 단독으로, 영어 이름·YAML 키는 툴팁 둘째 줄로. 탭 `결함 표시 · 결함 보관함 · 미리보기 · 일괄 생성 · 검수`, 7단계 `결함 고르기 · 크기·회전 · 위치 정하기 · 붙이기 · 색·밝기 맞추기 · 카메라 효과 · 정답 영역`(카드 제목 툴팁에 영어·`pipeline.<stage>`). 은행→결함 보관함 · 소스→결함 조각 · 대상→바탕 이미지 · 폴백→대체 처리 · skipped→건너뜀 · 정리본→정리된 데이터셋 · 실측 CSV→현장 측정값 · 저신뢰→마스크 신뢰도 낮음 · "배치" 두 뜻 분리(Batch = 일괄 생성 · Placement = 위치 정하기). 위젯 툴팁 +40(일괄 생성·보관함·퀵스타트 전부). README ko 사용자 문구 동일 갱신. CLI 서브커맨드·YAML 키·사이드카·핵심 경고 문장은 그대로(용어 사전 `docs/ux/2026-09-19-usability-review.md` §3).
 
@@ -263,7 +267,8 @@ v0.4 — CPU 알고리즘 확장. **여전히 샘플 데이터로만 검증**(�
 - GUI는 스튜디오 탭만. 재현은 같은 OS·OpenCV 부버전 범위(`seamlessClone` 솔버).
 - `release.yml`의 Windows zip 잡은 첫 push 전이라 CI에서 미검증(로컬 `tools/build_zip.ps1`와 같은 절차).
 
-[Unreleased]: https://github.com/slnu21/Graft/compare/v0.8.2...HEAD
+[Unreleased]: https://github.com/slnu21/Graft/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/slnu21/Graft/compare/v0.8.2...v0.9.0
 [0.8.2]: https://github.com/slnu21/Graft/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/slnu21/Graft/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/slnu21/Graft/compare/v0.7.7...v0.8.0
