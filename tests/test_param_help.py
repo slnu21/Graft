@@ -122,7 +122,7 @@ def test_params_md_is_up_to_date() -> None:
     md = E.markdown()
     assert md.startswith("# PARAMS") and "## 프리셋" in md and "### `poisson`" in md
     stored = (ROOT / "PARAMS.md").read_text(encoding="utf-8")
-    assert stored == md, "PARAMS.md 가 오래됐습니다: anograft explain --markdown > PARAMS.md"
+    assert stored == md, "PARAMS.md 가 오래됐습니다: anograft explain --out PARAMS.md"
 
 
 def test_cli_explain(capsys: pytest.CaptureFixture[str]) -> None:
@@ -134,6 +134,12 @@ def test_cli_explain(capsys: pytest.CaptureFixture[str]) -> None:
     assert "회전 (°)" in out and "찍힘·덴트" in out
     assert main(["explain", "--markdown"]) == EXIT_OK
     assert capsys.readouterr().out.startswith("# PARAMS")
+    out_md = ROOT / "tests" / "_params_tmp.md"
+    try:
+        assert main(["explain", "--out", str(out_md)]) == EXIT_OK
+        assert out_md.read_bytes() == E.markdown().encode("utf-8")  # LF 그대로
+    finally:
+        out_md.unlink(missing_ok=True)
     assert main(["explain", "bogus"]) != EXIT_OK
     assert "모르는 스테이지" in capsys.readouterr().err
     assert main(["methods", "--stage", "harmonize"]) == EXIT_OK

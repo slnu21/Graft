@@ -3,7 +3,7 @@
 - ``explain_text(query)``: ``geometry`` (스테이지) · ``geometry.scale`` (필드) · ``placement.roi.erode_px`` · ``output.count`` ·
   ``preset:dent-graft`` · ``blend:poisson`` (method) — 라벨 · 설명 · 단위 · 형식·범위 · YAML 키 · 프리셋별 값.
 - ``markdown()``: 전체 표(= ``PARAMS.md``). ``tests/test_param_help.py`` 가 저장된 파일과 비교한다 — 문안을 고치면
-  ``anograft explain --markdown > PARAMS.md`` 로 재생성.
+  ``anograft explain --out PARAMS.md`` 로 재생성(LF).
 """
 
 from __future__ import annotations
@@ -317,7 +317,7 @@ def markdown() -> str:
     out = [
         "# PARAMS — 레시피 파라미터 도움말 / Recipe parameter reference",
         "",
-        "> `anograft explain --markdown` 이 만든다(원천 `src/anograft/core/help.py` · 프리셋 `meta:`). 손으로 고치지 말고 문안을 고친 뒤 재생성. "
+        "> `anograft explain --out PARAMS.md` 가 만든다(원천 `src/anograft/core/help.py` · 프리셋 `meta:`). 손으로 고치지 말고 문안을 고친 뒤 재생성. "
         "GUI 카드 툴팁 · `anograft explain <stage>.<field>` 와 같은 글. 기본값은 스키마 기본(프리셋은 다를 수 있음 — 프리셋 열).",
         "",
         "## 프리셋 / Presets",

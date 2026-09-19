@@ -1,6 +1,6 @@
 # PARAMS — 레시피 파라미터 도움말 / Recipe parameter reference
 
-> `anograft explain --markdown` 이 만든다(원천 `src/anograft/core/help.py` · 프리셋 `meta:`). 손으로 고치지 말고 문안을 고친 뒤 재생성. GUI 카드 툴팁 · `anograft explain <stage>.<field>` 와 같은 글. 기본값은 스키마 기본(프리셋은 다를 수 있음 — 프리셋 열).
+> `anograft explain --out PARAMS.md` 가 만든다(원천 `src/anograft/core/help.py` · 프리셋 `meta:`). 손으로 고치지 말고 문안을 고친 뒤 재생성. GUI 카드 툴팁 · `anograft explain <stage>.<field>` 와 같은 글. 기본값은 스키마 기본(프리셋은 다를 수 있음 — 프리셋 열).
 
 ## 프리셋 / Presets
 

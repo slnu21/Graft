@@ -101,8 +101,13 @@ def cmd_explain(args: argparse.Namespace) -> int:
     """파라미터·method·프리셋 도움말(v0.9) — GUI 카드 툴팁과 같은 원천(core/help.py)."""
     from anograft.core import explain as E
 
-    if args.markdown:
-        print(E.markdown(), end="")
+    if args.markdown or args.out:
+        md = E.markdown()
+        if args.out:
+            Path(args.out).write_text(md, encoding="utf-8", newline="\n")  # LF — 리다이렉트는 CRLF
+            print(f"{args.out}: {len(md.splitlines())}줄")
+        else:
+            print(md, end="")
         return EXIT_OK
     if not args.query:
         from anograft.core.help import STAGE_HELP
@@ -887,6 +892,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--markdown", action="store_true", help="전체 표를 Markdown 으로(PARAMS.md 재생성)"
+    )
+    p.add_argument(
+        "--out", default=None, help="Markdown 을 이 파일에 LF 로 저장(예: --out PARAMS.md)"
     )
     p.set_defaults(func=cmd_explain)
 
