@@ -115,6 +115,8 @@ QToolButton#Reset {{ border: none; color: {COLORS["teal"]}; font-size: 13px; pad
 QToolButton#Reset:hover {{ color: {COLORS["tx"]}; }}
 QToolButton#ResetAll {{ border: 1px solid {COLORS["line2"]}; border-radius: 4px; color: {COLORS["teal"]}; font-size: 12px; padding: 0; background: transparent; }}
 QToolButton#ResetAll:hover {{ border-color: {COLORS["teal"]}; }}
+QToolButton#Gallery {{ border: 1px solid {COLORS["line2"]}; border-radius: 4px; color: {COLORS["tx2"]}; padding: 2px 7px; background: transparent; }}
+QToolButton#Gallery:hover {{ border-color: {COLORS["teal"]}; color: {COLORS["tx"]}; }}
 QToolButton#Advanced {{ border: none; color: {COLORS["tx3"]}; font-size: 11.5px; padding: 2px 0; background: transparent; text-align: left; }}
 QToolButton#Advanced:hover, QToolButton#Advanced:checked {{ color: {COLORS["tx2"]}; }}
 QSlider::groove:horizontal {{ height: 3px; background: {COLORS["line2"]}; border-radius: 1px; }}
