@@ -12,6 +12,7 @@ import numpy as np
 from PySide6.QtCore import QSignalBlocker, QSize, Qt, Signal
 from PySide6.QtGui import QIcon, QPixmap, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
@@ -25,6 +26,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSpinBox,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -35,7 +37,7 @@ from anograft.core.help import STAGE_HELP, method_help
 from anograft.core.pipeline import TraceStep
 from anograft.gui.qt_image import to_qpixmap
 from anograft.gui.studio.param_form import ParamForm
-from anograft.gui.studio.params import field_specs
+from anograft.gui.studio.params import baseline_config, field_specs
 from anograft.gui.studio.per_class import PerClassEditor
 from anograft.gui.theme import COLORS
 from anograft.preview import fit_long_side
@@ -60,6 +62,16 @@ LONG_SIDES: tuple[tuple[str, int], ...] = (
     ("긴 변 512px", 512),
     ("원본 해상도", 0),
 )
+
+
+def _compact_combo(combo: QComboBox) -> None:
+    """긴 한국어 표시명(경계 자연스럽게(Poisson))이 카드 최소 폭을 밀어 올리지 않게 — 내용 길이 대신 최소 8자, 남는 폭은 채운다."""
+    combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+    combo.setMinimumContentsLength(4)
+    combo.setSizePolicy(
+        QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed
+    )  # 남는 폭을 채우되 최소 폭은 고정
+    combo.setMinimumWidth(96)
 
 
 def preset_tip(name: str) -> str:
@@ -446,16 +458,45 @@ class StageCard(QFrame):
         lay.setContentsMargins(10, 8, 10, 10)
         lay.setSpacing(6)
         head = QHBoxLayout()
-        head.setSpacing(8)
+        head.setSpacing(6)
         num = QLabel(str(no))
         num.setObjectName("StageNo")
         head.addWidget(num)
         self.title = QLabel(title)
         self.title.setObjectName("StageTitle")
+        self.title.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
+        )  # 헤더 폭은 콤보가 채운다
+        self.title.setMinimumWidth(60)
         head.addWidget(self.title, 1)
+        # 바뀜 n · 프리셋 값으로 — 폼(과 ROI 폼)의 바뀐 행 수. 0 이면 숨김
+        self.modified_label = QLabel("")
+        self.modified_label.setObjectName("Modified")
+        self.modified_label.hide()
+        head.addWidget(self.modified_label)
+        self.btn_reset_all = QToolButton()
+        self.btn_reset_all.setObjectName("ResetAll")
+        self.btn_reset_all.setText("↺")
+        self.btn_reset_all.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.btn_reset_all.setFixedSize(22, 18)
+        self.btn_reset_all.setToolTip(
+            "이 단계의 바뀐 값을 전부 프리셋 값으로 되돌립니다 · Reset stage to preset"
+        )
+        self.btn_reset_all.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_reset_all.clicked.connect(self.reset_all)
+        self.btn_reset_all.hide()
+        head.addWidget(self.btn_reset_all)
+        # 켬/끔 — `none` method 가 있는 단계(색·밝기 맞추기 · 카메라 효과)만. 끄면 none, 켜면 마지막 method 로
+        self.enabled_toggle: QCheckBox | None = None
+        self._last_method: str | None = None
+        if "none" in registry.schema_methods(stage):
+            self.enabled_toggle = QCheckBox()
+            self.enabled_toggle.setToolTip("이 단계를 켜고 끕니다(끄면 method none) · Enable stage")
+            self.enabled_toggle.toggled.connect(self._on_enabled_toggled)
+            head.addWidget(self.enabled_toggle)
         self.method = QComboBox()
-        self.method.setMinimumWidth(96)
-        head.addWidget(self.method)
+        _compact_combo(self.method)
+        head.addWidget(self.method, 1)
         lay.addLayout(head)
 
         body = QHBoxLayout()
@@ -503,6 +544,7 @@ class StageCard(QFrame):
 
         self.form = ParamForm()
         self.form.value_changed.connect(lambda n, v: self.field_changed.emit(self.stage, n, v))
+        self.form.modified_count_changed.connect(lambda _n: self._refresh_modified())
         lay.addWidget(self.form)
 
         # 기하 카드 = per_class 편집 표(폼이 못 그리는 dict) — 변경은 field_changed("geometry", "per_class", dict)
@@ -523,12 +565,15 @@ class StageCard(QFrame):
             sub_title = QLabel("붙일 수 있는 영역")
             sub_title.setObjectName("H4")
             sub_title.setToolTip(f"ROI · placement.roi — {STAGE_HELP['roi'].desc}")
+            sub_title.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+            sub_title.setMinimumWidth(60)
             sub.addWidget(sub_title, 1)
             self.roi_method = QComboBox()
-            self.roi_method.setMinimumWidth(96)
-            sub.addWidget(self.roi_method)
+            _compact_combo(self.roi_method)
+            sub.addWidget(self.roi_method, 2)
             lay.addLayout(sub)
             self.roi_form = ParamForm()
+            self.roi_form.modified_count_changed.connect(lambda _n: self._refresh_modified())
             self.roi_form.value_changed.connect(lambda n, v: self.field_changed.emit("roi", n, v))
             lay.addWidget(self.roi_form)
 
@@ -574,10 +619,17 @@ class StageCard(QFrame):
                     combo.setCurrentIndex(i)
                     break
 
-    def sync(self, cfg: Any) -> None:
-        """세션 → 카드. method 콤보·폼(스펙은 스키마에서)·제목 툴팁(한 줄 요약)."""
-        self._select(self.method, registry.config_method(cfg))
-        self.form.set_specs(field_specs(cfg))
+    def sync(self, cfg: Any, recipe: R.Recipe | None = None) -> None:
+        """세션 → 카드. method 콤보·폼(스펙은 스키마에서, 기준값은 레시피 프리셋)·제목 툴팁(한 줄 요약)."""
+        method = registry.config_method(cfg)
+        self._select(self.method, method)
+        if self.enabled_toggle is not None:
+            with QSignalBlocker(self.enabled_toggle):
+                self.enabled_toggle.setChecked(method != "none")
+            if method != "none":
+                self._last_method = method
+        base = baseline_config(recipe, self.stage, cfg) if recipe is not None else None
+        self.form.set_specs(field_specs(cfg, baseline=base))
         self.title.setToolTip(f"{STAGE_TIPS[self.stage]}\n{params_text(cfg)}")
         self.method.setToolTip(self._method_tip(self.stage, registry.config_method(cfg)))
         if self.per_class is not None:
@@ -585,10 +637,44 @@ class StageCard(QFrame):
         if self.roi_method is not None and self.roi_form is not None:
             roi = cfg.roi
             self._select(self.roi_method, registry.config_method(roi))
-            self.roi_form.set_specs(field_specs(roi))
+            roi_base = baseline_config(recipe, "roi", roi) if recipe is not None else None
+            self.roi_form.set_specs(field_specs(roi, baseline=roi_base))
             self.roi_method.setToolTip(
                 f"{self._method_tip('roi', registry.config_method(roi))}\n{params_text(roi)}"
             )
+
+    def modified_count(self) -> int:
+        n = len(self.form.modified_names())
+        if self.roi_form is not None:
+            n += len(self.roi_form.modified_names())
+        return n
+
+    def _refresh_modified(self) -> None:
+        n = self.modified_count()
+        self.modified_label.setText(f"바뀜 {n}" if n else "")
+        self.modified_label.setVisible(n > 0)
+        self.btn_reset_all.setVisible(n > 0)
+
+    def reset_all(self) -> None:
+        """이 카드의 바뀐 행 전부 프리셋 값으로(행마다 field_changed)."""
+        self.form.reset_all()
+        if self.roi_form is not None:
+            self.roi_form.reset_all()
+
+    def _on_enabled_toggled(self, on: bool) -> None:
+        if on:
+            target = self._last_method or next(
+                (
+                    i.method
+                    for i in registry.list_methods(self.stage)
+                    if i.usable and i.method != "none"
+                ),
+                None,
+            )
+            if target:
+                self.method_changed.emit(self.stage, target)
+        else:
+            self.method_changed.emit(self.stage, "none")
 
     @staticmethod
     def _method_tip(stage: str, method: str) -> str:
@@ -683,7 +769,7 @@ class PipelinePanel(QScrollArea):
     def sync(self, recipe: R.Recipe) -> None:
         pipe = recipe.pipeline
         for stage, card in self.cards.items():
-            card.sync(getattr(pipe, stage))
+            card.sync(getattr(pipe, stage), recipe)
         geo = self.cards["geometry"]
         # 표가 있으면(클래스를 알 때) 정보 줄은 숨기고, 아직 은행을 모르면 한 줄 요약만
         geo.set_info(

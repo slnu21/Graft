@@ -18,9 +18,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from pydantic.fields import FieldInfo
 
+from anograft.core import recipe as R
+from anograft.core import registry
 from anograft.core.help import field_help
 
 Kind = Literal["int", "float", "int_range", "range", "bool", "choice", "text", "list", "path"]
@@ -62,10 +64,17 @@ class FieldSpec:
     unit: str = ""  # px · ° · 배 · gray · 회 · 개
     en: str = ""  # 영어 한 줄
     advanced: bool = False  # 카드에서 "고급 옵션"으로 접히는 필드
+    baseline: Any = None  # 프리셋(없으면 스키마 기본) 값 — 바뀜 표시·되돌리기 기준. has_baseline 이 False 면 무의미
+    has_baseline: bool = False
 
     @property
     def enabled(self) -> bool:
         return not (self.optional and self.value is None)
+
+    @property
+    def modified(self) -> bool:
+        """프리셋 값과 다른가(YAML 표현으로 비교). 기준이 없으면 False."""
+        return self.has_baseline and _norm(self.value) != _norm(self.baseline)
 
     @property
     def title(self) -> str:
@@ -199,6 +208,39 @@ def _hint(
     return " · ".join(parts)
 
 
+def _norm(v: Any) -> Any:
+    """비교용 정규화 — tuple/list 동일, 실수는 6자리."""
+    if isinstance(v, (list, tuple)):
+        return [_norm(x) for x in v]
+    if isinstance(v, float):
+        return round(v, 6)
+    return v
+
+
+def baseline_config(recipe: R.Recipe, stage: str, cfg: BaseModel) -> BaseModel | None:
+    """카드의 **기준 설정** — 레시피 프리셋의 같은 method 블록(있으면), 아니면 스키마 기본값. 기본값이 없는 필수 필드가 있으면
+    None(기준 없음 → 바뀜 표시 안 함). Qt 없음 — 폼의 ● 표시·되돌리기가 이것과 비교한다."""
+    cls = type(cfg)
+    method = registry.config_method(cfg)
+    name = recipe.pipeline.preset
+    if name:
+        try:
+            pipe = R.load_preset(name)
+        except (KeyError, ValueError):
+            pipe = {}
+        block = (pipe.get("placement") or {}).get("roi") if stage == "roi" else pipe.get(stage)
+        key = "policy" if stage == "gtmask" else "method"
+        if isinstance(block, dict) and str(block.get(key, cls.model_fields[key].default)) == method:
+            try:
+                return cls.model_validate(block)
+            except ValidationError:
+                pass
+    try:
+        return cls()
+    except ValidationError:
+        return None
+
+
 def _to_yaml_value(v: Any) -> Any:
     if isinstance(v, Path):
         return v.as_posix()
@@ -208,9 +250,14 @@ def _to_yaml_value(v: Any) -> Any:
 
 
 def field_specs(
-    cfg: BaseModel, *, prefix: str = "", exclude: frozenset[str] = EXCLUDE
+    cfg: BaseModel,
+    *,
+    prefix: str = "",
+    exclude: frozenset[str] = EXCLUDE,
+    baseline: BaseModel | None = None,
 ) -> list[FieldSpec]:
-    """설정 모델의 편집 가능한 필드 스펙 목록(선언 순서). 중첩 모델은 점 경로로 평탄화, 모델 union(roi)은 건너뛴다."""
+    """설정 모델의 편집 가능한 필드 스펙 목록(선언 순서). 중첩 모델은 점 경로로 평탄화, 모델 union(roi)은 건너뛴다.
+    ``baseline``(같은 클래스의 기준 설정, `baseline_config`)을 주면 각 스펙에 기준값이 붙어 ``modified`` 를 판단할 수 있다."""
     specs: list[FieldSpec] = []
     fields: dict[str, FieldInfo] = type(cfg).model_fields
     for name, fi in fields.items():
@@ -219,9 +266,17 @@ def field_specs(
         a = _strip(fi.annotation)
         a.metadata = list(fi.metadata) + a.metadata
         value = getattr(cfg, name)
+        base_value = getattr(baseline, name, None) if baseline is not None else None
         if isinstance(a.base, type) and issubclass(a.base, BaseModel):
             if isinstance(value, BaseModel):
-                specs.extend(field_specs(value, prefix=f"{prefix}{name}.", exclude=exclude))
+                specs.extend(
+                    field_specs(
+                        value,
+                        prefix=f"{prefix}{name}.",
+                        exclude=exclude,
+                        baseline=base_value if isinstance(base_value, BaseModel) else None,
+                    )
+                )
             continue
         kind_choices = _kind_of(a.base)
         if kind_choices is None:
@@ -248,6 +303,8 @@ def field_specs(
                 unit=h.unit if h else "",
                 en=h.en if h else "",
                 advanced=h.advanced if h else False,
+                baseline=_to_yaml_value(base_value) if baseline is not None else None,
+                has_baseline=baseline is not None,
             )
         )
     return specs

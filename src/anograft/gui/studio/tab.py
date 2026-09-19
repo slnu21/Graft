@@ -130,7 +130,7 @@ class StudioTab(QWidget):
         # 오른쪽: 파이프라인
         self.pipe = PipelinePanel()
         self.pipe.setMinimumWidth(
-            344
+            352
         )  # 카드(라벨 108 + 두 스핀박스 · per_class 두 줄)가 잘리지 않는 최소 폭
         split.addWidget(self.pipe)
         split.setStretchFactor(0, 0)

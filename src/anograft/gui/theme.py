@@ -109,6 +109,18 @@ QFrame#StageCard {{ background: {COLORS["panel2"]}; border: 1px solid {COLORS["l
 QFrame#StageCard QLabel#StageNo {{ color: #06231E; background: {COLORS["teal"]}; border-radius: 9px; min-width: 18px; max-width: 18px; min-height: 18px; max-height: 18px; font-size: 10.5px; font-weight: 700; qproperty-alignment: AlignCenter; }}
 QFrame#StageCard QLabel#StageTitle {{ font-weight: 600; }}
 QFrame#StageCard QLabel#StageParams {{ color: {COLORS["tx2"]}; font-size: 11.5px; }}
+QFrame#StageCard QLabel#StageParams[modified="true"] {{ color: {COLORS["teal"]}; font-weight: 600; }}
+QFrame#StageCard QLabel#Modified {{ color: {COLORS["teal"]}; font-size: 11px; }}
+QToolButton#Reset {{ border: none; color: {COLORS["teal"]}; font-size: 13px; padding: 0; background: transparent; }}
+QToolButton#Reset:hover {{ color: {COLORS["tx"]}; }}
+QToolButton#ResetAll {{ border: 1px solid {COLORS["line2"]}; border-radius: 4px; color: {COLORS["teal"]}; font-size: 12px; padding: 0; background: transparent; }}
+QToolButton#ResetAll:hover {{ border-color: {COLORS["teal"]}; }}
+QToolButton#Advanced {{ border: none; color: {COLORS["tx3"]}; font-size: 11.5px; padding: 2px 0; background: transparent; text-align: left; }}
+QToolButton#Advanced:hover, QToolButton#Advanced:checked {{ color: {COLORS["tx2"]}; }}
+QSlider::groove:horizontal {{ height: 3px; background: {COLORS["line2"]}; border-radius: 1px; }}
+QSlider::handle:horizontal {{ width: 10px; height: 10px; margin: -4px 0; border-radius: 5px; background: {COLORS["teal"]}; }}
+QSlider::sub-page:horizontal {{ background: {COLORS["teal"]}; border-radius: 1px; }}
+QSlider:disabled::handle:horizontal {{ background: {COLORS["line2"]}; }}
 QListWidget {{ background: transparent; border: none; outline: none; }}
 QListWidget::item {{ border: 1px solid {COLORS["line"]}; border-radius: 6px; background: {COLORS["panel2"]}; margin: 0 0 8px 0; padding: 4px; color: {COLORS["tx2"]}; }}
 QListWidget::item:selected {{ background: {COLORS["panel2"]}; border: 1px solid {COLORS["teal"]}; color: {COLORS["tx"]}; }}

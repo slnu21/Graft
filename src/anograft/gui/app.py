@@ -40,6 +40,7 @@ from anograft.gui.bank.tab import BankTab
 from anograft.gui.batch.tab import BatchTab
 from anograft.gui.label.tab import LabelTab
 from anograft.gui.review.tab import ReviewTab
+from anograft.gui.studio import param_form
 from anograft.gui.studio.session import StudioSession
 from anograft.gui.studio.tab import StudioTab
 from anograft.gui.studio.worker import PreviewWorker
@@ -111,6 +112,9 @@ class MainWindow(QMainWindow):
         self.resize(1480, 920)
         self.session = session or StudioSession()
         self.settings = settings  # None = 최근 레시피를 기억하지 않는다(테스트)
+        param_form.use_settings(
+            settings
+        )  # 카드 폼 '고급 옵션' 펼침 기억도 같은 저장소(None 이면 기억 안 함)
         self.worker = PreviewWorker(self)
 
         central = QWidget()
