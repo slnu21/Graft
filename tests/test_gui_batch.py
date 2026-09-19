@@ -149,8 +149,8 @@ def test_main_window_send_to_batch(qapp: QApplication, recipe_file: Path, tmp_pa
             win.batch.session.recipe is not None
             and win.batch.session.recipe.name == ses.recipe.name
         )
-        assert "(스튜디오 레시피" in win.batch.recipe_label.text()
-        assert win.tabs.tabText(3).startswith("배치")
+        assert "(미리보기 탭의 레시피" in win.batch.recipe_label.text()
+        assert win.tabs.tabText(3).startswith("일괄 생성")
     finally:
         win.close()
         qapp.processEvents()

@@ -46,9 +46,9 @@ TILE = 128
 ALL = "(전체)"
 SORT_LABELS: dict[str, str] = {
     "id": "id",
-    "confidence": "신뢰도 confidence",
-    "area": "면적 area",
-    "class": "클래스 class",
+    "confidence": "마스크 신뢰도",
+    "area": "면적",
+    "class": "클래스",
 }
 
 
@@ -106,16 +106,19 @@ class BankTab(QWidget):
         h = QHBoxLayout(bar)
         h.setContentsMargins(14, 7, 14, 7)
         h.setSpacing(10)
-        lab = QLabel("은행 Bank")
+        lab = QLabel("보관함")
+        lab.setToolTip("Bank — 결함 조각(이미지·마스크·메타)을 모아 둔 폴더 · CLI anograft bank")
         lab.setObjectName("Muted")
         h.addWidget(lab)
         self.bank_edit = QLineEdit()
-        self.bank_edit.setPlaceholderText("결함 은행 폴더 (bank.yaml 이 있는 곳)")
+        self.bank_edit.setPlaceholderText("결함 보관함 폴더 (bank.yaml 이 있는 곳)")
         self.bank_edit.setMinimumWidth(260)
         self.btn_pick = QPushButton("폴더")
         self.btn_pick.setFixedWidth(44)
-        self.btn_open = QPushButton("열기 Open")
+        self.btn_open = QPushButton("열기")
+        self.btn_open.setToolTip("Open — 보관함을 읽어 조각을 보여 줍니다")
         self.btn_reload = QPushButton("새로고침")
+        self.btn_reload.setToolTip("Reload — 폴더를 다시 읽습니다")
         h.addWidget(self.bank_edit, 1)
         h.addWidget(self.btn_pick)
         h.addWidget(self.btn_open)
@@ -132,20 +135,26 @@ class BankTab(QWidget):
         v = QVBoxLayout(left)
         v.setContentsMargins(12, 12, 12, 12)
         v.setSpacing(6)
-        v.addWidget(h4("필터 Filter"))
+        v.addWidget(h4("필터"))
         self.f_cls = QComboBox()
         self.f_tag = QComboBox()
         self.f_text = QLineEdit()
-        self.f_text.setPlaceholderText("id · 원본 · 태그 검색")
-        self.f_low = QCheckBox("저신뢰만 (confidence < 0.5)")
-        self.f_est = QCheckBox("추정 마스크만 (yolo-box:*)")
+        self.f_text.setPlaceholderText("id · 원본 파일 · 태그 검색")
+        self.f_low = QCheckBox("마스크 신뢰도 낮은 것만")
+        self.f_low.setToolTip(
+            "Low confidence — 자동 추정 마스크의 타당성 점수(confidence)가 0.5 미만인 조각. 결함이 아닌 곳을 잡았을 수 있습니다"
+        )
+        self.f_est = QCheckBox("상자에서 추정한 마스크만")
+        self.f_est.setToolTip(
+            "Estimated masks — YOLO 상자에서 자동 추정한 마스크(mask_origin yolo-box:*). 사람이 그린 마스크는 제외"
+        )
         v.addLayout(self._kv("클래스", self.f_cls))
         v.addLayout(self._kv("태그", self.f_tag))
         v.addLayout(self._kv("검색", self.f_text))
         v.addWidget(self.f_low)
         v.addWidget(self.f_est)
         v.addSpacing(8)
-        v.addWidget(h4("정렬 Sort"))
+        v.addWidget(h4("정렬"))
         self.sort = QComboBox()
         for k in SORT_KEYS:
             self.sort.addItem(SORT_LABELS[k], k)
@@ -184,13 +193,13 @@ class BankTab(QWidget):
         v = QVBoxLayout(side)
         v.setContentsMargins(12, 12, 12, 12)
         v.setSpacing(6)
-        v.addWidget(h4("소스 Source"))
+        v.addWidget(h4("결함 조각"))
         self.detail = QLabel("")
         self.detail.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.detail.setMinimumHeight(240)
         self.detail.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         v.addWidget(self.detail)
-        self.meta = QLabel("소스를 고르면 상세가 여기에")
+        self.meta = QLabel("조각을 고르면 상세가 여기에 나옵니다")
         self.meta.setObjectName("Hint")
         self.meta.setWordWrap(True)
         self.meta.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -200,13 +209,15 @@ class BankTab(QWidget):
         self.result.setObjectName("Muted")
         self.result.setWordWrap(True)
         v.addWidget(self.result)
-        self.btn_edit = QPushButton("라벨 탭에서 다듬기 Refine in Label")
+        self.btn_edit = QPushButton("결함 표시 탭에서 다듬기")
+        self.btn_edit.setToolTip("Refine in Label — 이 조각의 마스크를 결함 표시 탭에서 고칩니다")
         self.btn_edit.setObjectName("Primary")
-        self.btn_edit_low = QPushButton("저신뢰 전부 차례로 다듬기 Refine all low")
+        self.btn_edit_low = QPushButton("신뢰도 낮은 것 차례로 다듬기")
         self.btn_edit_low.setToolTip(
-            "confidence < 0.5 인 소스를 신뢰도 오름차순으로 하나씩 라벨 탭에서 연다(라벨 탭 '다음 저신뢰 소스')"
+            "Refine all low-confidence — 신뢰도 0.5 미만인 조각을 낮은 순서로 하나씩 결함 표시 탭에서 엽니다(거기서 '다음 신뢰도 낮은 조각')"
         )
-        self.btn_delete = QPushButton("삭제 Delete (Del)")
+        self.btn_delete = QPushButton("삭제 (Del)")
+        self.btn_delete.setToolTip("Delete — 고른 조각을 보관함에서 지웁니다(되돌릴 수 없음)")
         v.addWidget(self.btn_edit)
         v.addWidget(self.btn_edit_low)
         v.addWidget(self.btn_delete)
@@ -248,14 +259,14 @@ class BankTab(QWidget):
     # ------------------------------------------------------------------ 열기
 
     def _pick_bank(self) -> None:
-        d = QFileDialog.getExistingDirectory(self, "결함 은행 폴더", self.bank_edit.text() or ".")
+        d = QFileDialog.getExistingDirectory(self, "결함 보관함 폴더", self.bank_edit.text() or ".")
         if d:
             self.open_bank(d)
 
     def open_bank(self, root: str | Path) -> bool:
         text = str(root).strip()
         if not text:
-            self._on_error("은행 폴더를 지정하세요")
+            self._on_error("보관함 폴더를 지정하세요")
             return False
         try:
             self.session.load(text)
@@ -266,7 +277,7 @@ class BankTab(QWidget):
         self._tiles.clear()
         self._sync_filters()
         self.refresh()
-        msg = f"은행 열림: {self.session.summary_text()}"
+        msg = f"보관함 열림: {self.session.summary_text()}"
         if self.session.warnings:
             msg += f" · 경고 {len(self.session.warnings)}건: {self.session.warnings[0]}"
         self.status.emit(msg)
@@ -338,7 +349,7 @@ class BankTab(QWidget):
             item.setData(Qt.ItemDataRole.UserRole, r.id)
             tip = f"{r.id} · {r.mask_origin} · {r.area_px:,} px"
             if r.confidence is not None:
-                tip += f" · confidence {r.confidence:.2f}"
+                tip += f" · 신뢰도 {r.confidence:.2f}"
                 if r.flags:
                     tip += f" ({', '.join(r.flags)})"
             if r.tags:
@@ -349,7 +360,11 @@ class BankTab(QWidget):
         total = len(self.session.rows())
         self.count.setText(
             f"표시 {len(self._rows)} / 전체 {total}"
-            + (f" · 저신뢰 {sum(1 for r in self._rows if r.low_confidence)}" if self._rows else "")
+            + (
+                f" · 신뢰도 낮음 {sum(1 for r in self._rows if r.low_confidence)}"
+                if self._rows
+                else ""
+            )
         )
         self._on_select()
 
@@ -378,9 +393,9 @@ class BankTab(QWidget):
         if not ids:
             self.detail.clear()
             self.meta.setText(
-                "소스를 고르면 상세가 여기에"
+                "조각을 고르면 상세가 여기에 나옵니다"
                 if self.session.loaded
-                else "은행을 열어 주세요 — 상단 경로 → 열기"
+                else "보관함을 열어 주세요 — 위 경로 칸에 폴더를 넣고 '열기'"
             )
             return
         if len(ids) > 1:
@@ -395,15 +410,14 @@ class BankTab(QWidget):
             f"클래스 {r.cls} · 크롭 {r.size[1]}×{r.size[0]} · 면적 {r.area_px:,} px",
             f"마스크 출처 {r.mask_origin}"
             + (
-                f" · confidence <b>{r.confidence:.2f}</b>"
-                + (" ⚠ 저신뢰" if r.low_confidence else "")
+                f" · 신뢰도 <b>{r.confidence:.2f}</b>" + (" ⚠ 낮음" if r.low_confidence else "")
                 if r.confidence is not None
                 else ""
             ),
         ]
         if r.flags:
             lines.append("flags " + ", ".join(r.flags))
-        lines.append(f"µm/px {r.um_per_px if r.um_per_px is not None else '미지정'}")
+        lines.append(f"픽셀 크기 µm/px {r.um_per_px if r.um_per_px is not None else '미지정'}")
         if r.tags:
             lines.append("태그 " + ", ".join(r.tags))
         if r.origin:
@@ -415,8 +429,8 @@ class BankTab(QWidget):
     def _ask_delete(self, ids: list[str]) -> bool:
         r = QMessageBox.question(
             self,
-            "소스 삭제",
-            f"{len(ids)}개 소스를 은행에서 지울까요? (png·mask·json 세 파일, 되돌릴 수 없음)\n"
+            "조각 삭제",
+            f"{len(ids)}개 조각을 보관함에서 지울까요? (png·mask·json 세 파일, 되돌릴 수 없음)\n"
             + "\n".join(ids[:6])
             + ("\n…" if len(ids) > 6 else ""),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -463,7 +477,7 @@ class BankTab(QWidget):
         """다음 저신뢰 소스를 골라 라벨 탭 편집을 요청. 없으면 상태 안내."""
         sid = self.next_low_confidence(after)
         if sid is None or self.session.root is None:
-            self.status.emit("저신뢰 소스가 (더) 없습니다 — 다듬기 끝")
+            self.status.emit("신뢰도 낮은 조각이 (더) 없습니다 — 다듬기 끝")
             return False
         self.select_ids([sid])
         self.edit_requested.emit(self.session.root.as_posix(), sid)

@@ -64,7 +64,7 @@ class BatchSession:
         """오버라이드를 적용한 실행용 레시피(재검증). writer 형식이 바뀌면 그 형식 기본값으로."""
         if self.recipe is None:
             raise BatchError(
-                "레시피가 없습니다 — 스튜디오에서 '배치로 보내기' 또는 레시피 파일 열기"
+                "레시피가 없습니다 — 미리보기 탭에서 '일괄 생성으로 보내기' 하거나 레시피 파일을 여세요"
             )
         if not self.out.strip():
             raise BatchError("출력 폴더를 지정하세요")

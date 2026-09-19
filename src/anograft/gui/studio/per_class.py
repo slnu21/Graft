@@ -26,10 +26,10 @@ from anograft.core import recipe as R
 DEBOUNCE_MS = 350
 FLIP_CHOICES: tuple[tuple[str, str], ...] = (  # (라벨, 값) — "" = 기본(전체 설정)
     ("기본", ""),
-    ("없음 none", "none"),
-    ("좌우 horizontal", "horizontal"),
-    ("상하 vertical", "vertical"),
-    ("둘 다 both", "both"),
+    ("없음", "none"),
+    ("좌우", "horizontal"),
+    ("상하", "vertical"),
+    ("둘 다", "both"),
 )
 
 
@@ -39,12 +39,17 @@ class _Row(QWidget):
     def __init__(self, cls: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.cls = cls
-        h = QHBoxLayout(self)
-        h.setContentsMargins(0, 0, 0, 0)
+        outer = QVBoxLayout(
+            self
+        )  # 두 줄: [☑ 클래스] / [회전 lo ~ hi · 뒤집기] — 한 줄이면 카드 폭(≈300 px)을 넘긴다
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(2)
+        h = QHBoxLayout()
+        h.setContentsMargins(14, 0, 0, 0)
         h.setSpacing(6)
         self.use = QCheckBox(cls)
         self.use.setToolTip(
-            "이 클래스만 다른 기하(회전 범위·flip)로 — 스크래치는 그대로, 찍힘만 좁힐 때"
+            "이 클래스만 다른 크기·회전(회전 범위·뒤집기)으로 — 스크래치는 그대로, 찍힘만 좁힐 때"
         )
         self.lo = QDoubleSpinBox()
         self.hi = QDoubleSpinBox()
@@ -55,21 +60,26 @@ class _Row(QWidget):
             sp.setValue(v)
             sp.setSuffix("°")
             sp.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
-            sp.setMinimumWidth(64)
+            sp.setMinimumWidth(48)
         self.flip = QComboBox()
         for label, val in FLIP_CHOICES:
             self.flip.addItem(label, val)
         self.flip.setCurrentIndex(self.flip.findData("none"))  # 조명 의존 클래스의 기본 = 없음
+        self.flip.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed
+        )  # 콤보 폭이 카드 폭을 넘기지 않게
+        self.flip.setMinimumWidth(48)
         self.flip.setToolTip(
-            "flip — 기본(전체 설정) / 없음 / 좌우 / 상하 / 둘 다. 조명이 위·아래에서 오면 좌우는 안전"
+            "flip(뒤집기) — 기본(전체 설정) / 없음 / 좌우 / 상하 / 둘 다. 빛이 위·아래에서 오면 좌우는 안전합니다"
         )
-        h.addWidget(self.use, 1)
+        outer.addWidget(self.use)
         h.addWidget(QLabel("회전"))
-        h.addWidget(self.lo)
+        h.addWidget(self.lo, 1)
         h.addWidget(QLabel("~"))
-        h.addWidget(self.hi)
-        h.addWidget(QLabel("flip"))
-        h.addWidget(self.flip)
+        h.addWidget(self.hi, 1)
+        h.addWidget(QLabel("뒤집기"))
+        h.addWidget(self.flip, 1)
+        outer.addLayout(h)
         self.use.toggled.connect(self._sync_enabled)
         self.use.toggled.connect(lambda _v: self.changed.emit())
         self.lo.valueChanged.connect(lambda _v: self.changed.emit())
@@ -115,7 +125,10 @@ class PerClassEditor(QWidget):
         v = QVBoxLayout(self)
         v.setContentsMargins(0, 4, 0, 0)
         v.setSpacing(3)
-        self.title = QLabel("클래스별 per_class — 회전·flip (scale 은 YAML)")
+        self.title = QLabel("클래스별 예외 — 회전·뒤집기 (크기는 YAML 에서)")
+        self.title.setToolTip(
+            "geometry.per_class — 클래스마다 회전·뒤집기를 따로 둡니다(찍힘만 ±15° 등)"
+        )
         self.title.setObjectName("Muted")
         self.title.setWordWrap(True)
         v.addWidget(self.title)

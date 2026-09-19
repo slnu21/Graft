@@ -63,10 +63,10 @@ class BatchTab(QWidget):
         v = QVBoxLayout(card)
         v.setContentsMargins(14, 12, 14, 12)
         v.setSpacing(8)
-        v.addWidget(h4("생성 설정 Batch"))
+        v.addWidget(h4("생성 설정"))
         self.hint = QLabel(
-            "스튜디오에서 확정한 레시피를 그대로 돌립니다. 시드와 레시피가 같으면 언제 다시 돌려도 같은 데이터셋이 나옵니다 — "
-            "CLI `anograft run` 과 동일. 이미지마다 어떤 결함이 어디에 들어갔는지 meta/·manifest.csv 에 남습니다."
+            "미리보기에서 정한 레시피를 그대로 돌려 데이터셋을 만듭니다. 시드와 레시피가 같으면 언제 다시 돌려도 같은 결과가 나옵니다"
+            "(CLI `anograft run` 과 동일). 이미지마다 어떤 결함이 어디에 들어갔는지 meta/ 와 manifest.csv 에 남습니다."
         )
         self.hint.setObjectName("Hint")
         self.hint.setWordWrap(True)
@@ -79,13 +79,20 @@ class BatchTab(QWidget):
         self.recipe_label.setObjectName("Muted")
         self.recipe_label.setWordWrap(True)
         self.btn_recipe = QPushButton("파일…")
+        self.btn_recipe.setToolTip("Open recipe file — 레시피(YAML) 파일을 직접 고릅니다")
         self.btn_recipe.setFixedWidth(52)
         rec_row.addWidget(self.recipe_label, 1)
         rec_row.addWidget(self.btn_recipe)
         form.addRow("레시피", rec_row)
+        form.labelForField(rec_row).setToolTip(
+            "Recipe — 미리보기 탭에서 '일괄 생성으로 보내기' 하거나 파일에서 엽니다"
+        )
         out_row = QHBoxLayout()
         self.out = QLineEdit()
         self.out.setPlaceholderText("출력 폴더 (예: out/run-01)")
+        self.out.setToolTip(
+            "Output root · output.root — 이미지·마스크·메타·manifest.csv 가 이 폴더에 생깁니다"
+        )
         self.btn_out = QPushButton("폴더")
         self.btn_out.setFixedWidth(44)
         out_row.addWidget(self.out, 1)
@@ -93,21 +100,32 @@ class BatchTab(QWidget):
         form.addRow("출력 폴더", out_row)
         self.count = QSpinBox()
         self.count.setRange(1, 1_000_000)
+        self.count.setToolTip(
+            "Count · output.count — 만들 합성 이미지 수(정상 이미지는 별도로 함께 나갑니다)"
+        )
         form.addRow("생성 장수", self.count)
         self.seed = QSpinBox()
         self.seed.setRange(0, 2_000_000_000)
-        form.addRow("시드", self.seed)
+        self.seed.setToolTip("Seed — 난수 시드. 같은 시드·같은 레시피면 같은 데이터셋")
+        form.addRow("난수 시드", self.seed)
         self.workers = QSpinBox()
         self.workers.setRange(0, 64)
         self.workers.setToolTip(
-            "0 = 이 프로세스에서 순서대로. N = spawn 워커 N개 — 20장 넘으면 빠르다(결과는 동일)"
+            "Workers — 동시에 처리할 프로세스 수. 0 = 이 창에서 순서대로, N = N개 병렬(20장 넘으면 빠르고 결과는 똑같습니다)"
         )
-        form.addRow("워커", self.workers)
+        form.addRow("동시 처리 수", self.workers)
         self.writer = QComboBox()
         self.writer.addItems(list(WRITER_FORMATS))
-        form.addRow("출력 형식", self.writer)
+        self.writer.setToolTip(
+            "Writer format · output.writer.format — 학습 프레임워크가 읽는 형식. yolo = 상자/다각형 라벨 + data.yaml · "
+            "pairs = 이미지+마스크만 · mvtec = anomalib 폴더 구조 · coco = annotations.json. 어느 쪽이든 이미지·마스크·메타는 항상 함께"
+        )
+        form.addRow("학습 형식", self.writer)
         self.category = QLineEdit()
-        self.category.setPlaceholderText("mvtec 카테고리 폴더 이름 (예: graft)")
+        self.category.setPlaceholderText("mvtec 형식의 카테고리 폴더 이름 (예: graft)")
+        self.category.setToolTip(
+            "MVTec category — 학습 형식이 mvtec 일 때 카테고리 폴더 이름(anomalib 이 카테고리 단위로 읽습니다)"
+        )
         form.addRow("mvtec 카테고리", self.category)
         v.addLayout(form)
         self.summary = QLabel("")
@@ -115,9 +133,11 @@ class BatchTab(QWidget):
         self.summary.setWordWrap(True)
         v.addWidget(self.summary)
         v.addStretch(1)
-        self.btn_run = QPushButton("생성 시작 Run")
+        self.btn_run = QPushButton("생성 시작")
+        self.btn_run.setToolTip("Run — 데이터셋을 만듭니다(CLI anograft run 과 같은 결과)")
         self.btn_run.setObjectName("Primary")
-        self.btn_stop = QPushButton("중지 Stop")
+        self.btn_stop = QPushButton("중지")
+        self.btn_stop.setToolTip("Stop — 지금 이미지까지 기록하고 멈춥니다")
         self.btn_stop.setEnabled(False)
         row = QHBoxLayout()
         row.addWidget(self.btn_run, 1)
@@ -131,13 +151,13 @@ class BatchTab(QWidget):
         v = QVBoxLayout(card)
         v.setContentsMargins(14, 12, 14, 12)
         v.setSpacing(8)
-        v.addWidget(h4("진행 Progress"))
+        v.addWidget(h4("진행"))
         self.bar = QProgressBar()
         self.bar.setRange(0, 1)
         self.bar.setValue(0)
         self.bar.setTextVisible(True)
         v.addWidget(self.bar)
-        self.progress_label = QLabel("대기")
+        self.progress_label = QLabel("대기 중")
         self.progress_label.setObjectName("Muted")
         v.addWidget(self.progress_label)
         self.log = QPlainTextEdit()
@@ -146,11 +166,14 @@ class BatchTab(QWidget):
         v.addWidget(self.log, 1)
         row = QHBoxLayout()
         self.btn_open_out = QPushButton("출력 폴더 열기")
+        self.btn_open_out.setToolTip("Open output folder — 탐색기로 엽니다")
         self.btn_open_out.setEnabled(False)
-        self.btn_review = QPushButton("검수 탭에서 열기 Review")
+        self.btn_review = QPushButton("검수 탭에서 열기")
         self.btn_review.setObjectName("Primary")
         self.btn_review.setEnabled(False)
-        self.btn_review.setToolTip("방금 만든 출력을 검수 탭에서 열어 채택/반려 (v0.7)")
+        self.btn_review.setToolTip(
+            "Open in Review — 방금 만든 출력을 검수 탭에서 열어 채택/반려합니다"
+        )
         row.addStretch(1)
         row.addWidget(self.btn_open_out)
         row.addWidget(self.btn_review)
@@ -172,7 +195,7 @@ class BatchTab(QWidget):
         self.session.set_recipe(recipe, path)
         self.sync_widgets()
         self.status.emit(
-            f"배치: 레시피 {recipe.name} ({recipe.pipeline.preset}, seed {recipe.seed}) — 출력 {self.session.out}"
+            f"일괄 생성: 레시피 {recipe.name} ({recipe.pipeline.preset}, seed {recipe.seed}) — 출력 {self.session.out}"
         )
 
     def open_recipe(self, path: str | Path) -> bool:
@@ -198,15 +221,19 @@ class BatchTab(QWidget):
     def sync_widgets(self) -> None:
         s = self.session
         if s.recipe is None:
-            self.recipe_label.setText("(없음 — 스튜디오 '배치로 보내기' 또는 파일…)")
+            self.recipe_label.setText("(없음 — 미리보기 탭의 '일괄 생성으로 보내기' 또는 파일…)")
             self.summary.setText("")
         else:
-            src = s.recipe_path.as_posix() if s.recipe_path else "(스튜디오 레시피, 저장 안 됨)"
+            src = (
+                s.recipe_path.as_posix()
+                if s.recipe_path
+                else "(미리보기 탭의 레시피, 파일로는 저장 안 됨)"
+            )
             self.recipe_label.setText(f"{s.recipe.name} · {s.recipe.pipeline.preset}\n{src}")
             r = s.recipe
             self.summary.setText(
-                f"은행 {r.inputs.bank_key() or '(없음)'} · 대상 {r.inputs.targets.as_posix()} · "
-                f"결함/이미지 {r.output.defects_per_image[0]}–{r.output.defects_per_image[1]} · 정상 포함 {r.output.include_normals}"
+                f"보관함 {r.inputs.bank_key() or '(없음)'} · 바탕 {r.inputs.targets.as_posix()} · "
+                f"이미지당 결함 {r.output.defects_per_image[0]}–{r.output.defects_per_image[1]}개 · 정상 이미지 {'포함' if r.output.include_normals else '제외'}"
             )
         self.out.setText(s.out)
         self.count.setValue(max(1, s.count))
@@ -245,7 +272,7 @@ class BatchTab(QWidget):
         )
         self.bar.setRange(0, rec.output.count)
         self.bar.setValue(0)
-        self.progress_label.setText("준비 중(은행·대상 로드)…")
+        self.progress_label.setText("준비 중(보관함·바탕 이미지 읽기)…")
         self.last_summary = None
         self.btn_run.setEnabled(False)
         self.btn_stop.setEnabled(True)
@@ -259,7 +286,7 @@ class BatchTab(QWidget):
         w.finished.connect(self._on_thread_done)
         self.worker = w
         w.start()
-        self.status.emit("배치 실행 중…")
+        self.status.emit("일괄 생성 실행 중…")
         return True
 
     def stop(self) -> None:
@@ -289,7 +316,7 @@ class BatchTab(QWidget):
         self.btn_open_out.setEnabled(True)
         self.btn_review.setEnabled(summary.writer.n_ok > 0)
         self.status.emit(
-            f"배치 {'취소' if summary.cancelled else '완료'}: ok {summary.writer.n_ok} · skipped {summary.writer.n_skipped} → {summary.writer.root.as_posix()}"
+            f"일괄 생성 {'취소' if summary.cancelled else '완료'}: 성공 {summary.writer.n_ok} · 건너뜀 {summary.writer.n_skipped} → {summary.writer.root.as_posix()}"
         )
         self.run_finished.emit(summary)
 
@@ -302,7 +329,7 @@ class BatchTab(QWidget):
     def _on_failed(self, msg: str) -> None:
         self._append(f"실패: {msg}")
         self.progress_label.setText("실패")
-        self.status.emit(f"배치 실패: {msg.splitlines()[0]}")
+        self.status.emit(f"일괄 생성 실패: {msg.splitlines()[0]}")
         self.run_finished.emit(None)
 
     def _on_thread_done(self) -> None:

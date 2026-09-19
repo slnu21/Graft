@@ -57,7 +57,7 @@ class CompareCanvas(QWidget):
         self.show_labels = True
         self._drag: str | None = None  # "wipe" | "pan"
         self._last = QPointF()
-        self.message = "대상을 고르면 미리보기가 여기에 나타납니다"
+        self.message = "왼쪽에서 바탕 이미지를 고르면 미리보기가 여기에 나타납니다"
 
     # ------------------------------------------------------------------ 데이터
 

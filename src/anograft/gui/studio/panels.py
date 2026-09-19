@@ -39,19 +39,30 @@ from anograft.gui.studio.per_class import PerClassEditor
 from anograft.gui.theme import COLORS
 from anograft.preview import fit_long_side
 
-STAGE_TITLES: tuple[tuple[str, str], ...] = (
-    ("source", "소스 선택 Source"),
-    ("geometry", "기하 변환 Geometry"),
-    ("placement", "배치 Placement"),
-    ("blend", "블렌딩 Blend"),
-    ("harmonize", "조화 Harmonize"),
-    ("degrade", "열화 Degrade"),
-    ("gtmask", "정답 마스크 GT mask"),
+STAGE_TITLES: tuple[
+    tuple[str, str], ...
+] = (  # (스테이지 키, 한국어 제목) — 영어·YAML 키는 STAGE_TIPS 툴팁으로
+    ("source", "결함 고르기"),
+    ("geometry", "크기·회전"),
+    ("placement", "위치 정하기"),
+    ("blend", "붙이기"),
+    ("harmonize", "색·밝기 맞추기"),
+    ("degrade", "카메라 효과"),
+    ("gtmask", "정답 영역"),
 )
+STAGE_TIPS: dict[str, str] = {
+    "source": "Source · YAML pipeline.source — 어떤 결함 조각을 쓸지(보관함 · 정상 부위 잘라 붙이기 · 노이즈 텍스처)",
+    "geometry": "Geometry · pipeline.geometry — 조각의 크기·회전·뒤집기·휘어짐",
+    "placement": "Placement · pipeline.placement — 바탕 이미지의 어디에 놓을지(붙일 수 있는 영역 안에서)",
+    "blend": "Blend · pipeline.blend — 조각을 바탕에 어떻게 붙일지(그대로 · 가장자리 부드럽게 · Poisson · 다중 대역)",
+    "harmonize": "Harmonize · pipeline.harmonize — 붙인 결함의 색·밝기를 주변에 맞추기",
+    "degrade": "Degrade · pipeline.degrade — 노이즈·흐림·JPEG 등 카메라 느낌 입히기",
+    "gtmask": "GT mask · pipeline.gtmask — 학습용 정답 영역을 무엇으로 삼을지",
+}
 LONG_SIDES: tuple[tuple[str, int], ...] = (
-    ("1024px 축소", 1024),
-    ("768px 축소", 768),
-    ("512px 축소", 512),
+    ("긴 변 1024px", 1024),
+    ("긴 변 768px", 768),
+    ("긴 변 512px", 512),
     ("원본 해상도", 0),
 )
 
@@ -98,21 +109,26 @@ class StripBar(QWidget):
         self.preset.currentIndexChanged.connect(
             lambda _i: self.preset_changed.emit(self.preset.currentData())
         )
-        lay.addWidget(self._field("프리셋 Preset", self.preset))
+        self.preset.setToolTip(
+            "Preset — 7단계 설정을 묶어 둔 시작점. 고르면 아래 카드 값이 바뀝니다"
+        )
+        lay.addWidget(self._field("프리셋", self.preset))
 
         self.seed = QSpinBox()
         self.seed.setRange(0, 2_000_000_000)
         self.seed.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
         self.seed.setFixedWidth(96)
         self.seed.editingFinished.connect(lambda: self.seed_changed.emit(self.seed.value()))
-        lay.addWidget(self._field("시드 Seed", self.seed))
+        self.seed.setToolTip("Seed — 난수 시드. 같은 시드·같은 레시피면 항상 같은 결과가 나옵니다")
+        lay.addWidget(self._field("난수 시드", self.seed))
 
         self.variants = QSpinBox()
         self.variants.setRange(1, 12)
         self.variants.setValue(6)
         self.variants.setFixedWidth(52)
         self.variants.valueChanged.connect(self.variants_changed.emit)
-        lay.addWidget(self._field("변형 Variants", self.variants))
+        self.variants.setToolTip("Variants — 같은 바탕 이미지를 시드만 바꿔 몇 장 미리 볼지")
+        lay.addWidget(self._field("시드 변형", self.variants))
 
         self.long_side = QComboBox()
         for label, px in LONG_SIDES:
@@ -120,7 +136,10 @@ class StripBar(QWidget):
         self.long_side.currentIndexChanged.connect(
             lambda _i: self.long_side_changed.emit(int(self.long_side.currentData()))
         )
-        lay.addWidget(self._field("미리보기 Preview", self.long_side))
+        self.long_side.setToolTip(
+            "Preview size — 미리보기는 긴 변을 이만큼 줄여 합성합니다(빠름). 최종 출력은 항상 원본 해상도"
+        )
+        lay.addWidget(self._field("미리보기 크기", self.long_side))
 
         self.note = QLabel("")
         self.note.setObjectName("Muted")
@@ -128,8 +147,11 @@ class StripBar(QWidget):
         lay.addWidget(self.note, 1)
 
         self.btn_open = QPushButton("레시피 열기")
+        self.btn_open.setToolTip("Open recipe — 레시피(설정 파일, YAML) 열기")
         self.btn_save = QPushButton("레시피 저장")
-        self.btn_batch = QPushButton("배치로 보내기")
+        self.btn_save.setToolTip("Save recipe — 지금 값을 레시피(YAML)로 저장")
+        self.btn_batch = QPushButton("일괄 생성으로 보내기")
+        self.btn_batch.setToolTip("Send to batch — 이 레시피로 데이터셋을 한꺼번에 만들러 갑니다")
         self.btn_batch.setObjectName("Primary")
         self.btn_open.clicked.connect(self.open_clicked.emit)
         self.btn_save.clicked.connect(self.save_clicked.emit)
@@ -180,15 +202,19 @@ class InputsPanel(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(10, 10, 10, 6)
         lay.setSpacing(6)
-        lay.addWidget(h4("입력 Inputs"))
+        lay.addWidget(h4("입력"))
         self.bank = QLineEdit()
-        self.bank.setPlaceholderText("결함 은행 폴더 (bank.yaml)")
+        self.bank.setPlaceholderText("결함 보관함 폴더 (bank.yaml)")
+        self.bank.setToolTip("Bank · inputs.bank — 결함 조각을 모아 둔 폴더")
         self.targets = QLineEdit()
-        self.targets.setPlaceholderText("정상 이미지 폴더 또는 목록 .txt")
-        lay.addLayout(self._row("은행", self.bank, ("폴더", self._pick_bank)))
+        self.targets.setPlaceholderText("바탕(정상) 이미지 폴더 또는 목록 .txt")
+        self.targets.setToolTip(
+            "Targets · inputs.targets — 결함을 붙일 정상 이미지 폴더, 또는 경로 목록 .txt"
+        )
+        lay.addLayout(self._row("보관함", self.bank, ("폴더", self._pick_bank)))
         lay.addLayout(
             self._row(
-                "대상",
+                "바탕",
                 self.targets,
                 ("폴더", self._pick_targets_dir),
                 ("목록", self._pick_targets_file),
@@ -200,7 +226,7 @@ class InputsPanel(QWidget):
         self.um.setSingleStep(0.5)
         self.um.setSpecialValueText("모름")
         self.um.setToolTip(
-            "대상 픽셀 피치 µm/px (inputs.um_per_px) — 은행 소스에도 피치가 있어야 축척 정합이 켜진다. 0 = 모름(정합 끔)"
+            "Pixel size · inputs.um_per_px — 바탕 이미지 1픽셀이 몇 µm 인지. 결함 조각에도 값이 있으면 실제 크기로 자동 축척합니다. 0 = 모름(축척 끔)"
         )
         self.um.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         um_row = QHBoxLayout()
@@ -214,7 +240,8 @@ class InputsPanel(QWidget):
         self.um.editingFinished.connect(
             lambda: self.um_per_px_changed.emit(self.um.value() or None)
         )
-        self.btn_open = QPushButton("열기 Open")
+        self.btn_open = QPushButton("열기")
+        self.btn_open.setToolTip("Open — 보관함과 바탕 이미지를 읽어 미리보기를 준비합니다")
         self.btn_open.clicked.connect(
             lambda: self.open_requested.emit(self.bank.text().strip(), self.targets.text().strip())
         )
@@ -229,7 +256,7 @@ class InputsPanel(QWidget):
         h.setSpacing(5)
         lab = QLabel(label)
         lab.setObjectName("Muted")
-        lab.setFixedWidth(28)
+        lab.setFixedWidth(40)
         h.addWidget(lab)
         h.addWidget(edit, 1)
         for text, slot in buttons:
@@ -240,18 +267,20 @@ class InputsPanel(QWidget):
         return h
 
     def _pick_bank(self) -> None:
-        d = QFileDialog.getExistingDirectory(self, "결함 은행 폴더", self.bank.text() or ".")
+        d = QFileDialog.getExistingDirectory(self, "결함 보관함 폴더", self.bank.text() or ".")
         if d:
             self.bank.setText(Path(d).as_posix())
 
     def _pick_targets_dir(self) -> None:
-        d = QFileDialog.getExistingDirectory(self, "정상 이미지 폴더", self.targets.text() or ".")
+        d = QFileDialog.getExistingDirectory(
+            self, "바탕(정상) 이미지 폴더", self.targets.text() or "."
+        )
         if d:
             self.targets.setText(Path(d).as_posix())
 
     def _pick_targets_file(self) -> None:
         f, _ = QFileDialog.getOpenFileName(
-            self, "정상 이미지 목록", self.targets.text() or ".", "목록 (*.txt)"
+            self, "바탕(정상) 이미지 목록", self.targets.text() or ".", "목록 (*.txt)"
         )
         if f:
             self.targets.setText(Path(f).as_posix())
@@ -279,7 +308,7 @@ class TargetRail(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(10, 6, 10, 10)
         lay.setSpacing(6)
-        self.title = h4("대상 정상 이미지 · 0장")
+        self.title = h4("바탕 이미지 · 0장")
         lay.addWidget(self.title)
         self.list = QListWidget()
         # IconMode + 세로 흐름 = 아이콘 아래 캡션이 붙는 카드 목록 (목업 .tgt)
@@ -312,7 +341,7 @@ class TargetRail(QWidget):
         if self._paths:
             self.list.setCurrentRow(min(current, len(self._paths) - 1))
         self.list.blockSignals(False)
-        self.title.setText(f"대상 정상 이미지 · {len(self._paths)}장")
+        self.title.setText(f"바탕 이미지 · {len(self._paths)}장")
 
     def set_thumb(self, path: Path, image: np.ndarray, shape: tuple[int, int]) -> None:
         try:
@@ -441,9 +470,12 @@ class StageCard(QFrame):
         # 경고를 한 번에 고치는 버튼(탭이 라벨과 동작을 정한다 — 예: 조명 의존 클래스만 per_class 로) · 정보 한 줄(per_class 등)
         self.fix = QPushButton("")
         self.fix.setObjectName("Fix")
+        self.fix.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed
+        )  # 긴 라벨이 카드 폭을 넘기지 않게
         self.fix.hide()
         self.fix.clicked.connect(lambda: self.fix_requested.emit(self.stage))
-        notes.addWidget(self.fix, 0, Qt.AlignmentFlag.AlignLeft)
+        notes.addWidget(self.fix)
         self.info = QLabel("")
         self.info.setObjectName("Muted")
         self.info.setWordWrap(True)
@@ -479,8 +511,11 @@ class StageCard(QFrame):
         if stage == "placement":
             sub = QHBoxLayout()
             sub.setSpacing(8)
-            sub_title = QLabel("배치 허용 영역 ROI")
+            sub_title = QLabel("붙일 수 있는 영역")
             sub_title.setObjectName("H4")
+            sub_title.setToolTip(
+                "ROI · placement.roi — 바탕 이미지에서 결함을 놓아도 되는 영역(배경·리세스 제외)"
+            )
             sub.addWidget(sub_title, 1)
             self.roi_method = QComboBox()
             self.roi_method.setMinimumWidth(96)
@@ -508,8 +543,8 @@ class StageCard(QFrame):
             item.setData(info.method, Qt.ItemDataRole.UserRole)
             if not info.usable:
                 item.setEnabled(False)
-                item.setToolTip(info.reason or "미구현")
-                item.setText(f"{info.method} — {info.reason or '미구현'}")
+                item.setToolTip(info.reason or "아직 구현되지 않음")
+                item.setText(f"{info.method} — {info.reason or '아직 구현되지 않음'}")
             model.appendRow(item)
         combo.setModel(model)
 
@@ -605,10 +640,11 @@ class PipelinePanel(QScrollArea):
         lay = QVBoxLayout(inner)
         lay.setContentsMargins(12, 10, 12, 24)
         lay.setSpacing(12)
-        lay.addWidget(h4("파이프라인 · 7단계 Pipeline"))
+        lay.addWidget(h4("7단계 파이프라인"))
         self.cards: dict[str, StageCard] = {}
         for i, (stage, title) in enumerate(STAGE_TITLES, start=1):
             card = StageCard(i, stage, title)
+            card.title.setToolTip(STAGE_TIPS[stage])
             card.method_changed.connect(self.method_changed.emit)
             card.field_changed.connect(self.field_changed.emit)
             card.fix_requested.connect(self.fix_requested.emit)
@@ -666,8 +702,8 @@ def per_class_text(geo: Any) -> str:
         if o.rotate is not None:
             bits.append(f"회전 {o.rotate[0]:g}~{o.rotate[1]:g}°")
         if o.flip is not None:
-            bits.append("flip " + ("켬" if o.flip else "끔"))
+            bits.append("뒤집기 " + ("켬" if o.flip else "끔"))
         if o.scale is not None:
-            bits.append(f"scale {o.scale[0]:g}~{o.scale[1]:g}")
+            bits.append(f"크기 {o.scale[0]:g}~{o.scale[1]:g}")
         parts.append(f"{cls}: {' · '.join(bits) or '(변경 없음)'}")
-    return ("클래스별 per_class — " + " / ".join(parts)) if parts else ""
+    return ("클래스별 예외(per_class) — " + " / ".join(parts)) if parts else ""

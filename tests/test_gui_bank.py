@@ -73,7 +73,7 @@ def test_bank_tab_grid_filter_detail_delete(qapp: QApplication, bank_root: Path)
     assert not t.open_bank("") and "지정" in t.result.text()
     assert not t.open_bank(bank_root.parent / "nope")
     assert t.open_bank(bank_root)
-    assert t.grid.count() == 5 and "소스 5" in t.summary.text()
+    assert t.grid.count() == 5 and "조각 5" in t.summary.text()
     assert [t.f_cls.itemText(i) for i in range(t.f_cls.count())] == ["(전체)", "spot", "crack"]
     assert [t.f_tag.itemText(i) for i in range(t.f_tag.count())] == ["(전체)", "p1"]
     # 필터: 클래스 · 추정만 · 저신뢰만(ellipse 는 대비가 낮아 몇 개는 저신뢰) · 검색
@@ -118,7 +118,7 @@ def test_main_window_refine_roundtrip(qapp: QApplication, bank_root: Path, tmp_p
         win.show()
         win.studio.open_inputs(bank_root.as_posix(), normals.as_posix())
         assert _pump(qapp, lambda: ses.prepared is not None)
-        assert win.tabs.tabText(0).startswith("은행")
+        assert win.tabs.tabText(0).startswith("결함 보관함")
         win.bank.open_bank(bank_root)
         win.bank.confirm_delete = None
         win.label.confirm_discard = None
@@ -137,7 +137,7 @@ def test_main_window_refine_roundtrip(qapp: QApplication, bank_root: Path, tmp_p
         assert win.label.session.shape == before.mask.shape and np.array_equal(
             win.label.session.mask, before.mask
         )
-        assert win.label.btn_save.text().startswith("은행 소스 갱신")
+        assert win.label.btn_save.text().startswith("보관함 조각 갱신")
         # 브러시로 조금 더 칠하고 저장 → 은행 탭 apply_mask → 파일 갱신 + 스튜디오 재준비
         win.label.canvas.set_tool("brush")
         win.label.canvas.set_brush(3)
@@ -157,7 +157,9 @@ def test_main_window_refine_roundtrip(qapp: QApplication, bank_root: Path, tmp_p
         # 라벨 탭에서 새 소스를 저장하면 은행 탭도 새로고침
         n_before = win.bank.grid.count()
         win.label.open_image(next(iter((tmp_path / "ds" / "images").glob("n0.png"))))
-        assert win.label.edit_target is None and win.label.btn_save.text().startswith("은행에 저장")
+        assert win.label.edit_target is None and win.label.btn_save.text().startswith(
+            "보관함에 저장"
+        )
         win.label.canvas.set_tool("brush")
         _drag(win.label.canvas, [(20.0, 40.0), (50.0, 40.0)])
         win.label.cls.setEditText("spot")

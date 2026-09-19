@@ -234,7 +234,7 @@ class ReviewSession:
         try:
             self.bank = Bank.load(bank_path)
         except (BankError, OSError) as e:
-            self.warnings.append(f"은행을 열 수 없어 실제 분포 없음 ({bank_path}): {e}")
+            self.warnings.append(f"보관함을 열 수 없어 실제 분포가 없습니다 ({bank_path}): {e}")
 
     def item(self, index: str) -> ReviewItem:
         """사이드카를 처음 볼 때 읽는다(gtmask.instances·warnings)."""
@@ -300,9 +300,9 @@ class ReviewSession:
             return "출력 폴더 없음"
         c = self.counts()
         return (
-            f"{self.root.name}: 합성 {c['ok']} · 정상 {c['normal']} · skipped {c['skipped']} — "
+            f"{self.root.name}: 합성 {c['ok']} · 정상 {c['normal']} · 건너뜀 {c['skipped']} — "
             f"채택 {c['accept']} · 반려 {c['reject']} · 미검수 {c['unreviewed']}"
-            + (f" · 폴백 {c['fallback']}" if c["fallback"] else "")
+            + (f" · 대체 처리 {c['fallback']}" if c["fallback"] else "")
         )
 
     # ------------------------------------------------------------------ 판정
@@ -443,10 +443,10 @@ class ReviewSession:
         return {k for r in self.real_rows for k in r if k != "class"}
 
     def real_label(self) -> str:
-        """실제 분포의 출처 — '실측 x.csv' 또는 '은행 name' 또는 ''."""
+        """실제 분포의 출처 — '현장 측정값 x.csv' 또는 '보관함 name' 또는 ''."""
         if self.real_csv is not None:
-            return f"실측 {self.real_csv.name}"
-        return f"은행 {self.bank.name}" if self.bank is not None else ""
+            return f"현장 측정값 {self.real_csv.name}"
+        return f"보관함 {self.bank.name}" if self.bank is not None else ""
 
     def _csv_values(self, key: str) -> list[float] | None:
         """CSV 가 그 키를 갖고 있으면 값 목록(레시피 클래스 필터 적용), 아니면 None(은행으로)."""

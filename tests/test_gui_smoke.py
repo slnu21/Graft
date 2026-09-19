@@ -353,7 +353,9 @@ def test_variant_card_marks_low_confidence_sources(
         assert ok
         item = tab.variants.list.item(ok[0])
         assert (
-            item.text().endswith("⚠") and "저신뢰" in item.toolTip() and "소스:" in item.toolTip()
+            item.text().endswith("⚠")
+            and "신뢰도가 낮은" in item.toolTip()
+            and "결함 조각:" in item.toolTip()
         )
         assert tab._low_confidence_sources(tab._results[ok[0]].result)
     finally:
@@ -459,7 +461,7 @@ def test_main_window_sample_button_builds_and_opens(qapp: QApplication, tmp_path
         assert win.tabs.currentWidget() is win.studio
         assert _pump(qapp, lambda: ses.prepared is not None)
         assert len(ses.prepared.bank) == q.n_sources and win.bank.session.loaded
-        assert "소스" in win.bank.session.summary_text()
+        assert "조각" in win.bank.session.summary_text()
         # 0.8.x: 옵션 대화상자 값 → quickstart 인자 (장수·크기·시드) — 작은 세트로 다시
         from anograft.gui.quickstart_dialog import QuickstartDialog, quickstart_options
 
@@ -608,7 +610,7 @@ def test_variant_card_marks_flipped_lighting(
         flipped = [k for k in ok if tab._flipped_instances(tab._results[k].result)]
         assert flipped, "180° 회전이면 하이라이트가 반대쪽이어야 한다"
         item = tab.variants.list.item(flipped[0])
-        assert "↯" in item.text() and "조명 뒤집힘" in item.toolTip()
+        assert "↯" in item.text() and "빛 방향이 뒤집힌" in item.toolTip()
         # per_class 로 회전을 묶으면(reprepare + 새 미리보기) 뒤집힘이 사라진다
         ses.set_stage_field("geometry", "per_class", {"pit": {"rotate": [-15, 15], "flip": "none"}})
         tab.request_previews()

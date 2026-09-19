@@ -12,7 +12,7 @@
 
 ![원본 | 합성 | GT](assets/preview.png)
 
-> **상태: v0.8.2** — CLI 코어(7단계 파이프라인 · 레시피 · 결함 은행 · YOLO/MVTec/COCO 출력 · 프리셋 10종 · 은행 없이 도는 self-cut/perlin · 구조 정합 배치 · GrabCut·annulus ROI · VisA·DTD 어댑터)와 GUI **은행 · 라벨 · 스튜디오 · 배치 · 검수** 5탭 — 결함 사진만 있으면 GUI 만으로 라벨링 → 은행 정리 → 미리보기 → 데이터셋 생성 → 검수·정리본까지. 실데이터 1차 적용(경면 금속 원형 부품)에서 나온 [알려진 문제 10건](KNOWN-ISSUES.md)을 v0.6 에서 보정. **2차 실데이터 적용은 아직 미검증**(데이터가 생기면 아래 3줄로 확인). 공개 데이터(MVTec metal_nut)에선 합성 유/무 YOLO mAP50 **0.31 → 0.38**(grabcut 은행) / **→ 0.45**(hybrid 은행) — 같은 분할·학습 시드 3개 평균(`BENCHMARKS.md`; Magnetic Tile 은 한 프리셋으론 break +0.23 · blowhole −0.30 으로 갈려 합계 −0.02 였지만, blowhole 만 `relative-paste` 로 갈라 `dataset merge` 하니 **0.46 → 0.61(+0.15, 3/3)** — 결함 성격별 프리셋). 표준셋 실제 사본(MVTec metal_nut·screw·grid·bottle·hazelnut·carpet · Magnetic Tile · VisA · DTD)으로는 v0.8 에서 리허설·벤치 완료 — `TESTING.md` · `KNOWN-ISSUES.md` 결정 근거 절.
+> **상태: v0.8.2** — CLI 코어(7단계 파이프라인 · 레시피 · 결함 보관함(bank) · YOLO/MVTec/COCO 출력 · 프리셋 10종 · 보관함 없이 도는 self-cut/perlin · 구조 정합 배치 · GrabCut·annulus ROI · VisA·DTD 어댑터)와 GUI **결함 표시 · 결함 보관함 · 미리보기 · 일괄 생성 · 검수** 5탭 — 결함 사진만 있으면 GUI 만으로 마스크 그리기 → 보관함 정리 → 미리보기 → 일괄 생성 → 검수·정리된 데이터셋까지. 실데이터 1차 적용(경면 금속 원형 부품)에서 나온 [알려진 문제 10건](KNOWN-ISSUES.md)을 v0.6 에서 보정. **2차 실데이터 적용은 아직 미검증**(데이터가 생기면 아래 3줄로 확인). 공개 데이터(MVTec metal_nut)에선 합성 유/무 YOLO mAP50 **0.31 → 0.38**(grabcut 보관함) / **→ 0.45**(hybrid 보관함) — 같은 분할·학습 시드 3개 평균(`BENCHMARKS.md`; Magnetic Tile 은 한 프리셋으론 break +0.23 · blowhole −0.30 으로 갈려 합계 −0.02 였지만, blowhole 만 `relative-paste` 로 갈라 `dataset merge` 하니 **0.46 → 0.61(+0.15, 3/3)** — 결함 성격별 프리셋). 표준셋 실제 사본(MVTec metal_nut·screw·grid·bottle·hazelnut·carpet · Magnetic Tile · VisA · DTD)으로는 v0.8 에서 리허설·벤치 완료 — `TESTING.md` · `KNOWN-ISSUES.md` 결정 근거 절.
 
 ## 왜
 
@@ -20,11 +20,11 @@
 
 Graft는 알고리즘을 새로 만드는 도구가 아니라 그 사이를 메우는 도구입니다.
 
-- **결함 은행** — 보유 YOLO 라벨(박스·폴리곤)이나 마스크 PNG에서 결함을 모읍니다. 박스만 있으면 마스크를 추정합니다(GrabCut 등, 출처를 `mask_origin`으로 끌고 다님). 데이터가 없으면 표준 산업 데이터셋(MVTec AD)을 로컬 사본에서 읽습니다.
-- **7단계 파이프라인** `소스 → 기하 → 배치 → 블렌딩 → 조화 → 열화 → 정답 마스크` — 알고리즘은 각 단계의 `method`로 고릅니다(블렌딩: paste · alpha · Poisson · multiband, 조화: stats · Reinhard · 히스토그램 매칭 · relative(노출 보정), 배치: sampled · structure-aware, ROI: otsu · grabcut · none · mask_dir). 프리셋으로 시작하고 필요할 때만 펼칩니다.
-- **배치 허용 영역(ROI)** 이 기본값 — 배경에 붙은 결함은 학습에 해롭습니다.
-- **재현** — 레시피(YAML) + 시드가 같으면 워커 수와 무관하게 바이트 단위로 같은 데이터셋. 이미지마다 사이드카 JSON(소스 id · 변환 · 좌표 · 시드 · 파이프라인 해시).
-- **출력** — 정본은 이미지 + GT 마스크 + 사이드카 + `manifest.csv`. 그 위에 writer가 학습 형식을 덧붙입니다(YOLO `labels/*.txt` + `data.yaml` — 기존 학습셋에 그대로 합침 · `mvtec` — anomalib 이 읽는 `mvtec/<category>/{train,test,ground_truth}` 레이아웃, v0.4 · `coco` — `annotations.json`(instances: 폴리곤 segmentation(`segmentation: rle` 로 비압축 RLE — 조각·구멍 무손실)·bbox·area, categories = 은행 classes) — Detectron2·mmdetection 용, v0.7).
+- **결함 보관함(bank)** — 보유 YOLO 라벨(박스·폴리곤)이나 마스크 PNG에서 결함 조각을 모읍니다. 박스만 있으면 마스크를 추정합니다(GrabCut 등, 출처를 `mask_origin`으로 끌고 다님). 데이터가 없으면 표준 산업 데이터셋(MVTec AD)을 로컬 사본에서 읽습니다.
+- **7단계 파이프라인** `결함 고르기 → 크기·회전 → 위치 정하기 → 붙이기 → 색·밝기 맞추기 → 카메라 효과 → 정답 영역`(source → geometry → placement → blend → harmonize → degrade → gtmask) — 알고리즘은 각 단계의 `method`로 고릅니다(붙이기: paste · alpha · Poisson · multiband, 색·밝기 맞추기: stats · Reinhard · 히스토그램 매칭 · relative(노출 보정), 위치: sampled · structure-aware, 붙일 수 있는 영역(ROI): otsu · grabcut · none · mask_dir). 프리셋으로 시작하고 필요할 때만 펼칩니다.
+- **붙일 수 있는 영역(ROI)** 이 기본값 — 배경에 붙은 결함은 학습에 해롭습니다.
+- **재현** — 레시피(YAML) + 시드가 같으면 워커 수와 무관하게 바이트 단위로 같은 데이터셋. 이미지마다 사이드카 JSON(결함 조각 id · 변환 · 좌표 · 시드 · 파이프라인 해시).
+- **출력** — 정본은 이미지 + GT 마스크 + 사이드카 + `manifest.csv`. 그 위에 writer가 학습 형식을 덧붙입니다(YOLO `labels/*.txt` + `data.yaml` — 기존 학습셋에 그대로 합침 · `mvtec` — anomalib 이 읽는 `mvtec/<category>/{train,test,ground_truth}` 레이아웃, v0.4 · `coco` — `annotations.json`(instances: 폴리곤 segmentation(`segmentation: rle` 로 비압축 RLE — 조각·구멍 무손실)·bbox·area, categories = 보관함 classes) — Detectron2·mmdetection 용, v0.7).
 
 ## 설치
 
@@ -38,14 +38,14 @@ Graft는 알고리즘을 새로 만드는 도구가 아니라 그 사이를 메�
 
 ## 5분 시작
 
-보유 데이터가 없어도 됩니다. 샘플 YOLO 세트(브러시드 메탈 + scratch/pit/stain)로 끝까지 한 바퀴. **GUI 라면 상단 '샘플 데이터 Sample…' 버튼 하나**(판/원형 → 샘플·은행·레시피를 만들어 스튜디오에 엶), CLI 는 `anograft sample --out samples/metal --quickstart` 한 줄(아래는 단계별). zip을 푼 폴더(또는 repo 루트)에서:
+보유 데이터가 없어도 됩니다. 샘플 YOLO 세트(브러시드 메탈 + scratch/pit/stain)로 끝까지 한 바퀴. **GUI 라면 상단 '샘플 데이터…' 버튼 하나**(판/원형 → 샘플·보관함·레시피를 만들어 미리보기 탭에 엶), CLI 는 `anograft sample --out samples/metal --quickstart` 한 줄(아래는 단계별). zip을 푼 폴더(또는 repo 루트)에서:
 
 ```powershell
 # zip 이면 anograft → .\anograft.exe
 anograft sample --out samples/metal                                       # 샘플 이미지 22장 + YOLO 박스 라벨 (--shape ring: 원형 부품 — annulus ROI·dent-graft 연습)
 anograft bank import-yolo --images samples/metal/images --labels samples/metal/labels `
     --names samples/metal/data.yaml --out bank/sample --list-normals samples/metal/normals.txt
-anograft bank ls bank/sample                                              # 클래스별 소스 수 · 마스크 출처(정확/추정) · 저신뢰 · µm/px (--json 스크립트용)
+anograft bank ls bank/sample                                              # 클래스별 조각 수 · 마스크 출처(정확/추정) · 신뢰도 낮음 · µm/px (--json 스크립트용)
 anograft doctor                                                           # 환경 진단(버전·Qt·스레드·프리셋) — 문제 보고 첫 줄
 anograft bank preview bank/sample --out out/bank-preview.png              # 추정 마스크를 눈으로 (amber = 추정, ellipse = 과라벨, 화살표 = 밝은 쪽 — 한 방향이면 조명 의존)
 anograft run recipes/sample-poisson.yaml --workers 4                      # → out/sample/{images,masks,meta,labels,data.yaml,manifest.csv}
@@ -53,19 +53,19 @@ anograft preview recipes/sample-poisson.yaml --index 0 --compare-methods blend -
 anograft-gui recipes/sample-poisson.yaml                                  # GUI (zip: .\anograft-gui.exe · pip: python -m anograft.gui). 인자 없이 켜면 최근 레시피 복원, 없으면 시작 안내
 ```
 
-`anograft methods`가 스테이지별 선택지와 가용 여부를, `anograft recipe init --preset <이름> --write my.yaml`이 프리셋을 펼친 레시피를 줍니다(`--roi annulus` 로 ROI 만 바꾸고 `--um-per-px` 로 대상 피치를 — 예: `--preset dent-graft --roi annulus` 는 원형 부품의 찍힘). 레시피 상대경로는 **현재 폴더 기준**입니다.
+`anograft methods`가 스테이지별 선택지와 가용 여부를, `anograft recipe init --preset <이름> --write my.yaml`이 프리셋을 펼친 레시피를 줍니다(`--roi annulus` 로 ROI 만 바꾸고 `--um-per-px` 로 바탕 이미지의 픽셀 크기를 — 예: `--preset dent-graft --roi annulus` 는 원형 부품의 찍힘). 레시피 상대경로는 **현재 폴더 기준**입니다.
 
-![GUI 스튜디오](assets/gui-studio.png)
+![GUI 미리보기 탭](assets/gui-studio.png)
 
-스튜디오 오른쪽 **파이프라인 카드**에서 스테이지별 method 를 고르고 **모든 파라미터를 바로 편집**합니다(레시피 스키마에서 자동 생성 — 범위·on/off·선택지·경로, `null` 은 체크 해제). 잘못된 값은 그 카드에 빨간 줄로 막히고, 결과는 레시피 저장에 그대로 반영됩니다 (v0.6).
+미리보기 탭 오른쪽 **파이프라인 카드**에서 단계별 method 를 고르고 **모든 파라미터를 바로 편집**합니다(레시피 스키마에서 자동 생성 — 범위·on/off·선택지·경로, `null` 은 체크 해제). 잘못된 값은 그 카드에 빨간 줄로 막히고, 결과는 레시피 저장에 그대로 반영됩니다 (v0.6).
 
-![GUI 라벨 탭](assets/gui-label.png)
+![GUI 결함 표시 탭](assets/gui-label.png)
 
-![GUI 배치 탭](assets/gui-batch.png)
+![GUI 일괄 생성 탭](assets/gui-batch.png)
 
-**은행 탭**(v0.7)에서 소스를 신뢰도순으로 보고 저신뢰(빨간 테두리)를 골라 다듬거나 지웁니다. **검수 탭**(v0.7)에서 합성 결과를 A/R 로 판정하고, 왼쪽 히스토그램으로 합성(teal) vs 실제(amber) 분포(크기 · 대비 · 질감 · 선명도 · **조명 방향**)를 비교한 뒤 반려를 뺀 정리본을 내보냅니다. 아래 화면은 MVTec metal_nut(공개 데이터, `recipes/public-metal-nut-dent.yaml`) 검수 — 분포를 **클래스 콤보**(v0.8)로 `bent` 만 보면 실제 35장(amber)의 조명 방향이 +90° 쪽으로 모이고 합성 9장(teal)이 그 안에 들어온다. `실측 CSV…` 로 실제 계열을 현장 측정값으로 바꿀 수 있다.
+**결함 보관함 탭**(v0.7)에서 조각을 마스크 신뢰도순으로 보고 신뢰도 낮은 것(빨간 테두리)을 골라 다듬거나 지웁니다. **검수 탭**(v0.7)에서 합성 결과를 A/R 로 판정하고, 왼쪽 히스토그램으로 합성(teal) vs 실제(amber) 분포(크기 · 밝기 차 · 거칠기 · 선명도 · **밝은 쪽 방향**)를 비교한 뒤 반려를 뺀 정리된 데이터셋을 내보냅니다. 아래 화면은 MVTec metal_nut(공개 데이터, `recipes/public-metal-nut-dent.yaml`) 검수 — 분포를 **클래스 콤보**(v0.8)로 `bent` 만 보면 실제 35장(amber)의 조명 방향이 +90° 쪽으로 모이고 합성 9장(teal)이 그 안에 들어온다. `현장 측정값…` 로 실제 계열을 현장 측정값으로 바꿀 수 있다.
 
-![GUI 은행 탭](assets/gui-bank.png)
+![GUI 결함 보관함 탭](assets/gui-bank.png)
 
 ![GUI 검수 탭](assets/gui-review.png)
 
@@ -77,19 +77,19 @@ anograft-gui recipes/sample-poisson.yaml                                  # GUI 
 | 이미지 + 마스크 PNG 쌍 | `anograft bank import-pairs --images … --masks … --class scratch --out bank/mine` (`--class-from-dir` · `--csv`) |
 | MVTec AD 로컬 사본 | `anograft dataset info mvtec-ad` → `anograft bank import-dataset mvtec-ad <root>/metal_nut --out bank/metal_nut` (내려받지 않음, CC BY-NC-SA) |
 | VisA 로컬 사본 | `anograft dataset info visa` → `anograft bank import-dataset visa <VisA>/candle --out bank/candle` (결함 유형 세분이 없어 클래스 `anomaly` 하나, CC BY-NC-SA) |
-| DTD 텍스처(은행 없이 DRAEM 식) | `anograft dataset info dtd` → `anograft dataset textures dtd <dtd> --out textures.txt [--categories cracked,stained] [--limit 300]` → 레시피 `source: {method: perlin-texture, texture: dir, texture_dir: textures.txt}`. 결함이 아니라 은행에는 넣지 않는다(연구 목적 라이선스, 로컬 사본만) (v0.7) |
-| **결함 사진만**(라벨 없음) | GUI **라벨 탭** — 폴더 열기 → 사진 선택 → 브러시/폴리곤/자동 선택(박스를 끌면 GrabCut) → 클래스 입력 → **은행에 저장**(Ctrl+S). 라벨링 도구가 따로 필요 없다 (v0.5). 그다음 스튜디오에서 미리보기 → **배치로 보내기** → 배치 탭 **생성 시작** — CLI 없이 끝까지 |
+| DTD 텍스처(보관함 없이 DRAEM 식) | `anograft dataset info dtd` → `anograft dataset textures dtd <dtd> --out textures.txt [--categories cracked,stained] [--limit 300]` → 레시피 `source: {method: perlin-texture, texture: dir, texture_dir: textures.txt}`. 결함이 아니라 보관함에는 넣지 않는다(연구 목적 라이선스, 로컬 사본만) (v0.7) |
+| **결함 사진만**(라벨 없음) | GUI **결함 표시 탭** — 폴더 열기 → 사진 선택 → 브러시/다각형/자동 선택(상자를 끌면 GrabCut) → 클래스 입력 → **보관함에 저장**(Ctrl+S). 라벨링 도구가 따로 필요 없다 (v0.5). 그다음 스튜디오에서 미리보기 → **배치로 보내기** → 배치 탭 **생성 시작** — CLI 없이 끝까지 |
 | 배치가 될지 미리 | `anograft run <recipe> --dry-run` — 배분·경고에 더해 **ROI 최대 폭 vs 클래스별 패치 폭**(가능/빠듯/불가): 좁은 링에 큰 패치면 돌리기 전에 안다 |
-| 합성 결과 검수 | GUI **검수 탭**(v0.7) — 출력 폴더를 열어 썸네일로 보고 A/R 로 채택·반려(`review.csv`), 합성 vs 실제(은행) 분포 히스토그램(면적·긴 변·대비·질감·선명도·**조명 방향** — 회전이 하이라이트를 뒤집으면 클래스별 R 로 드러나 `dent-graft` 를 권함), **정리본 내보내기**(반려 제외), **리포트**(HTML 한 장). CLI `anograft dataset prune <out> --out <pruned>` · `dataset report <out>` · 정리본 여러 개를 한 학습셋으로 `dataset merge a b --out c` |
-| 은행 정리 | GUI **은행 탭**(v0.7) — 소스 그리드(저신뢰 빨간 테두리) · 필터/정렬 · 삭제 · **라벨 탭에서 다듬기**(마스크를 고쳐 같은 id 에 덮어쓰기). `bank ls`/`bank preview` 의 GUI 판 |
-| YOLO 라벨을 GUI 에서 다듬기 | 라벨 탭에서 `images/` 를 열면 옆의 `labels/<stem>.txt`(+`data.yaml`)를 찾아 **YOLO 초안**으로 마스크를 미리 채운다(박스 → GrabCut 추정, 폴리곤 → 채움, 목록에 `▸`). 손보고 저장하면 `manual:mixed`, 그대로 저장하면 임포터와 같은 `yolo-box:*` (v0.6) |
-| 결함이 생겨도 되는 면만 지정(ROI) | 라벨 탭 **저장 대상 → ROI 마스크**: 정상 이미지 폴더를 열고 허용 영역을 칠해 `<mask_dir>/<stem>.png` 로 저장 → 레시피 `placement.roi: {method: mask_dir, path: <mask_dir>}`. 원형 부품은 파일 없이 `annulus` ROI (v0.6) |
+| 합성 결과 검수 | GUI **검수 탭**(v0.7) — 출력 폴더를 열어 썸네일로 보고 A/R 로 채택·반려(`review.csv`), 합성 vs 실제(보관함) 분포 히스토그램(면적·긴 변·밝기 차·거칠기·선명도·**밝은 쪽 방향** — 회전이 하이라이트를 뒤집으면 클래스별 R 로 드러나 `dent-graft` 를 권함), **정리본 내보내기**(반려 제외), **리포트**(HTML 한 장). CLI `anograft dataset prune <out> --out <pruned>` · `dataset report <out>` · 정리본 여러 개를 한 학습셋으로 `dataset merge a b --out c` |
+| 보관함 정리 | GUI **결함 보관함 탭**(v0.7) — 조각 그리드(신뢰도 낮음 빨간 테두리) · 필터/정렬 · 삭제 · **결함 표시 탭에서 다듬기**(마스크를 고쳐 같은 id 에 덮어쓰기). `bank ls`/`bank preview` 의 GUI 판 |
+| YOLO 라벨을 GUI 에서 다듬기 | 결함 표시 탭에서 `images/` 를 열면 옆의 `labels/<stem>.txt`(+`data.yaml`)를 찾아 **YOLO 초안**으로 마스크를 미리 채운다(박스 → GrabCut 추정, 폴리곤 → 채움, 목록에 `▸`). 손보고 저장하면 `manual:mixed`, 그대로 저장하면 임포터와 같은 `yolo-box:*` (v0.6) |
+| 결함이 생겨도 되는 면만 지정(ROI) | 결함 표시 탭 **어디에 저장 → 붙일 수 있는 영역**: 바탕(정상) 이미지 폴더를 열고 허용 영역을 칠해 `<mask_dir>/<stem>.png` 로 저장 → 레시피 `placement.roi: {method: mask_dir, path: <mask_dir>}`. 원형 부품은 파일 없이 `annulus` ROI (v0.6) |
 
 그다음은 `recipe init` → `inputs.bank`·`inputs.targets`(정상 이미지 폴더 또는 목록) 수정 → `run`. 출력 `images/`·`labels/`·`data.yaml`은 기존 YOLO 학습셋에 그대로 합쳐집니다(같은 `names` 순서). `python tools/train_smoke.py --synthetic out/sample --base <기존셋> --out train/merged`가 합쳐서 `ultralytics` 1 epoch을 돌립니다(ultralytics는 별도 설치, `--dry-run`은 합치기만).
 
 `bank ls`의 `est`·origins 열에서 `ellipse` 폴백 비율이 높으면(가늘고 희미한 스크래치) `--mask-from otsu`나 `--min-box`를 조정하세요 — 박스는 결함 경계가 아닙니다. **`--mask-from hybrid`**(v0.8)는 grabcut 사슬 결과가 저신뢰면 내접 타원으로 대체합니다 — 공개 데이터 1180 인스턴스 벤치에서 IoU 중앙값 0.37 → 0.50, 실패율 0.43 → 0.21(`KNOWN-ISSUES.md` 결정 근거 절; 기본값은 그대로 `grabcut`). 박스 추정 마스크에는 **타당성 점수**(`confidence` 0..1 — 마스크 안/밖 대비·박스 테두리 접촉·조각 수·포화)가 붙고, 0.5 미만은 `bank ls` `lowconf` 열·`bank preview` **빨간 테두리**·`run` 경고로 드러납니다(경면 금속처럼 면적은 그럴듯한데 엉뚱한 곳을 잡는 경우). 저신뢰 소스는 라벨 탭에서 YOLO 초안으로 열어 다듬으세요. `bank ls` 의 `lightR` 열은 클래스별 **조명 일관성**(실제 소스들의 하이라이트가 같은 방향인가, 1 = 전부 같은 방향) — 0.5 이상이면 찍힘·덴트류라 회전 ±180/flip 이 하이라이트를 뒤집으므로 `run` 이 경고하고 `dent-graft` 를 권합니다.
 
-**여러 제품의 결함을 한 은행에** — 제품별로 따로 만든 은행은 `anograft bank merge bank/A bank/B --out bank/all --rename 찍힘=dent [--dedupe]` 로 합치고(v0.7.x; `--dedupe` 는 내용이 같은 소스를 한 번만), 임포트마다 `--tags prodA,lot3` 로 표시해 두고, 레시피 `pipeline.source.tags: {include: [prodA, prodC], exclude: [old]}` 로 골라 씁니다(클래스는 그대로, 클래스 안의 풀만 줄어듦 · `run --dry-run` 이 필터 후 소스 수를 보여줌). **다른 카메라/배율의 결함**은 크기가 틀어지므로 임포트 `--um-per-px` 와 레시피 `inputs.um_per_px` 를 둘 다 지정하세요 — 한쪽이라도 없으면 축척 정합이 꺼진 채(`factor 1.0`) 돌아가고, `bank ls` 의 `no_um` 열과 `run`/GUI 상태바가 이를 경고합니다.
+**여러 제품의 결함을 한 보관함에** — 제품별로 따로 만든 보관함은 `anograft bank merge bank/A bank/B --out bank/all --rename 찍힘=dent [--dedupe]` 로 합치고(v0.7.x; `--dedupe` 는 내용이 같은 소스를 한 번만), 임포트마다 `--tags prodA,lot3` 로 표시해 두고, 레시피 `pipeline.source.tags: {include: [prodA, prodC], exclude: [old]}` 로 골라 씁니다(클래스는 그대로, 클래스 안의 풀만 줄어듦 · `run --dry-run` 이 필터 후 소스 수를 보여줌). **다른 카메라/배율의 결함**은 크기가 틀어지므로 임포트 `--um-per-px` 와 레시피 `inputs.um_per_px` 를 둘 다 지정하세요 — 한쪽이라도 없으면 축척 정합이 꺼진 채(`factor 1.0`) 돌아가고, `bank ls` 의 `no_um` 열과 `run`/GUI 상태바가 이를 경고합니다.
 
 **라벨링한 결함이 하나도 없다면** — 정상 이미지만으로 `self-cut`(CutPaste) · `perlin-texture`(DRAEM) 프리셋이 돕니다: `anograft recipe init --preset self-cut --targets <정상 폴더> --write r.yaml`(`inputs.bank: null`) → `run`. 클래스는 `cutpaste`/`anomaly` 하나(이상 탐지 이진 학습용). `preview --compare-methods source`로 세 소스를 나란히.
 
@@ -104,21 +104,21 @@ anograft-gui recipes/sample-poisson.yaml                                  # GUI 
 | `poisson-graft` (기본) | NSA | Poisson(normal) · stats 0.3 | 대부분의 결함. 얼룩처럼 그래디언트가 약한 결함도 살린다 |
 | `multiband-graft` | 라플라시안 피라미드 | multiband · histmatch 0.3 | 텍스처 보존이 좋고 경계 halo가 덜함 |
 | `alpha-paste` | 페더 합성 | alpha(feather 2) · Reinhard 0.5 | 빠름, 경계 색 정합 |
-| `hard-paste` | CutPaste(은행) | paste · 없음 | 가장 거친 대조군(학습 실험용) |
+| `hard-paste` | CutPaste(보관함) | paste · 없음 | 가장 거친 대조군(학습 실험용) |
 | `relative-paste` | 노출 보정 paste | paste · **relative 1.0**(소스 링 → 대상 링 오프셋, 결함의 상대 대비 보존) · camera 열화 | **대비가 곧 신호인 결함**(블로우홀·검은 구멍·핏). poisson·stats 계열은 정의상 결함 톤을 옅게 만들고(MT blowhole 합성 대비 −17 vs 실제 −48 → mAP 하락), hard-paste 그대로는 노출이 다른 대상에서 **배경보다 밝은 구멍**이 된다(합성 대비 중앙값 0). relative 는 −37. MT 에서 blowhole 만 이 프리셋으로 갈라 merge → mAP50 +0.15(blowhole 0.34 → 0.81) (v0.8.2) |
-| `self-cut` | CutPaste·Scar | 소스 = 대상 자신의 사각/스카 패치 + 색 지터 · paste | **은행 불필요** — 정상 이미지만으로 시작 |
-| `perlin-texture` | DRAEM | 소스 = 펄린 노이즈 마스크 + 텍스처(대상 자신 증강 또는 `texture_dir`) · alpha β 0.4~1 | **은행 불필요** — 불규칙한 이상 영역 |
+| `self-cut` | CutPaste·Scar | 소스 = 대상 자신의 사각/스카 패치 + 색 지터 · paste | **보관함 불필요** — 정상 이미지만으로 시작 |
+| `perlin-texture` | DRAEM | 소스 = 펄린 노이즈 마스크 + 텍스처(대상 자신 증강 또는 `texture_dir`) · alpha β 0.4~1 | **보관함 불필요** — 불규칙한 이상 영역 |
 | `structure-aware-graft` | 구조 정합 배치 | poisson-graft + 배치 `structure-aware`(그래디언트 큰 곳 선호 · 결·에지 방향에 정렬) · ROI `grabcut` | 스크래치가 결을 따르고 칩이 모서리에 생기는 부품. 무광·그림자로 Otsu가 안 갈리는 대상 |
 | `annulus-graft` | 링 ROI | poisson-graft + ROI `annulus`(중심·반경을 대상마다 자동 검출, `r_inner`/`r_outer` 비율) | **원형 부품의 가공 링 면에만** 결함을 놓는다 — otsu/grabcut 은 물체 전체를 허용해 중앙 리세스에도 떨어졌다. 촬영마다 부품이 움직여도 링이 따라간다 (v0.6) |
 | `dent-graft` | 조명 의존 결함 | poisson NORMAL + 회전 **±15°**·flip none(조명이 위/아래면 `horizontal` 로 두 배)·축척 0.9~1.1 · `structure-aware`(위치 균등, 방향은 결·접선 정렬, jitter 5°, **정렬 상한 30°** — 그 이상 돌려야 하는 자리는 정렬 안 함) · 조화 0.2 | **찍힘·덴트·눌림** — 3D 변형이라 보이는 모양이 곧 조명 효과. ±180° 로 돌리면 음영/하이라이트가 뒤집혀 물리적으로 불가능한 그림이 된다. 스크래치·얼룩은 다른 프리셋(±180 유지) (v0.6) |
 
-**결함 성격별 프리셋**(v0.8.2) — 한 은행의 클래스마다 맞는 블렌딩이 다르면(구멍은 `relative-paste`, 깨짐·얼룩은 `poisson-graft`) `recipe init --classes` 로 프리셋을 클래스 부분집합에만 적용해 따로 돌리고 `dataset merge --dedupe-normals` 로 한 학습셋을 만듭니다: `anograft recipe init --preset relative-paste --classes blowhole --write a.yaml` · `… --preset poisson-graft --classes break crack --write b.yaml` → `run a.yaml` · `run b.yaml` → `dataset merge out/a out/b --out out/ab --dedupe-normals`(같은 은행이라 클래스 id 일치, 정상은 한 벌만). 검수 탭 **대비 히스토그램**(합성 vs 은행 실제)이 학습 전에 어느 클래스가 옅어졌는지 보여 주고, 합성 중앙값이 실제의 절반 미만이면 제목·리포트·`dataset report` 에 **대비 힌트**("이 클래스만 `relative-paste` 로 갈라 보라")가 붙습니다(v0.8.3). `tools/train_mvtec_map.py --class-presets blowhole=relative-paste break=poisson-graft …` 가 같은 흐름을 mAP 비교까지 자동으로(`BENCHMARKS.md` §2 Magnetic Tile).
+**결함 성격별 프리셋**(v0.8.2) — 한 보관함의 클래스마다 맞는 블렌딩이 다르면(구멍은 `relative-paste`, 깨짐·얼룩은 `poisson-graft`) `recipe init --classes` 로 프리셋을 클래스 부분집합에만 적용해 따로 돌리고 `dataset merge --dedupe-normals` 로 한 학습셋을 만듭니다: `anograft recipe init --preset relative-paste --classes blowhole --write a.yaml` · `… --preset poisson-graft --classes break crack --write b.yaml` → `run a.yaml` · `run b.yaml` → `dataset merge out/a out/b --out out/ab --dedupe-normals`(같은 보관함이라 클래스 id 일치, 정상은 한 벌만). 검수 탭 **대비 히스토그램**(합성 vs 보관함 실제)이 학습 전에 어느 클래스가 옅어졌는지 보여 주고, 합성 중앙값이 실제의 절반 미만이면 제목·리포트·`dataset report` 에 **대비 힌트**("이 클래스만 `relative-paste` 로 갈라 보라")가 붙습니다(v0.8.3). `tools/train_mvtec_map.py --class-presets blowhole=relative-paste break=poisson-graft …` 가 같은 흐름을 mAP 비교까지 자동으로(`BENCHMARKS.md` §2 Magnetic Tile).
 
-한 은행에 스크래치(±180° 무방)와 찍힘(조명 의존)이 **섞여 있으면** 프리셋을 둘로 나누지 말고 `geometry.per_class` 로 그 클래스만 좁힙니다 — `per_class: {찍힘: {rotate: [-15, 15], flip: false}}` (준 필드만 덮어씀, 나머지 클래스는 그대로; `bank ls` 의 lightR ≥ 0.5 인 클래스가 후보, `run` 경고가 이 문법을 알려줍니다). `anograft recipe init --bank bank/mine --auto-dent` 가 그 클래스를 찾아 써 줍니다(`--dent-class 찍힘` 으로 직접도). 스튜디오에선 기하 카드 아래 **클래스별 표**(적용 · 회전 · flip)로 편집합니다.
+한 보관함에 스크래치(±180° 무방)와 찍힘(조명 의존)이 **섞여 있으면** 프리셋을 둘로 나누지 말고 `geometry.per_class` 로 그 클래스만 좁힙니다 — `per_class: {찍힘: {rotate: [-15, 15], flip: false}}` (준 필드만 덮어씀, 나머지 클래스는 그대로; `bank ls` 의 lightR ≥ 0.5 인 클래스가 후보, `run` 경고가 이 문법을 알려줍니다). `anograft recipe init --bank bank/mine --auto-dent` 가 그 클래스를 찾아 써 줍니다(`--dent-class 찍힘` 으로 직접도). 스튜디오에선 기하 카드 아래 **클래스별 표**(적용 · 회전 · flip)로 편집합니다.
 
 기하 스테이지의 작은 손잡이(v0.8.1, 전부 기본 off·기존 결과 불변): `geometry.tps: {points: 3, jitter: 0.06}` 은 제어점 격자를 흔들어 패치를 **휘고 늘리는** thin-plate spline(elastic 이 국소 잔물결이면 tps 는 전역 휘어짐) · `source.redraw_on_empty`(기본 2)는 축소 뒤 마스크가 사라진 아주 작은 소스를 그 자리에서 **다시 뽑아** 이미지가 skipped 되지 않게 · `source.single_class_per_image: true` 는 한 이미지의 결함을 첫 결함의 클래스로 묶어 MVTec writer 의 클래스 섞임을 없앱니다.
 
-기본값은 샘플 은행에서 "결함이 옅어지는 정도"(hard-paste 대비 마스크 안 L1 비율)를 재서 정했습니다 — stats·Reinhard·histmatch 세 조화 방법은 내부를 대상 링에 맞추므로 정의상 결함 톤을 (1−strength) 배로 옅게 만들어 strength 를 낮게 뒀고, 그래도 대비가 신호인 결함엔 `relative`(소스 자기 배경 → 대상 배경 오프셋만)를 씁니다. 실데이터 학습 mAP 근거는 아직 없습니다(공개 데이터 근거는 `BENCHMARKS.md`).
+기본값은 샘플 보관함에서 "결함이 옅어지는 정도"(hard-paste 대비 마스크 안 L1 비율)를 재서 정했습니다 — stats·Reinhard·histmatch 세 조화 방법은 내부를 대상 링에 맞추므로 정의상 결함 톤을 (1−strength) 배로 옅게 만들어 strength 를 낮게 뒀고, 그래도 대비가 신호인 결함엔 `relative`(소스 자기 배경 → 대상 배경 오프셋만)를 씁니다. 실데이터 학습 mAP 근거는 아직 없습니다(공개 데이터 근거는 `BENCHMARKS.md`).
 
 ### 조명 의존 결함 한 바퀴 (찍힘·덴트)
 
@@ -126,13 +126,13 @@ anograft-gui recipes/sample-poisson.yaml                                  # GUI 
 
 | 단계 | 어디서 | 무엇 |
 |---|---|---|
-| 은행 | `anograft bank ls` · 은행 탭 요약 · `bank preview` 화살표 | 클래스별 **lightR**(실제 소스들의 하이라이트 방향 일관성, 1 = 전부 같은 쪽). `*` = 유의(R ≥ 0.5 이고 n·R² ≥ 2.9 — 클래스당 몇 장이면 우연히도 크므로) |
+| 보관함 | `anograft bank ls` · 결함 보관함 탭 요약 · `bank preview` 화살표 | 클래스별 **lightR**(실제 소스들의 하이라이트 방향 일관성, 1 = 전부 같은 쪽). `*` = 유의(R ≥ 0.5 이고 n·R² ≥ 2.9 — 클래스당 몇 장이면 우연히도 크므로) |
 | 레시피 | `recipe init --bank … --auto-dent` · `--dent-class 찍힘` | 그 클래스만 `geometry.per_class: {찍힘: {rotate: [-15, 15], flip: horizontal}}`(조명이 위/아래에서 오면 좌우 뒤집기는 안전 — 옆이면 `vertical`, 모르면 `none`) — 스크래치는 그대로 ±180° |
-| 실행 전 | `run --dry-run` · `recipe check` · 스튜디오 기하 카드 ⚠ | 유의한 클래스를 rotate 폭 > 90° 또는 flip 으로 돌리면 경고. 카드의 **▶ 조명 클래스만 ±15°·flip 끔** 이 한 번에 고침 |
-| 미리보기 | 스튜디오 변형 카드 **↯** | 인스턴스의 하이라이트가 실제 방향과 90° 넘게 다르면 표시 |
-| 검수 | 검수 탭 분포 **조명 방향** · 필터 **조명 뒤집힘 의심** · `run --report` | 합성 vs 실제 각도 분포와 클래스별 R, 뒤집힌 이미지 목록. `dataset prune --drop-flipped` 로 제외 |
+| 실행 전 | `run --dry-run` · `recipe check` · 미리보기 탭 크기·회전 카드 ⚠ | 유의한 클래스를 rotate 폭 > 90° 또는 flip 으로 돌리면 경고. 카드의 **▶ 조명 클래스만 ±15°·flip 끔** 이 한 번에 고침 |
+| 미리보기 | 미리보기 탭 시드 변형 카드 **↯** | 인스턴스의 하이라이트가 실제 방향과 90° 넘게 다르면 표시 |
+| 검수 | 검수 탭 분포 **밝은 쪽 방향** · 필터 **빛 방향이 뒤집힌 듯함** · `run --report` | 합성 vs 실제 각도 분포와 클래스별 R, 뒤집힌 이미지 목록. `dataset prune --drop-flipped` 로 제외 |
 
-샘플로 보면: `anograft sample --out s --quickstart` 는 pit 을 조명 의존으로 찾아 per_class 를 써 줍니다. 같은 은행을 `--preset poisson-graft` 로 그대로 돌리면 검수 탭 필터가 40장 중 33장을 골라냅니다(위 스크린샷).
+샘플로 보면: `anograft sample --out s --quickstart` 는 pit 을 조명 의존으로 찾아 per_class 를 써 줍니다. 같은 보관함을 `--preset poisson-graft` 로 그대로 돌리면 검수 탭 필터가 40장 중 33장을 골라냅니다(위 스크린샷).
 
 **재현 보증 범위**: 같은 OS · 같은 OpenCV 부버전에서 바이트 동일. 다른 환경에서는 `cv2.seamlessClone` 내부 솔버 차이로 픽셀 단위 차이가 있을 수 있습니다. zip은 OpenCV를 함께 실으므로 zip끼리는 동일합니다.
 
