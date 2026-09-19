@@ -63,7 +63,7 @@ python tools/fetch_public_datasets.py screw --import            # (선택) 흑�
 | 22 | `anograft recipe init --preset relative-paste --bank bank/magnetic-tile --targets samples/magnetic-tile/normals.txt --roi none --classes blowhole --write a.yaml` · 같은 은행으로 `--preset poisson-graft --classes break crack --write b.yaml` → `run` 둘 → `dataset merge out/a out/b --out out/ab --dedupe-normals` | `a.yaml` 의 `source.classes: [blowhole]`(헤더 주석에 `--classes blowhole`) · `out/a` 사이드카 `harmonize.method: relative`(마스크 밖 바이트는 paste 와 동일) · merge 결과 `data.yaml` names 가 은행 순서 그대로(blowhole·break·crack), 정상 한 벌. `--preset self-cut --classes x` 는 거부(은행 없음) |
 | 23 | 검수 탭 분포 → 클래스 `blowhole` → 대비 | `out/a`(relative-paste) 합성 중앙값이 실제(은행) 쪽으로(≈ −37 vs −48); 같은 은행의 poisson 출력은 0 쪽(≈ −17) |
 | 24 | `tools/train_mvtec_map.py samples/magnetic-tile/pairs.csv --classes blowhole break crack --roi none --presets poisson-graft relative-paste --class-presets blowhole=relative-paste break=poisson-graft crack=poisson-graft --mask-from hybrid --epochs 1 --count 9 --k 2` | 표에 `B +split relative-paste(blowhole) poisson-graft(break+crack) (hybrid)` 행 · `syn-split-…` 폴더가 `merge.json` 을 가짐 · 합성 9 = 3 + 6(클래스 수 비례) |
-| 27 | (v0.9) 미리보기 탭 프리셋 옆 `고르기…` | 카드 10장, 각 카드 썸네일이 현재 바탕 이미지의 합성(annulus 는 링 위치, hard-paste 는 거친 경계) · 더블클릭하면 콤보·카드가 그 프리셋으로 · 바탕을 고르기 전에는 썸네일 없이 문안만 |
+| 28 | (v0.9) GUI 를 레시피 없이 열기 → 체크리스트 버튼 → 탭 오른쪽 위 `다음 →` | 캔버스 자리에 6단계 체크리스트(첫 미완 버튼 강조), 탭 이름이 `① 결함 표시 … ⑤ 검수`, 보관함을 열면 `② 결함 보관함 · 19` 처럼 배지, `다음: 일괄 생성 →` 로 탭 이동(검수에서는 비활성) |
 
 `real.csv` 예시(항목 8·9):
 

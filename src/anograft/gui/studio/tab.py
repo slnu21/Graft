@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QSizePolicy,
     QSplitter,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -34,6 +35,7 @@ from anograft import runner
 from anograft.core import recipe as R
 from anograft.core.appearance import flipped_instances
 from anograft.core.channels import promote_to_bgr
+from anograft.gui.checklist import ChecklistPanel
 from anograft.gui.studio.canvas import CompareCanvas
 from anograft.gui.studio.jobs import (
     KIND_PREPARE,
@@ -107,7 +109,11 @@ class StudioTab(QWidget):
         ml.setContentsMargins(0, 0, 0, 0)
         ml.setSpacing(0)
         self.canvas = CompareCanvas()
-        ml.addWidget(self.canvas, 1)
+        self.center = QStackedWidget()  # 캔버스 / 시작 체크리스트(레시피 없을 때)
+        self.center.addWidget(self.canvas)
+        self.checklist = ChecklistPanel()
+        self.center.addWidget(self.checklist)
+        ml.addWidget(self.center, 1)
         bar = QWidget()
         bar.setObjectName("Strip")
         bl = QHBoxLayout(bar)
@@ -179,6 +185,10 @@ class StudioTab(QWidget):
         w.failed.connect(self._on_failed)
 
     # ------------------------------------------------------------------ 세션 → 위젯
+
+    def show_checklist(self, on: bool) -> None:
+        """레시피가 없을 때 캔버스 자리에 시작 체크리스트(메인 창이 켜고, 레시피가 열리면 끈다)."""
+        self.center.setCurrentWidget(self.checklist if on else self.canvas)
 
     def sync_widgets(self) -> None:
         ses = self.session
@@ -444,6 +454,7 @@ class StudioTab(QWidget):
     # ------------------------------------------------------------------ 미리보기 요청·수신
 
     def request_previews(self) -> None:
+        self.show_checklist(False)
         ses = self.session
         if ses.prepared is None or ses.target is None:
             return

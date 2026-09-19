@@ -45,17 +45,18 @@ from anograft.gui.studio.session import StudioSession
 from anograft.gui.studio.tab import StudioTab
 from anograft.gui.studio.worker import PreviewWorker
 from anograft.gui.theme import apply_theme
+from anograft.gui.workflow import (
+    NEXT_HINT,
+    STEPS,
+    WorkflowState,
+    next_step,
+    tab_label,
+)
 from anograft.samples.quickstart import Quickstart
 
-TABS: tuple[
-    tuple[str, str], ...
-] = (  # (키, 한국어 라벨) — 영어 이름은 TAB_TIPS 툴팁으로(v0.9 용어 사전)
-    ("bank", "결함 보관함"),
-    ("label", "결함 표시"),
-    ("studio", "미리보기"),
-    ("batch", "일괄 생성"),
-    ("review", "검수"),
-)
+# (키, 한국어 라벨) — 흐름 순서(v0.9 stepper: 결함 표시 → 보관함 → 미리보기 → 일괄 생성 → 검수). 영어 이름은 TAB_TIPS 툴팁으로.
+# 실제 탭 텍스트는 workflow.tab_label(번호 + 배지) — 이 상수는 순서·기본 이름의 정본
+TABS: tuple[tuple[str, str], ...] = STEPS
 TAB_TIPS: dict[str, str] = {
     "bank": "Bank — 라벨링한 결함 조각(이미지·마스크·메타)을 모아 두는 곳 · CLI anograft bank",
     "label": "Label — 결함 사진에 마스크를 그려 보관함에 넣습니다",
@@ -145,7 +146,13 @@ class MainWindow(QMainWindow):
                 page = self._placeholder(PLACEHOLDER[key])
             self.tabs.addTab(page, label)
             self.tabs.setTabToolTip(self.tabs.count() - 1, TAB_TIPS[key])
-        self.tabs.setCurrentIndex(2)
+        self.tabs.setCurrentIndex(self.tab_index("studio"))
+        # 코너 '다음 →' — 흐름의 다음 탭으로(툴팁 = 이 탭에서 끝낼 것)
+        self.btn_next = QPushButton("")
+        self.btn_next.setObjectName("NextStep")
+        self.btn_next.clicked.connect(self.go_next)
+        self.tabs.setCornerWidget(self.btn_next, Qt.Corner.TopRightCorner)
+        self.tabs.currentChanged.connect(lambda _i: self._sync_next())
         lay.addWidget(self.tabs, 1)
         self.setCentralWidget(central)
 
@@ -169,9 +176,87 @@ class MainWindow(QMainWindow):
         self.studio.recipe_opened.connect(self._on_recipe_opened)
         self.label.set_bank(self.session.recipe.inputs.bank_key())
         self.worker.busy.connect(self._on_busy)
+        # 배지·체크리스트는 각 탭의 상태 시그널 뒤에 다시 계산(값싼 갱신)
+        for sig in (
+            self.studio.status,
+            self.label.status,
+            self.bank.status,
+            self.review.status,
+            self.batch.status,
+        ):
+            sig.connect(lambda _m: self.refresh_workflow())
+        self.batch.run_finished.connect(lambda _s: self.refresh_workflow())
+        self.bank.bank_changed.connect(lambda _r: self.refresh_workflow())
+        self.studio.checklist.action.connect(self._on_checklist_action)
         self.studio.sync_widgets()
+        self.refresh_workflow()
+        self._sync_next()
         if start_worker:
             self.worker.start()
+
+    # ------------------------------------------------------------------ 흐름(탭 순서·배지·다음)
+
+    def tab_index(self, key: str) -> int:
+        return [k for k, _n in STEPS].index(key)
+
+    def current_key(self) -> str:
+        return STEPS[self.tabs.currentIndex()][0]
+
+    def workflow_state(self) -> WorkflowState:
+        """각 탭 세션에서 읽은 사실 — 배지·체크리스트의 입력(Qt 없는 workflow.py 가 문구를 만든다)."""
+        ses = self.session
+        prep = ses.prepared
+        pieces: int | None = None
+        if self.bank.session.loaded and self.bank.session.bank is not None:
+            pieces = len(self.bank.session.bank)
+        elif prep is not None and not ses.recipe.bankless:
+            pieces = len(prep.bank)
+        rs = self.review.session
+        counts = rs.counts() if rs.loaded else {}
+        return WorkflowState(
+            bank_pieces=pieces,
+            recipe_open=ses.recipe_path is not None or prep is not None,
+            prepared=prep is not None,
+            targets=len(prep.targets) if prep is not None else 0,
+            batch_ok=self.batch.last_summary.writer.n_ok
+            if self.batch.last_summary is not None
+            else None,
+            review_open=rs.loaded,
+            review_unreviewed=counts.get("unreviewed") if rs.loaded else None,
+            label_images=self.label.list.count(),
+        )
+
+    def refresh_workflow(self) -> None:
+        state = self.workflow_state()
+        for i, (key, _name) in enumerate(STEPS):
+            self.tabs.setTabText(i, tab_label(key, state))
+        self.studio.checklist.set_state(state)
+
+    def _sync_next(self) -> None:
+        key = self.current_key()
+        nxt = next_step(key)
+        if nxt is None:
+            self.btn_next.setText("흐름 끝 — 데이터셋 내보내기")
+            self.btn_next.setToolTip(NEXT_HINT[key])
+            self.btn_next.setEnabled(False)
+            return
+        self.btn_next.setEnabled(True)
+        self.btn_next.setText(f"다음: {nxt[1]} →")
+        self.btn_next.setToolTip(NEXT_HINT[key])
+
+    def go_next(self) -> None:
+        nxt = next_step(self.current_key())
+        if nxt is not None:
+            self.tabs.setCurrentIndex(self.tab_index(nxt[0]))
+
+    def _on_checklist_action(self, key: str) -> None:
+        """체크리스트 버튼 — 탭으로 가거나(키 = 탭) 상단 동작(sample · 레시피 열기)."""
+        if key == "sample":
+            self._on_sample_clicked()
+        elif key == "studio":
+            self.studio.open_recipe_dialog()
+        elif key in dict(STEPS):
+            self.tabs.setCurrentIndex(self.tab_index(key))
 
     def _top_bar(self) -> QWidget:
         bar = QWidget()
@@ -250,6 +335,8 @@ class MainWindow(QMainWindow):
         """스튜디오가 레시피를 열거나 저장했다 — 최근 레시피로 기억, 라벨 탭 은행 동기."""
         if self.settings is not None:
             remember_recipe(path, self.settings)
+        self.studio.show_checklist(False)
+        self.refresh_workflow()
         bank = self.session.recipe.inputs.bank_key()
         self.label.set_bank(bank)
         if bank and not self.bank.session.loaded:
@@ -260,6 +347,8 @@ class MainWindow(QMainWindow):
 
     def show_empty_state(self) -> None:
         self.studio.canvas.clear(EMPTY_STATE)
+        self.studio.show_checklist(True)
+        self.refresh_workflow()
         self.status_bar.showMessage(
             "열린 레시피가 없습니다 — 결함 표시 탭에서 시작하거나 미리보기 탭의 '열기'로 레시피를 여세요"
         )
