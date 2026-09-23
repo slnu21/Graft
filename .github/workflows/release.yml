@@ -17,6 +17,18 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
+      # 웹 번들은 저장소에 없다(결정 6 ①) — 여기서 만들어야 wheel 에 실린다.
+      # 빠뜨리면 `pip install anograft` 사용자가 `serve` 에서 안내 페이지만 보게 된다.
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build web bundle
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
       - name: Build
         run: |
           python -m pip install --upgrade build twine
@@ -26,6 +38,7 @@ jobs:
         run: |
           python -m pip install --no-deps dist/*.whl
           python -c "import anograft; print('import OK', anograft.__version__)"
+          python -c "import anograft.web.static as _; from anograft.web.static import bundle_status; s = bundle_status(); assert s.present, '릴리스 wheel 에 웹 번들이 없다'; print('bundle OK')"
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
@@ -40,6 +53,18 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      # zip 에도 웹 번들이 실려야 한다 — PyInstaller 의 collect_data_files("anograft") 가
+      # `_internal/anograft/web/static/` 으로 옮겨 준다(빌드 시점에 파일이 있어야 한다).
+      - name: Build web bundle
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
       - name: Install (gui + build)
         run: python -m pip install -e ".[gui,build]"
       - name: Build zip

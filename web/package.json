@@ -1,0 +1,30 @@
+{
+  "name": "anograft-web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Graft 웹 UI — API를 호출만 한다(합성·판정 로직 0). 빌드 산출물은 저장소에 커밋하지 않는다.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "notices": "node ../tools/collect_npm_notices.mjs"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.1",
+    "@vitejs/plugin-react": "^5.0.4",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.9",
+    "vitest": "^3.2.4"
+  }
+}

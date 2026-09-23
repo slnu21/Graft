@@ -41,6 +41,7 @@ from anograft.preview import (
     union_bbox,
 )
 from anograft.samples import yolo as sample_yolo
+from anograft.web import server as web_server
 
 EXIT_OK = 0
 EXIT_RECIPE_ERROR = 1
@@ -661,6 +662,17 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             v = ", ".join(str(x) for x in v) if v else "(없음)"
         print(f"{k:>18}: {v}")
     return EXIT_OK
+
+
+def cmd_serve(args: argparse.Namespace) -> int:
+    """웹 UI — `127.0.0.1` 고정. 번들이 없어도 죽지 않고 안내를 띄운다(fail-soft)."""
+    return web_server.serve(
+        args.port,
+        api_only=args.api_only,
+        open_browser=not args.no_browser,
+        verbose=args.verbose,
+        dev_port=args.dev_port,
+    )
 
 
 def _trainer_table(args: argparse.Namespace) -> tuple[Path, dict] | None:
@@ -1344,6 +1356,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_doctor)
+
+    p = sub.add_parser("serve", help="웹 UI를 로컬에서 연다 (127.0.0.1 고정 — 오프라인·로컬)")
+    p.add_argument("--port", type=int, default=web_server.DEFAULT_PORT, help="기본 8000")
+    p.add_argument(
+        "--api-only",
+        action="store_true",
+        help="JSON API만 — 화면은 web/ 에서 npm run dev (개발용)",
+    )
+    p.add_argument("--no-browser", action="store_true", help="브라우저를 자동으로 열지 않는다")
+    p.add_argument(
+        "--dev-port", type=int, default=web_server.DEFAULT_DEV_PORT, help="안내에 쓸 개발 서버 포트"
+    )
+    p.add_argument("--verbose", action="store_true", help="요청 로그를 찍는다")
+    p.set_defaults(func=cmd_serve)
 
     p = sub.add_parser(
         "trainer",
