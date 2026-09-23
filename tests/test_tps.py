@@ -89,7 +89,7 @@ def test_geometry_stage_logs_tps_and_default_is_unchanged() -> None:
     assert g_off["scale"] == g_on["scale"] and g_off["rotate"] == g_on["rotate"]  # 앞 단계 rng 동일
     assert not np.array_equal(off.gt_mask, on.gt_mask) or not np.array_equal(off.image, on.image)
     # 카드 폼(스키마 → UI): 필드가 스펙에 잡힌다
-    from anograft.gui.studio.params import field_specs
+    from anograft.studio.params import field_specs
 
     names = {f.name for f in field_specs(R.AffineGeometryConfig())}
     assert {"tps.points", "tps.jitter"} <= names

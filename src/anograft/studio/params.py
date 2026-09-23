@@ -1,4 +1,4 @@
-"""스테이지 설정(pydantic 모델) → 위젯 스펙. Qt 없음 — ``panels.py`` 의 ``ParamForm`` 이 스펙대로 위젯을 만든다.
+"""스테이지 설정(pydantic 모델) → 폼 스펙. Qt 없음 — ``gui/studio/param_form.py`` 가 위젯을, 웹 폼이 입력을 스펙대로 만든다.
 
 "스키마가 곧 UI": 새 method 의 설정 모델을 ``recipe.py`` 에 추가하면 카드 편집기는 저절로 생긴다(GUI 수정 0).
 라벨·설명·단위는 ``core/help.py``(한 원천)에서 — 라벨은 한국어, YAML 키·영어·형식은 툴팁(v0.9). 도움말이 없는 필드는

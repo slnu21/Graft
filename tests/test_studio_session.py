@@ -9,7 +9,7 @@ import pytest
 
 from anograft.bank.importers import yolo as Y
 from anograft.core.types import TargetImage
-from anograft.gui.studio.jobs import (
+from anograft.studio.jobs import (
     KIND_PREVIEW,
     KIND_THUMB,
     LatestOnlyQueue,
@@ -19,7 +19,7 @@ from anograft.gui.studio.jobs import (
     run_job,
     run_preview,
 )
-from anograft.gui.studio.session import SessionError, StudioSession, default_recipe
+from anograft.studio.session import SessionError, StudioSession, default_recipe
 from tests.fixtures import fake_yolo_dataset
 
 

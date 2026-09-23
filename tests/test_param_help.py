@@ -19,7 +19,7 @@ from anograft.core.help import (
     field_help,
     method_help,
 )
-from anograft.gui.studio.params import field_specs
+from anograft.studio.params import field_specs
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -92,7 +92,7 @@ def test_field_specs_carry_help() -> None:
     assert "실수 범위" in sc.tooltip  # 형식·범위 줄은 그대로
     assert specs["elastic.alpha"].advanced and specs["elastic.alpha"].label == "잔물결 세기"
     # 도움말이 없는(가상) 필드는 이름을 그대로 보인다
-    from anograft.gui.studio.params import FieldSpec
+    from anograft.studio.params import FieldSpec
 
     bare = FieldSpec(name="x.y", kind="int", value=1)
     assert bare.title == "x.y" and bare.tooltip == "x.y"

@@ -1,7 +1,7 @@
-"""``StudioSession`` — GUI 상태의 단일 원천. **Qt 없음** (순수 파이썬, 테스트는 Qt 없이).
+"""``StudioSession`` — 미리보기 상태의 단일 원천. **Qt 없음** (Qt 탭·웹 API 공용, 테스트도 Qt 없이).
 
 - 상태 = ``Recipe``(pydantic, 검증된 것만 보관) + ``Prepared``(은행·대상·파이프라인) 캐시 + 선택(대상 인덱스·변형 인덱스).
-- 위젯 값 변경은 전부 ``update_*``/``set_*``를 거친다 → 딕셔너리로 고쳐 ``Recipe.from_dict``로 **다시 검증** → 실패하면
+- 값 변경은 전부 ``set_*``를 거친다 → 딕셔너리로 고쳐 ``Recipe.from_dict``로 **다시 검증** → 실패하면
   ``SessionError``(메시지 = ``format_validation_error``)와 함께 이전 레시피 유지. GUI와 CLI가 같은 규칙으로 막는 지점.
 - 은행/대상 경로가 바뀌면 ``needs_prepare()``가 True — IO는 호출자(워커)가 ``runner.prepare``로 하고 ``accept_prepared``로 넘긴다.
   파이프라인 설정만 바뀌면 ``runner.reprepare``(은행 재사용, 동기·가벼움)로 즉시 갱신한다.
@@ -19,7 +19,7 @@ from pydantic import ValidationError
 from anograft import runner
 from anograft.core import recipe as R
 from anograft.core import registry
-from anograft.gui.studio.params import required_placeholders
+from anograft.studio.params import required_placeholders
 
 DEFAULT_PRESET = "poisson-graft"
 

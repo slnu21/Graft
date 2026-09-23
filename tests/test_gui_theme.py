@@ -105,7 +105,7 @@ def test_settings_roundtrip_and_dialog(qapp: QApplication, tmp_path) -> None:
 def test_main_window_settings_button(qapp: QApplication, monkeypatch: pytest.MonkeyPatch) -> None:
     from anograft.gui import app as app_mod
     from anograft.gui.app import MainWindow
-    from anograft.gui.studio.session import StudioSession, default_recipe
+    from anograft.studio.session import StudioSession, default_recipe
 
     win = MainWindow(StudioSession(default_recipe()))
     try:

@@ -38,10 +38,10 @@ from anograft.core.pipeline import TraceStep
 from anograft.gui.notice import Notice
 from anograft.gui.qt_image import to_qpixmap
 from anograft.gui.studio.param_form import ParamForm
-from anograft.gui.studio.params import baseline_config, field_specs
 from anograft.gui.studio.per_class import PerClassEditor
 from anograft.gui.theme import COLORS
 from anograft.preview import fit_long_side
+from anograft.studio.params import baseline_config, field_specs
 
 STAGE_ORDER: tuple[str, ...] = (
     "source",

@@ -24,9 +24,9 @@ from PySide6.QtWidgets import (
 )
 
 from anograft.gui.qt_image import to_qpixmap
-from anograft.gui.studio.gallery import PresetCard, preset_cards
 from anograft.gui.theme import COLORS
 from anograft.preview import fit_long_side
+from anograft.studio.gallery import PresetCard, preset_cards
 
 THUMB_W, THUMB_H = 168, 118
 COLUMNS = 2

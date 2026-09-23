@@ -13,7 +13,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import cv2
 import numpy as np
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QGuiApplication
@@ -33,11 +32,14 @@ from PySide6.QtWidgets import (
 
 from anograft import runner
 from anograft.core import recipe as R
-from anograft.core.appearance import flipped_instances
 from anograft.core.channels import promote_to_bgr
 from anograft.gui.checklist import ChecklistPanel
 from anograft.gui.studio.canvas import CompareCanvas
-from anograft.gui.studio.jobs import (
+from anograft.gui.studio.panels import InputsPanel, PipelinePanel, StripBar, TargetRail
+from anograft.gui.studio.variants import VariantStrip
+from anograft.gui.studio.worker import PreviewWorker
+from anograft.studio import diagnose
+from anograft.studio.jobs import (
     KIND_PREPARE,
     KIND_PREVIEW,
     KIND_THUMB,
@@ -46,10 +48,7 @@ from anograft.gui.studio.jobs import (
     PreviewResult,
     ThumbResult,
 )
-from anograft.gui.studio.panels import InputsPanel, PipelinePanel, StripBar, TargetRail
-from anograft.gui.studio.session import SessionError, StudioSession
-from anograft.gui.studio.variants import VariantStrip
-from anograft.gui.studio.worker import PreviewWorker
+from anograft.studio.session import SessionError, StudioSession
 
 
 def field_error_detail(message: str) -> str:
@@ -272,22 +271,12 @@ class StudioTab(QWidget):
         )
 
     def _fit_warnings(self, res: PreviewResult, roi: np.ndarray | None) -> list[str]:
-        """이 대상의 허용 영역 최대 폭(미리보기 ROI ÷ 축소 배율 = 원본 px) vs 클래스별 패치 폭 — 빠듯/불가면 배치 카드 ⚠."""
-        prep = self.session.prepared
-        if prep is None or roi is None:
-            return []
-        from anograft.core.stages.placement import roi_max_width
-
-        margin = int(getattr(self.session.recipe.pipeline.placement, "margin_px", 0))
-        width = roi_max_width(roi, margin) / max(res.scale, 1e-6)
-        short_side = float(min(roi.shape[:2])) / max(res.scale, 1e-6)
-        fit = runner.fit_from_widths(
-            prep, [(res.target.path.name, round(width, 1))], target_short_side=short_side
+        """이 대상의 허용 영역 최대 폭(미리보기 ROI ÷ 축소 배율 = 원본 px) vs 클래스별 패치 폭 — 빠듯/불가면 배치 카드 ⚠.
+        판단은 `studio.diagnose`(웹 미리보기와 같은 함수)가 한다."""
+        self._fit = diagnose.fit_for_preview(
+            self.session.prepared, self.session.recipe, roi, res.scale, res.target.path.name
         )
-        self._fit = fit
-        if fit is None:
-            return []
-        return [w for w in (fit.source_warning(), fit.warning()) if w]
+        return diagnose.fit_warnings(self._fit)
 
     def _update_zoom_info(self) -> None:
         w, h = self.canvas.image_size()
@@ -400,7 +389,7 @@ class StudioTab(QWidget):
 
     def gallery_thumbs(self) -> dict[str, Any] | None:
         """갤러리 썸네일 — 준비된 세션 + 고른 바탕 이미지가 있을 때만(없으면 None → 문안만)."""
-        from anograft.gui.studio.gallery import render_preset_thumbs
+        from anograft.studio.gallery import render_preset_thumbs
 
         ses = self.session
         if ses.prepared is None or ses.target is None:
@@ -535,33 +524,14 @@ class StudioTab(QWidget):
         if k == self.session.variant_index:
             self._show(res)
 
-    @staticmethod
-    def _source_ids(r) -> list[str]:
-        return [
-            str(d.get("source", {}).get("source_id", ""))
-            for d in r.sidecar.get("defects", [])
-            if "gt" in d
-        ]
+    def _source_ids(self, r) -> list[str]:
+        return diagnose.source_ids(r)
 
     def _flipped_instances(self, r) -> list[int]:
-        """이 변형의 인스턴스 중 조명이 실제 클래스 방향과 반대(> 90°)인 것 — 검수 탭 '조명 뒤집힘 의심'을 미리보기에서.
-        은행에 방향이 유의한 클래스가 없으면 빈 목록(1024 축소본이라 각도는 근사)."""
-        prep = self.session.prepared
-        if prep is None or prep.recipe.bankless or r.status != "ok" or not r.instances:
-            return []
-        real = prep.bank.real_lighting_direction()
-        if not real:
-            return []
-        gray = cv2.cvtColor(promote_to_bgr(r.image), cv2.COLOR_BGR2GRAY)
-        return flipped_instances(gray, [(i.cls, i.mask) for i in r.instances], real)
+        return diagnose.flipped(self.session.prepared, r)
 
     def _low_confidence_sources(self, r) -> list[str]:
-        """이 변형에 쓰인 소스 중 confidence < 0.5(KNOWN-ISSUES #3) — 미리보기가 그럴듯해도 마스크가 헐거울 수 있다."""
-        prep = self.session.prepared
-        if prep is None or prep.bank is None:
-            return []
-        low = {s.id for s in prep.bank.low_confidence()}
-        return [sid for sid in self._source_ids(r) if sid in low]
+        return diagnose.low_confidence_sources(self.session.prepared, r)
 
     def _on_failed(self, err: JobError) -> None:
         if err.job.kind == KIND_PREPARE:
@@ -574,7 +544,7 @@ class StudioTab(QWidget):
 
     def _show(self, res: PreviewResult) -> None:
         r = res.result
-        roi = res.steps[0].ctx.roi if res.steps and res.steps[0].stage == "roi" else None
+        roi = diagnose.roi_of(res.steps)
         synthetic: np.ndarray | None = promote_to_bgr(r.image) if r.status == "ok" else None
         self.canvas.set_images(
             res.target.image, synthetic, r.gt_mask if r.status == "ok" else None, r.instances, roi
@@ -583,11 +553,7 @@ class StudioTab(QWidget):
             res.steps, [*self.session.warnings, *r.warnings, *self._fit_warnings(res, roi)]
         )
         self._update_zoom_info()
-        defects = [d for d in r.sidecar.get("defects", []) if "gt" in d]
-        what = " · ".join(
-            f"{d['source']['class']} {d['source']['source_id']} ({d['blend']['method']})"
-            for d in defects
-        )
+        what = " · ".join(f"{d.cls} {d.source_id} ({d.blend})" for d in diagnose.defect_lines(r))
         if r.status == "ok":
             self.status.emit(
                 f"v{res.job.index + 1}: {what} · {res.elapsed_s * 1000:.0f} ms"

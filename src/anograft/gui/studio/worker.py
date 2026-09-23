@@ -13,7 +13,7 @@ import traceback
 from PySide6.QtCore import QMutex, QThread, QWaitCondition, Signal
 
 from anograft import runner
-from anograft.gui.studio.jobs import (
+from anograft.studio.jobs import (
     KIND_PREPARE,
     JobError,
     LatestOnlyQueue,

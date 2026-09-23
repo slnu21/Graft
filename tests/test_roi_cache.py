@@ -11,7 +11,7 @@ from anograft import runner
 from anograft.core import recipe as R
 from anograft.core.pipeline import Pipeline, RoiCache
 from anograft.core.types import TargetImage
-from anograft.gui.studio.jobs import KIND_PREVIEW, PreviewJob, run_preview
+from anograft.studio.jobs import KIND_PREVIEW, PreviewJob, run_preview
 from tests.fixtures import (
     disk_image,
     disk_target,

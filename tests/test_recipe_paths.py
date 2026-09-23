@@ -13,7 +13,7 @@ import yaml
 from anograft.bank.importers import yolo as Y
 from anograft.cli import EXIT_OK, main
 from anograft.core import recipe as R
-from anograft.gui.studio.session import StudioSession
+from anograft.studio.session import StudioSession
 from tests.fixtures import fake_yolo_dataset
 
 

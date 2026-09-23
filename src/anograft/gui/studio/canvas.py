@@ -26,8 +26,8 @@ from PySide6.QtWidgets import QWidget
 
 from anograft.core.types import Instance
 from anograft.gui.qt_image import to_qpixmap
-from anograft.gui.studio.jobs import contours_of, overlay_bgra
 from anograft.gui.theme import COLORS
+from anograft.studio.jobs import contours_of, overlay_bgra
 
 WIPE_GRAB_PX = 9
 ZOOM_MIN, ZOOM_MAX = 0.2, 12.0
