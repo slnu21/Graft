@@ -698,3 +698,172 @@ select:focus-visible {
 .canvas-wrap .preview-layer {
   pointer-events: none;
 }
+
+/* ---------- ③ 미리보기(U5a) ---------- */
+/* 목업 v2 의 3열: 바탕 목록 | 캔버스 | 설정. 좁은 화면에서는 한 열로 접는다. */
+.studio {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr) 320px;
+  gap: 12px;
+  align-items: start;
+}
+
+.studio-side {
+  display: grid;
+  gap: 12px;
+}
+
+.tglist {
+  display: grid;
+  gap: 6px;
+  max-height: 58vh;
+  overflow: auto;
+}
+
+.tgitem {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: 8px;
+  align-items: center;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+  color: var(--tx2);
+  text-align: left;
+  font-size: 11.5px;
+}
+
+.tgitem img {
+  width: 56px;
+  height: 42px;
+  object-fit: cover;
+  border-radius: 3px;
+  background: var(--panel2);
+}
+
+.tgitem.on {
+  border-color: var(--teal);
+  box-shadow: 0 0 0 1px var(--teal);
+  color: var(--tx);
+}
+
+/* 원본 위에 합성을 얹고 **잘라낸다** — 두 장의 크기가 어긋날 수 없다. */
+.stagewrap {
+  position: relative;
+  width: 100%;
+  max-height: 62vh;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel2);
+  overflow: hidden;
+  touch-action: none;
+  cursor: ew-resize;
+}
+
+.stagewrap.busy {
+  opacity: 0.75;
+}
+
+.stagewrap img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  user-select: none;
+}
+
+.stagewrap .layer {
+  pointer-events: none;
+}
+
+.stagewrap .wipe {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: #fff;
+  box-shadow: 0 0 0 1px #0006;
+  pointer-events: none;
+}
+
+.stagewrap .cornertag {
+  position: absolute;
+  top: 6px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: #000000a8;
+  color: #fff;
+  font-size: 10.5px;
+  pointer-events: none;
+}
+
+.stagewrap .cornertag.l {
+  left: 6px;
+}
+
+.stagewrap .cornertag.r {
+  right: 6px;
+}
+
+.stage-empty {
+  display: grid;
+  place-items: center;
+  min-height: 260px;
+  color: var(--tx3);
+}
+
+.legend {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--tx3);
+}
+
+.legend .it {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.legend .sw {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.legend .sw.gt {
+  background: #d8294a;
+}
+
+.legend .sw.roi {
+  background: #007a66;
+}
+
+.scale-note {
+  margin-top: 4px;
+  font-size: 11.5px;
+}
+
+.tile-note {
+  display: block;
+  padding: 0 6px 5px;
+  font-size: 11px;
+  color: var(--tx3);
+  text-align: left;
+}
+
+@media (max-width: 1100px) {
+  .studio {
+    grid-template-columns: 1fr;
+  }
+
+  .tglist {
+    grid-auto-flow: column;
+    grid-auto-columns: 150px;
+    max-height: none;
+  }
+}

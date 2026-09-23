@@ -59,6 +59,10 @@ jobs:
           curl -sf http://127.0.0.1:8123/api/review/state | grep -q '"open": false'
           code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8123/api/review/open)
           test "$code" = 403
+          # 미리보기(U5a): 열기 전 상태 + 합성은 POST 전용(GET 이면 405 — 링크 한 번에 계산이 돌면 안 된다)
+          curl -sf http://127.0.0.1:8123/api/studio/state | grep -q '"open": false'
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8123/api/studio/preview)
+          test "$code" = 405
 
   build:
     strategy:

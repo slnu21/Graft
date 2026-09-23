@@ -41,7 +41,6 @@ from anograft.gui.batch.tab import BatchTab
 from anograft.gui.label.tab import LabelTab
 from anograft.gui.review.tab import ReviewTab
 from anograft.gui.studio import param_form
-from anograft.gui.studio.session import StudioSession
 from anograft.gui.studio.tab import StudioTab
 from anograft.gui.studio.worker import PreviewWorker
 from anograft.gui.theme import apply_theme, theme_settings
@@ -53,6 +52,7 @@ from anograft.gui.workflow import (
     tab_label,
 )
 from anograft.samples.quickstart import Quickstart
+from anograft.studio.session import StudioSession
 
 # (키, 한국어 라벨) — 흐름 순서(v0.9 stepper: 결함 표시 → 보관함 → 미리보기 → 일괄 생성 → 검수). 영어 이름은 TAB_TIPS 툴팁으로.
 # 실제 탭 텍스트는 workflow.tab_label(번호 + 배지) — 이 상수는 순서·기본 이름의 정본

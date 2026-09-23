@@ -17,7 +17,12 @@ export type MethodInfo = {
   summary?: string
 }
 
-export type StageMeta = { stage: string; label: string; desc: string; en: string }
+export type StageMeta = {
+  stage: string
+  label: string
+  desc: string
+  en: string
+}
 
 export type Doctor = Record<string, unknown>
 
@@ -39,7 +44,9 @@ async function get<T>(path: string): Promise<T> {
   } catch {
     throw new ApiError('서버에 연결하지 못했습니다 — anograft serve 가 떠 있는지 확인하세요.', 0)
   }
-  const body = (await res.json().catch(() => null)) as { error?: string } | null
+  const body = (await res.json().catch(() => null)) as {
+    error?: string
+  } | null
   if (!res.ok) {
     throw new ApiError(body?.error ?? `요청이 실패했습니다 (${res.status})`, res.status)
   }
@@ -50,18 +57,23 @@ async function get<T>(path: string): Promise<T> {
  * 쓰기. `X-Graft-Request` 헤더가 CSRF 방어다 — 커스텀 헤더가 붙으면 브라우저가 단순 요청으로
  * 보내지 못하고 preflight 를 먼저 쏘며, 서버는 거기에 CORS 허용을 주지 않는다.
  */
-async function post<T>(path: string, payload: unknown): Promise<T> {
+async function post<T>(path: string, payload: unknown, signal?: AbortSignal): Promise<T> {
   let res: Response
   try {
     res = await fetch(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Graft-Request': '1' },
       body: JSON.stringify(payload ?? {}),
+      signal,
     })
-  } catch {
+  } catch (err) {
+    // 취소는 오류가 아니다 — 부른 쪽이 `AbortError` 를 보고 조용히 넘긴다(최신 요청만 살린다).
+    if (err instanceof DOMException && err.name === 'AbortError') throw err
     throw new ApiError('서버에 연결하지 못했습니다 — anograft serve 가 떠 있는지 확인하세요.', 0)
   }
-  const body = (await res.json().catch(() => null)) as { error?: string } | null
+  const body = (await res.json().catch(() => null)) as {
+    error?: string
+  } | null
   if (!res.ok) {
     throw new ApiError(body?.error ?? `요청이 실패했습니다 (${res.status})`, res.status)
   }
@@ -76,7 +88,12 @@ export const fetchMethods = () =>
 // ---------------------------------------------------------------- 검수(U3)
 
 export type FilterOption = { id: string; label: string }
-export type ContrastHint = { cls: string; synthetic: number; real: number; n: number }
+export type ContrastHint = {
+  cls: string
+  synthetic: number
+  real: number
+  n: number
+}
 
 export type ReviewState =
   | { open: false }
@@ -266,3 +283,115 @@ export const saveToBank = (bank: string, cls: string, tags: string[] = [], umPer
 /** 마스크는 그릴 때마다 바뀐다 — `v` 로 캐시를 깬다. */
 export const labelImageUrl = (kind: 'base' | 'mask' | 'overlay', v = 0) =>
   `/api/label/image?kind=${kind}${v ? `&v=${v}` : ''}`
+
+// ---------------------------------------------------------------- 미리보기(U5a)
+
+export type StageRow = {
+  stage: string
+  label: string
+  method: string
+  methodLabel: string
+}
+
+export type StudioRecipe = {
+  name: string
+  preset: string
+  seed: number
+  bank: string
+  targets: string
+  out: string
+  count: number
+  writer: string
+  defectsPerImage: number[]
+}
+
+export type StudioTarget = { index: number; name: string; path: string }
+
+export type StudioState =
+  | { open: false; presets: string[] }
+  | {
+      open: true
+      recipe: StudioRecipe
+      recipePath: string
+      summary: Record<string, string>
+      stages: StageRow[]
+      presets: string[]
+      warnings: string[]
+      pathNotes: string[]
+      longSide: number
+      targetIndex: number
+      targets: StudioTarget[]
+      bankName: string
+      bankN: number
+      classes: string[]
+      pipelineHash: string
+      runCommand: string
+      version: number
+    }
+
+export type PreviewDefect = { cls: string; sourceId: string; blend: string }
+export type PreviewInstance = {
+  cls: string
+  classId: number
+  bbox: number[]
+  areaPx: number
+}
+
+export type PreviewMeta = {
+  version: number
+  status: 'ok' | 'skipped'
+  reason: string | null
+  elapsedMs: number
+  /** 축소 배율(1 = 원본). **미리보기는 긴 변 1024 축소본**이라 원본 해상도 `run` 과 결과가 다르다. */
+  scale: number
+  width: number
+  height: number
+  longSide: number
+  target: { index: number; name: string }
+  variant: number
+  seed: number
+  defects: PreviewDefect[]
+  instances: PreviewInstance[]
+  warnings: string[]
+  lowConfidence: string[]
+  flipped: { n: number; cls: string }[]
+  hasGt: boolean
+  hasRoi: boolean
+}
+
+export type PresetCard = {
+  name: string
+  title: string
+  summary: string
+  useFor: string
+  avoid: string
+  evidence: string
+  stages: { label: string; method: string; methodLabel: string }[]
+}
+
+export const fetchStudioState = () => get<StudioState>('/api/studio/state')
+export const fetchPresets = () =>
+  get<{ presets: PresetCard[]; current: string }>('/api/studio/presets')
+export const openStudio = (body: { recipe?: string; bank?: string; targets?: string }) =>
+  post<StudioState>('/api/studio/open', body)
+
+/**
+ * 합성 한 장. `signal` 로 **이전 요청을 취소**하는 것이 Qt `LatestOnlyQueue`("최신만 살리기")의 웹판이다
+ * — 파라미터를 빠르게 돌릴 때 낡은 결과가 나중에 도착해 화면을 되돌리는 일을 막는다.
+ */
+export const runPreview = (
+  body: { targetIndex?: number; variant?: number; longSide?: number },
+  signal?: AbortSignal,
+) => post<PreviewMeta>('/api/studio/preview', body, signal)
+
+export const setPreset = (name: string) => post<StudioState>('/api/studio/preset', { name })
+export const setSeed = (seed: number) => post<StudioState>('/api/studio/seed', { seed })
+export const saveRecipe = (path: string) =>
+  post<{ path: string; runCommand: string }>('/api/studio/save', { path })
+
+/** 그림은 `<img src>` 로 받는다 — `v`(미리보기 판 번호)가 캐시를 깬다. */
+export const studioImageUrl = (kind: 'base' | 'synth' | 'gt' | 'roi', v = 0) =>
+  `/api/studio/image?kind=${kind}${v ? `&v=${v}` : ''}`
+export const studioThumbUrl = (index: number) => `/api/studio/image?kind=thumb&index=${index}`
+export const presetImageUrl = (name: string, v = 0) =>
+  `/api/studio/preset-image?name=${encodeURIComponent(name)}${v ? `&v=${v}` : ''}`

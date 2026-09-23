@@ -25,9 +25,9 @@ from anograft.gui.app import TABS, MainWindow
 from anograft.gui.qt_image import from_qimage, to_qimage, to_qpixmap
 from anograft.gui.studio.canvas import CompareCanvas
 from anograft.gui.studio.panels import PipelinePanel, params_text, stage_thumbnail
-from anograft.gui.studio.session import StudioSession, default_recipe
 from anograft.gui.studio.variants import VariantStrip
 from anograft.gui.theme import apply_theme
+from anograft.studio.session import StudioSession, default_recipe
 from tests.fixtures import fake_yolo_dataset
 
 

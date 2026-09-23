@@ -18,9 +18,9 @@ from anograft.core import recipe as R
 from anograft.gui.app import MainWindow
 from anograft.gui.studio import param_form
 from anograft.gui.studio.param_form import DEBOUNCE_MS, ParamForm, wants_slider
-from anograft.gui.studio.params import baseline_config, field_specs
-from anograft.gui.studio.session import StudioSession, default_recipe
 from anograft.gui.theme import apply_theme
+from anograft.studio.params import baseline_config, field_specs
+from anograft.studio.session import StudioSession, default_recipe
 
 
 @pytest.fixture(scope="module")

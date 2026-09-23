@@ -7,7 +7,7 @@ import pytest
 from anograft.core import recipe as R
 from anograft.core import registry
 from anograft.core.registry import STAGE_ORDER, schema_methods
-from anograft.gui.studio.params import (
+from anograft.studio.params import (
     EXCLUDE,
     ON_DEFAULTS,
     FieldSpec,
@@ -17,7 +17,7 @@ from anograft.gui.studio.params import (
     spin_bounds,
     spin_step,
 )
-from anograft.gui.studio.session import SessionError, StudioSession, default_recipe
+from anograft.studio.session import SessionError, StudioSession, default_recipe
 
 
 def _by_name(specs: list[FieldSpec]) -> dict[str, FieldSpec]:

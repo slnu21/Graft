@@ -1,4 +1,4 @@
-"""미리보기 작업 — **Qt 없음**. 워커 스레드가 부르는 순수 함수와, "최신 것만 남기는" 큐.
+"""미리보기 작업 — **Qt 없음**. 화면(Qt 워커 스레드·웹 API)이 부르는 순수 함수와, "최신 것만 남기는" 큐.
 
 - ``preview_target(target, long_side)``: 대상을 긴 변 ``long_side``로 축소하고 ``um_per_px``를 같은 배율로 키운다(축소 = 픽셀당
   물리 길이 증가). **축소본에서 합성하므로 원본 해상도 ``run``과 결과가 다르다** — 배치 좌표·Poisson 결과는 축척에 따라 달라진다.
@@ -154,6 +154,28 @@ def overlay_bgra(mask: np.ndarray, color_bgr: tuple[int, int, int], alpha: int) 
     out[on, 0], out[on, 1], out[on, 2] = color_bgr
     out[on, 3] = alpha
     return out
+
+
+#: 오버레이 색(BGR) — 목업/테마의 `--mask`(#D8294A)·`--teal`(#007A66). Qt 는 `gui/theme.py` 의 팔레트를,
+#: 웹은 이 값을 쓴다(서버가 테마를 모르므로 라이트 값 하나로 — 어느 테마에서도 빨강/틸로 읽힌다).
+MASK_BGR = (0x4A, 0x29, 0xD8)
+ROI_BGR = (0x66, 0x7A, 0x00)
+
+
+def gt_overlay_bgra(mask: np.ndarray, *, alpha: int = 110) -> np.ndarray:
+    """정답 영역 → **투명 배경 + 반투명 빨강 채움 + 불투명 윤곽** BGRA.
+
+    알파는 **서버가** 만든다. 0/255 마스크를 CSS 블렌드로 물들이면 검은 배경까지 곱해져 사진 전체가
+    물든다(U4 에서 실제로 그랬다). Qt 캔버스는 윤곽을 직접 그리므로 여기서는 웹 몫만 굽는다.
+    """
+    out = overlay_bgra(mask, MASK_BGR, alpha)
+    cv2.drawContours(out, [c.reshape(-1, 1, 2) for c in contours_of(mask)], -1, (*MASK_BGR, 255), 1)
+    return out
+
+
+def roi_overlay_bgra(mask: np.ndarray, *, alpha: int = 44) -> np.ndarray:
+    """붙일 수 있는 영역(ROI) → 반투명 틸 BGRA. 0/1 마스크도 받는다(``> 0`` 으로 본다)."""
+    return overlay_bgra((mask > 0).astype(np.uint8) * 255, ROI_BGR, alpha)
 
 
 def contours_of(mask: np.ndarray) -> list[np.ndarray]:

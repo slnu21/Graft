@@ -18,8 +18,8 @@ from PySide6.QtWidgets import QApplication
 from anograft.bank.importers import yolo as Y
 from anograft.gui.app import MainWindow
 from anograft.gui.batch.tab import BatchTab
-from anograft.gui.studio.session import StudioSession, default_recipe
 from anograft.gui.theme import apply_theme
+from anograft.studio.session import StudioSession, default_recipe
 from tests.fixtures import fake_yolo_dataset
 
 

@@ -128,11 +128,13 @@ def is_api_path(path: str) -> bool:
 
 def handle(req: Request) -> ApiResult:
     """요청 하나를 처리한다. 모르는 경로는 404, 핸들러가 터지면 500 — 둘 다 JSON 으로."""
-    from anograft.web import bank_api, label_api, review_api  # 지연 등록: 부를 때 라우트가 붙는다
+    # 지연 등록: 부를 때 라우트가 붙는다(import 만으로 무거워지지 않게)
+    from anograft.web import bank_api, label_api, review_api, studio_api
 
     review_api.ensure_registered()
     bank_api.ensure_registered()
     label_api.ensure_registered()
+    studio_api.ensure_registered()
 
     path = req.path.rstrip("/") or "/"
     handler = ROUTES.get(path)

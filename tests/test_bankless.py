@@ -14,9 +14,9 @@ from anograft import runner
 from anograft.cli import EXIT_OK, main
 from anograft.core import recipe as R
 from anograft.core.stages.blend.alpha import AlphaBlend
-from anograft.gui.studio.session import SessionError, StudioSession, default_recipe
 from anograft.io import imgio
 from anograft.io.manifest import read_manifest
+from anograft.studio.session import SessionError, StudioSession, default_recipe
 from tests.fixtures import (
     blob_image,
     context,

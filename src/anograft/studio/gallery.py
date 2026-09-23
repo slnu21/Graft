@@ -8,8 +8,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -17,8 +19,8 @@ from anograft import runner
 from anograft.core import recipe as R
 from anograft.core.help import METHOD_HELP, STAGE_HELP
 from anograft.core.seeds import image_rng
-from anograft.gui.studio.jobs import preview_target
 from anograft.io.targets import load_target
+from anograft.studio.jobs import preview_target
 
 THUMB_LONG_SIDE = 256
 
@@ -34,8 +36,19 @@ class PresetCard:
     stages: tuple[tuple[str, str, str], ...]  # (스테이지 라벨, method, method 라벨)
 
 
-def _stage_summary(pipe: dict) -> tuple[tuple[str, str, str], ...]:
-    out = []
+@dataclass(frozen=True)
+class StageRow:
+    """파이프라인 한 단계의 요약 — 카드 갤러리와 웹 미리보기가 같은 표를 본다."""
+
+    stage: str  # YAML 키(`roi` 포함)
+    label: str  # 한국어 이름 — 원천은 `core/help.py`
+    method: str
+    method_label: str
+
+
+def stage_rows(pipe: Mapping[str, Any]) -> list[StageRow]:
+    """레시피(또는 프리셋)의 ``pipeline`` 블록 → 사람이 보는 1~7 순서의 단계 표. `placement` 뒤에 `roi` 를 끼운다."""
+    out: list[StageRow] = []
     for stage in ("source", "geometry", "placement", "blend", "harmonize", "degrade", "gtmask"):
         block = pipe.get(stage)
         if not isinstance(block, dict):
@@ -43,12 +56,16 @@ def _stage_summary(pipe: dict) -> tuple[tuple[str, str, str], ...]:
         key = "policy" if stage == "gtmask" else "method"
         m = str(block.get(key, ""))
         mh = METHOD_HELP.get((stage, m))
-        out.append((STAGE_HELP[stage].label, m, mh.label if mh else m))
+        out.append(StageRow(stage, STAGE_HELP[stage].label, m, mh.label if mh else m))
         if stage == "placement" and isinstance(block.get("roi"), dict):
             rm = str(block["roi"].get("method", ""))
             rh = METHOD_HELP.get(("roi", rm))
-            out.append((STAGE_HELP["roi"].label, rm, rh.label if rh else rm))
-    return tuple(out)
+            out.append(StageRow("roi", STAGE_HELP["roi"].label, rm, rh.label if rh else rm))
+    return out
+
+
+def _stage_summary(pipe: Mapping[str, Any]) -> tuple[tuple[str, str, str], ...]:
+    return tuple((r.label, r.method, r.method_label) for r in stage_rows(pipe))
 
 
 def preset_cards() -> list[PresetCard]:

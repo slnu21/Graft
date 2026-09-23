@@ -23,9 +23,9 @@ from anograft.bank.importers import yolo as Y
 from anograft.gui.app import MainWindow
 from anograft.gui.label.canvas import LabelCanvas
 from anograft.gui.label.tab import LabelTab
-from anograft.gui.studio.session import StudioSession, default_recipe
 from anograft.gui.theme import apply_theme
 from anograft.io import imgio
+from anograft.studio.session import StudioSession, default_recipe
 from tests.fixtures import blob_image, disk_image, fake_yolo_dataset
 
 

@@ -19,8 +19,8 @@ from anograft.bank import Bank
 from anograft.bank.importers import yolo as Y
 from anograft.gui.app import MainWindow
 from anograft.gui.bank.tab import BankTab, detail_image
-from anograft.gui.studio.session import StudioSession, default_recipe
 from anograft.gui.theme import apply_theme
+from anograft.studio.session import StudioSession, default_recipe
 from tests.fixtures import fake_yolo_dataset, line_defect
 from tests.test_gui_label import _drag
 

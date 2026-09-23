@@ -59,8 +59,8 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from anograft.gui.app import EMPTY_STATE, MainWindow  # noqa: E402
 from anograft.gui.checklist import ChecklistPanel  # noqa: E402
-from anograft.gui.studio.session import StudioSession, default_recipe  # noqa: E402
 from anograft.gui.theme import apply_theme  # noqa: E402
+from anograft.studio.session import StudioSession, default_recipe  # noqa: E402
 
 
 @pytest.fixture(scope="module")

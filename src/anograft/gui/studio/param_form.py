@@ -34,7 +34,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from anograft.gui.studio.params import FieldSpec, _norm, coerce, spin_bounds, spin_step
+from anograft.studio.params import FieldSpec, _norm, coerce, spin_bounds, spin_step
 
 DEBOUNCE_MS = 350
 LABEL_W = 116  # 라벨 열 고정 폭 — 긴 라벨(정렬 최소 일관성)은 오른쪽 생략, 전체는 툴팁

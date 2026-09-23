@@ -10,7 +10,7 @@ import pytest
 
 from anograft import runner
 from anograft.core import recipe as R
-from anograft.gui.studio.gallery import (
+from anograft.studio.gallery import (
     PresetCard,
     preset_cards,
     recipe_with_preset,
@@ -83,8 +83,8 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from anograft.gui.app import MainWindow  # noqa: E402
 from anograft.gui.studio.preset_gallery import PresetGalleryDialog  # noqa: E402
-from anograft.gui.studio.session import StudioSession, default_recipe  # noqa: E402
 from anograft.gui.theme import apply_theme  # noqa: E402
+from anograft.studio.session import StudioSession, default_recipe  # noqa: E402
 
 
 @pytest.fixture(scope="module")
