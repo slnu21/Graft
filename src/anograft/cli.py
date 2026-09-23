@@ -430,6 +430,13 @@ def cmd_bank_import_yolo(args: argparse.Namespace) -> int:
         f"정상(라벨 없음) {len(res.normals)}장 · 버림(min-area) {st.dropped_small} · 중복 id {st.duplicates}"
     )
     print(f"  classes(id 순): {res.classes}")
+    if st.held_out:
+        # 조용히 건너뛰면 규칙이 있으나 마나다 — 몇 건을 왜 뺐는지 반드시 말한다(설계 §6.3)
+        _err(
+            f"평가셋(holdout.txt)이라 {len(st.held_out)}건을 넣지 않았습니다: "
+            + ", ".join(st.held_out[:5])
+            + (" …" if len(st.held_out) > 5 else "")
+        )
     per = st.per_class()
     if per:
         print("  클래스별: " + ", ".join(f"{c} {per.get(c, 0)}" for c in res.classes))
@@ -456,6 +463,13 @@ def _print_pairs_result(res: pairs_importer.PairsImportResult, verbose: bool, wh
         f"마스크 없음 {res.n_missing_mask} · 버림(min-area) {st.dropped_small} · 중복 id {st.duplicates}"
     )
     print(f"  classes(id 순): {res.classes}")
+    if st.held_out:
+        # 조용히 건너뛰면 규칙이 있으나 마나다 — 몇 건을 왜 뺐는지 반드시 말한다(설계 §6.3)
+        _err(
+            f"평가셋(holdout.txt)이라 {len(st.held_out)}건을 넣지 않았습니다: "
+            + ", ".join(st.held_out[:5])
+            + (" …" if len(st.held_out) > 5 else "")
+        )
     per = st.per_class()
     if per:
         print("  클래스별: " + ", ".join(f"{c} {per.get(c, 0)}" for c in res.classes))
@@ -1011,6 +1025,66 @@ def bank_ls_json(bank: Bank, path: str) -> dict:
     }
 
 
+def cmd_bank_snapshot(args: argparse.Namespace) -> int:
+    """은행 내용을 id+해시 목록으로. **복사가 아니다** — 경로가 해시에 들어가므로 복사하면 비교가 깨진다."""
+    from anograft.bank import snapshot as snap
+
+    try:
+        shot = snap.take(args.bank)
+    except BankError as e:
+        _err(str(e))
+        return EXIT_RECIPE_ERROR
+    if args.out:
+        path = snap.write(shot, args.out)
+        print(f"스냅샷 {path.as_posix()} — 소스 {len(shot.sources)} · 클래스 {len(shot.classes)}")
+    else:
+        print(json.dumps(shot.to_dict(), ensure_ascii=False, indent=1))
+    return EXIT_OK
+
+
+def cmd_bank_verify(args: argparse.Namespace) -> int:
+    """스냅샷 대조 + 평가셋 누수 검사. 둘 중 하나라도 걸리면 종료 코드 1."""
+    from anograft.bank import holdout as ho
+    from anograft.bank import snapshot as snap
+
+    try:
+        bank = Bank.load(args.bank)
+    except BankError as e:
+        _err(str(e))
+        return EXIT_RECIPE_ERROR
+
+    bad = False
+    held = ho.read_holdout(args.bank)
+    if held:
+        leaked = ho.violations(bank.sources(), held)
+        print(f"평가셋 목록 {len(held)}개 — 은행 안 위반 {len(leaked)}")
+        for sid in leaked[:20]:
+            _err(
+                f"  평가셋이 은행에 있습니다: {sid} (사람이 지울지 결정하세요 — 자동으로 지우지 않습니다)"
+            )
+        bad = bad or bool(leaked)
+    else:
+        print("평가셋 목록(holdout.txt)이 없습니다 — 누수 검사를 건너뜁니다.")
+
+    if args.snapshot:
+        try:
+            shot = snap.load(args.snapshot)
+        except (BankError, OSError, ValueError, KeyError) as e:
+            _err(f"스냅샷을 읽지 못했습니다: {e}")
+            return EXIT_RECIPE_ERROR
+        d = snap.diff(shot, args.bank)
+        print(f"스냅샷 {shot.created} ({shot.name}) 대비 — {d.text()}")
+        for label, ids in (
+            ("없어짐", d.missing),
+            ("새로 들어옴", d.added),
+            ("내용 바뀜", d.changed),
+        ):
+            for sid in ids[:20]:
+                print(f"  {label}: {sid}")
+        bad = bad or not d.same
+    return EXIT_RECIPE_ERROR if bad else EXIT_OK
+
+
 def cmd_bank_ls(args: argparse.Namespace) -> int:
     try:
         bank = Bank.load(args.bank)
@@ -1027,6 +1101,22 @@ def cmd_bank_ls(args: argparse.Namespace) -> int:
         f"은행 {bank.name} ({Path(args.bank).as_posix()}) — 소스 {len(bank)} · "
         f"um_per_px {bank.um_per_px} (미지정 {no_pitch}/{len(bank)}) · 임포트 {len(bank.imports)}회"
     )
+    # 평가셋 누수는 가장 자주 보는 명령에서 눈에 띄어야 한다(설계 §6.3)
+    from anograft.bank import holdout as _ho
+
+    _held = _ho.read_holdout(args.bank)
+    if _held:
+        _leaked = _ho.violations(bank.sources(), _held)
+        line = f"  평가셋 목록(holdout.txt) {len(_held)}개"
+        if _leaked:
+            _err(
+                f"{line} — **은행 안에 {len(_leaked)}개가 들어 있습니다**: {', '.join(_leaked[:5])}"
+            )
+            _err(
+                "    → bank verify 로 전체를 보고, 지울지는 사람이 정합니다(자동으로 지우지 않습니다)"
+            )
+        else:
+            print(f"{line} · 위반 없음")
     rows = bank.summary()
     if not rows:
         print("  (클래스 없음)")
@@ -1289,6 +1379,21 @@ def build_parser() -> argparse.ArgumentParser:
     bv.add_argument("--tile", type=int, default=128, help="타일 한 변(px)")
     bv.add_argument("--limit", type=int, default=0, help="최대 소스 수 (0 = 전부)")
     bv.set_defaults(func=cmd_bank_preview)
+
+    bs = bsub.add_parser(
+        "snapshot",
+        help="지금 은행 내용을 id+해시 목록으로 적는다 (라운드 재현 — 은행을 복사하지 않는다)",
+    )
+    bs.add_argument("bank")
+    bs.add_argument("--out", help="쓸 파일 (기본: stdout)")
+    bs.set_defaults(func=cmd_bank_snapshot)
+
+    bvf = bsub.add_parser(
+        "verify", help="스냅샷과 견준다 — 없어짐·새로 들어옴·내용 바뀜 + 평가셋 누수 검사"
+    )
+    bvf.add_argument("bank")
+    bvf.add_argument("--snapshot", help="비교할 스냅샷 파일 (없으면 평가셋 검사만)")
+    bvf.set_defaults(func=cmd_bank_verify)
 
     p = sub.add_parser("dataset", help="표준 데이터셋 안내 (내려받지 않는다)")
     dsub = p.add_subparsers(dest="dataset_command", metavar="<action>")

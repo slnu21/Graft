@@ -32,6 +32,7 @@ from anograft.bank.bank import (
     META_SUFFIX,
     read_bank_meta,
 )
+from anograft.bank.holdout import is_held_out, read_holdout
 from anograft.core.channels import binarize, demote_from_bgr
 from anograft.core.recipe import PoissonBlendConfig
 from anograft.core.types import BBox
@@ -92,6 +93,8 @@ class ImportStats:
     dropped_small: int = 0
     duplicates: int = 0
     warnings: list[str] = field(default_factory=list)
+    #: `holdout.txt` 때문에 거부한 원본(감사용 — 조용히 건너뛰면 규칙이 있으나 마나다)
+    held_out: list[str] = field(default_factory=list)
 
     def per_class(self) -> dict[str, int]:
         out: dict[str, int] = {}
@@ -128,6 +131,8 @@ class BankWriter:
         self.root = Path(root)
         self.log: Logger = log or (lambda _m: None)
         self.stats = ImportStats()
+        # 평가셋 누수 방지(설계 §6.3) — 목록은 은행 폴더가 들고 있고 **모든 임포터가 이 한 지점을 지난다**
+        self.holdout = read_holdout(self.root)
         meta_path = self.root / BANK_FILE
         if meta_path.is_file():
             self.meta = read_bank_meta(meta_path)
@@ -182,8 +187,16 @@ class BankWriter:
         return f"{source_id}-dup{n}"
 
     def add(self, rec: ImportRecord, opts: ImportOptions) -> list[AddedSource]:
-        """레코드 하나 → 성분 분리 → 크롭·마스크·메타 기록. 기록된 소스 목록을 돌려준다."""
+        """레코드 하나 → 성분 분리 → 크롭·마스크·메타 기록. 기록된 소스 목록을 돌려준다.
+
+        `holdout.txt` 에 적힌 원본은 **여기서 거부한다** — 평가셋이 학습 데이터로 새면 그 뒤의 모든
+        라운드 비교가 조용히 무의미해진다. 사람 규율은 자동 루프에서 반드시 깨지므로 코드가 막는다.
+        """
         check_margin(opts.margin)
+        if is_held_out(rec.origin, self.holdout):
+            self.stats.held_out.append(rec.origin)
+            self._warn(f"{rec.origin}: 평가셋(holdout.txt)이라 은행에 넣지 않습니다")
+            return []
         if rec.cls not in self.meta["classes"]:
             self.meta["classes"].append(rec.cls)
         parts = components(binarize(rec.mask), opts.keep_whole)
