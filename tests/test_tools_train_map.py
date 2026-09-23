@@ -250,3 +250,19 @@ def test_split_counts_proportional_and_exact() -> None:
         tm.split_counts(10, [0, 1])
     with pytest.raises(ValueError):
         tm.split_counts(-1, [1])
+
+
+def test_metrics_to_result_unflattens_per_class() -> None:
+    """T3: 계약의 평평한 지표 맵 → 벤치 결과 dict(캐시·표 형식은 T3 전후가 같다)."""
+    r = tm.metrics_to_result(
+        {"mAP50": 0.41, "mAP50-95": 0.2, "mAP50/bent": 0.61, "mAP50/scratch": 0.22, "minutes": 3.4},
+        99.0,
+    )
+    assert r == {
+        "map50": 0.41,
+        "map50_95": 0.2,
+        "per_class_map50": {"bent": 0.61, "scratch": 0.22},
+        "minutes": 3.4,
+    }
+    # 어댑터가 minutes 를 안 주면 호출 쪽에서 잰 값을 쓴다
+    assert tm.metrics_to_result({"mAP50": 0.1, "mAP50-95": 0.0}, 2.46)["minutes"] == 2.5

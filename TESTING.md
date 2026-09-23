@@ -52,7 +52,7 @@ python tools/fetch_public_datasets.py screw --import            # (선택) 흑�
 | 16 | `source.single_class_per_image: true` + `defects_per_image: [2, 3]` + mvtec writer | `mvtec: … 가 섞임` 경고 없음, 사이드카 defects 의 class 가 이미지 안에서 하나 |
 | 17 | GUI 상단 `샘플 데이터…` | 대화상자(모양·폴더·정상/결함 장수·크기·합성 장수·시드) → 확인 → 스튜디오·은행 탭이 열림. 장수 0·크기 < 64 는 경고 |
 | 18 | 스튜디오 기하 카드 `tps.jitter` 를 0.06 으로 | 변형이 휘어짐(`geometry.tps.max_shift_px` 사이드카). 0 이면 종전과 바이트 동일 |
-| 19 | `BENCHMARKS.md` §2 재현(별도 venv: `python -m venv .venvs\graft-train` → `pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu` → `pip install ultralytics`) | 표와 같은 자릿수의 mAP. `deterministic=True` CPU 라 **같은 시드·같은 데이터면 소수 셋째 자리까지 같아야** 한다(seed 7 재현 확인됨) — 다르면 torch/ultralytics 버전 |
+| 19 | `BENCHMARKS.md` §2 재현(별도 venv: `python -m venv .venvs\graft-train` → `pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu` → `pip install ultralytics` → `trainers.example.yaml` 을 `trainers.yaml` 로 복사해 `yolo` 항목의 경로를 그 venv 로) | 표와 같은 자릿수의 mAP. `deterministic=True` CPU 라 **같은 시드·같은 데이터면 소수 셋째 자리까지 같아야** 한다(seed 7 재현 확인됨) — 다르면 torch/ultralytics 버전 |
 | 20 | (v0.8.1 뒤) 같은 `--out` 으로 `--train-seeds 7 8 9 --split-seed 7 --mask-from grabcut hybrid` 를 두 번 | 두 번째는 `== cached …`·`(합성 재사용: …)` 만 찍고 학습 없이 표를 다시 씀. `--split-seed 8` 로 같은 폴더를 주면 `다른 분할이 있습니다` 거부 |
 | 21 | `samples/magnetic-tile/pairs.csv --classes blowhole break crack --roi none --epochs 1 --count 8 --k 2` | `real sets: … 'dataset': 'magnetic-tile', 'targets': 220, 'normals': 952` · `targets.txt` 220줄 · 은행 `bank-grabcut`/`bank-hybrid` · 1 epoch 표 |
 
@@ -74,6 +74,14 @@ python tools/fetch_public_datasets.py screw --import            # (선택) 흑�
 | 28 | (v0.9) GUI 를 레시피 없이 열기 → 체크리스트 버튼 → 탭 오른쪽 위 `다음 →` | 캔버스 자리에 6단계 체크리스트(첫 미완 버튼 강조), 탭 이름이 `① 결함 표시 … ⑤ 검수`, 보관함을 열면 `② 결함 보관함 · 19` 처럼 배지, `다음: 일괄 생성 →` 로 탭 이동(검수에서는 비활성) |
 | 29 | (v0.9) 샘플 레시피로 미리보기 → 크기·회전 카드 · 일괄 생성 24장 → 로그 · 검수 분포 `밝은 쪽 방향`/`밝기 차` | 카드 경고가 아이콘·문장·`▶ 빛 방향 클래스만 ±15°로 좁히기` 버튼 한 상자(문장은 '… 섞입니다. → 프리셋 dent-graft …'), 로그에 같은 경고 1번, 검수 히스토그램 아래 💡 상자에 조명/대비 힌트 |
 | 30 | (v0.9) 상단 ⚙ → 테마 라이트 · 글자 130 % → 저장 → 앱 다시 열기 | 상태바 '다시 열면 적용' · 재실행 뒤 밝은 배경·큰 글자(모든 탭). 다크로 되돌리기도 같은 길 |
+
+### 학습기 계약(v0.9.x / 루프 T1·T3) — 학습 환경 없이도 되는 항목
+
+| # | 무엇을 | 기대 결과 |
+|---|---|---|
+| 31 | `trainers.example.yaml` 을 `trainers.yaml` 로 복사(경로 그대로) → `anograft trainer list` · `trainer info noop` | `ok noop pairs · 라벨 학습 · score·mask·box` · 등록 파일이 없으면 죽지 않고 안내만 |
+| 32 | `anograft trainer fit noop --dataset out/sample --out out/model --seed 7` → `anograft trainer predict noop --model out/model/model.json --images imgs.txt --out out/pred` | 학습 로그(stderr)가 **그때그때** 흐르고 마지막에 모델 경로·지표 · 예측 폴더에 `masks/<stem>.png` + `scores/<stem>.json` → 그대로 `bank import-pairs`/`import-yolo` 입력 |
+| 33 | (학습 환경이 있을 때) `trainers.yaml` 의 `yolo` 항목 주석을 풀고 venv 경로를 고친 뒤 `anograft trainer list` · `tools/train_mvtec_map.py … --epochs 2 --k 4 --count 20` | `ok yolo yolo · 라벨 학습 · score·box` · 벤치 표가 예전과 같은 모양(A/B 행·클래스별 mAP50)으로 나온다 — 학습이 계약을 통해 나간다는 증거 |
 
 `real.csv` 예시(항목 8·9):
 

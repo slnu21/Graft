@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Added
+- **YOLO 학습기 어댑터 + `anograft trainer fit|predict`**(학습 루프 T3) — `adapters/yolo.py`(ultralytics 검출: `fit` = train+val, `predict` = `scores/<stem>.json`, seg 가중치면 `masks/` 까지)를 `trainers.yaml` 에 등록하면 CLI 한 줄로 학습·예측이 나간다. 어댑터는 **별도 venv**(코어는 순수 wheel 그대로)이고 `anograft` 를 import 하지 않는다. 지표는 **평평한 float 맵**(`mAP50` · `mAP50-95` · 클래스별 `mAP50/<class>` · `minutes`), `--spec` 은 불투명하게 등록부 spec 위에 얕게 병합, 어댑터 로그(stderr)는 **줄 단위 실시간**으로 흐른다(학습은 길다).
+- **`tools/train_mvtec_map.py` 가 계약 위로**(T3) — 이제 ultralytics 를 import 하지 않고 `anograft trainer fit --json` 으로 학습을 시킨다(`--trainer` 기본 `yolo` · `--trainers-file`). 표·`results/` 캐시 형식은 그대로라 옛 결과가 계속 읽힌다. **벤치를 돌리는 것이 곧 계약 검증**이고 루프(T10)가 같은 경로를 쓴다.
+
 ## [0.9.0] - 2026-09-19
 
 **사용성 릴리스** — 기능은 v0.8.2 그대로, 화면·문구·설명만 바꿨다(알고리즘·스키마 값·출력·골든 불변). 한국어 단독 라벨(영어·YAML 키는 툴팁) · 7단계 동사형 이름 · 카드 폼 한글 라벨+설명 툴팁 · `anograft explain`/`PARAMS.md` · 프리셋 대비 바뀜 ↺·고급 접기·슬라이더 · 프리셋 갤러리(현재 바탕 썸네일) · 탭 흐름 순서+배지+다음 → · 시작 체크리스트 · 경고/힌트 한 컴포넌트 · 대비 힌트 · 라이트 테마·글자 크기. 근거 `docs/ux/2026-09-19-usability-review.md`(로컬).

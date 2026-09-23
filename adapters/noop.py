@@ -12,7 +12,7 @@
 
     python adapters/noop.py info
     python adapters/noop.py fit --dataset <p> --out <model_dir> --seed 7 [--spec spec.json]
-    python adapters/noop.py predict --model <model> --images list.txt --out <pred_dir>
+    python adapters/noop.py predict --model <model> --images list.txt --out <pred_dir> [--spec spec.json]
 """
 
 from __future__ import annotations
@@ -224,6 +224,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--model", required=True)
     p.add_argument("--images", required=True)
     p.add_argument("--out", required=True)
+    p.add_argument("--spec")  # 계약: predict 도 --spec 을 받는다(쓰지 않아도 거부하면 안 된다)
 
     args = ap.parse_args(argv)
     return {"info": cmd_info, "fit": cmd_fit, "predict": cmd_predict}[args.verb](args)

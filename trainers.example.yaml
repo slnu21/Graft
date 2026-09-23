@@ -6,7 +6,13 @@ trainers:
     command: [python, adapters/noop.py]
 
   # 실제 학습기는 별도 venv 를 가리킵니다(코어는 순수 wheel 만 씁니다).
-  # yolo-seg:
-  #   command: ["C:/Users/<you>/Documents/Workspace/.venvs/graft-train/Scripts/python.exe", "adapters/yolo_seg.py"]
-  #   spec: {epochs: 40, imgsz: 640}
+  # ultralytics 가 설치된 venv 로 경로만 바꾸면 됩니다 — 어댑터는 adapters/yolo.py 그대로.
+  # yolo:
+  #   command: ["C:/Users/<you>/Documents/Workspace/.venvs/graft-train/Scripts/python.exe", "adapters/yolo.py"]
+  #   spec: {model: yolov8n.pt, epochs: 40, imgsz: 640}   # 불투명 — 어댑터가 해석합니다
   #   timeout: 43200
+  #
+  # 등록한 뒤:
+  #   anograft trainer list                    # 가용 여부·사유
+  #   anograft trainer fit yolo --dataset out/set-A --out out/model --seed 7
+  #   anograft trainer predict yolo --model out/model/train/weights/best.pt --images imgs.txt --out out/pred

@@ -32,7 +32,19 @@ from anograft.io import imgio
 def load_tool(name: str) -> types.ModuleType:
     """``tools/<name>.py`` 를 모듈로 로드(패키지 밖 스크립트). ``sys.modules`` 에 먼저 등록해야 ``from __future__ import
     annotations`` 아래의 dataclass 가 애노테이션을 풀 수 있다."""
-    path = Path(__file__).resolve().parents[1] / "tools" / f"{name}.py"
+    return _load_script(Path(__file__).resolve().parents[1] / "tools" / f"{name}.py", name)
+
+
+def load_adapter(name: str) -> types.ModuleType:
+    """``adapters/<name>.py`` 를 모듈로 로드 — 학습기 어댑터의 **순수 함수**를 테스트하려는 것.
+
+    어댑터는 코어를 import 하지 않고 별도 venv 에서 도는 스크립트라, 여기서 부르는 건 ultralytics 가
+    필요 없는 부분(spec 병합·경로 해석·지표 평탄화)뿐이다.
+    """
+    return _load_script(Path(__file__).resolve().parents[1] / "adapters" / f"{name}.py", name)
+
+
+def _load_script(path: Path, name: str) -> types.ModuleType:
     spec = importlib.util.spec_from_file_location(name, path)
     assert spec is not None and spec.loader is not None
     mod = importlib.util.module_from_spec(spec)
