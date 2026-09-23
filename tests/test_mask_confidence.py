@@ -19,7 +19,7 @@ from anograft.bank.mask_from_box import (
 from anograft.cli import EXIT_OK, main
 from anograft.core import recipe as R
 from anograft.core.types import DefectSource
-from anograft.gui.label.session import LabelSession
+from anograft.labeling import LabelSession
 from anograft.preview import source_tile
 from tests.fixtures import blob_image, fake_yolo_dataset, line_defect
 

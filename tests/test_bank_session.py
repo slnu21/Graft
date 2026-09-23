@@ -12,9 +12,9 @@ import pytest
 import yaml
 
 from anograft.bank import BANK_FILE, Bank
+from anograft.bank.browse import BankSession, BankSessionError, filter_rows, row_of
 from anograft.bank.importers import yolo as Y
 from anograft.core.types import DefectSource
-from anograft.gui.bank.session import BankSession, BankSessionError, filter_rows, row_of
 from anograft.io import imgio
 from tests.fixtures import fake_yolo_dataset, line_defect
 

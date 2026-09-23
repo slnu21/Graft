@@ -162,3 +162,107 @@ export const writeReport = () => post<{ path: string }>('/api/review/report', {}
 /** 이미지는 `<img src>` 로 직접 받는다 — fetch 로 가져와 base64 로 만들 이유가 없다. */
 export const imageUrl = (index: string, kind: 'thumb' | 'detail' | 'mask' = 'thumb') =>
   `/api/review/image?index=${encodeURIComponent(index)}&kind=${kind}`
+
+// ---------------------------------------------------------------- 결함 보관함(U4)
+
+export type BankSourceRow = {
+  id: string
+  cls: string
+  name: string
+  areaPx: number
+  maskOrigin: string
+  estimated: boolean
+  confidence: number | null
+  lowConfidence: boolean
+  flags: string[]
+  tags: string[]
+  umPerPx: number | null
+  origin: string
+  size: [number, number]
+}
+
+export type BankState =
+  | { open: false }
+  | {
+      open: true
+      root: string
+      summary: string
+      classes: string[]
+      tags: string[]
+      sortKeys: string[]
+      total: number
+      /** T4 — 평가셋이 은행에 섞였는지. `leaked` 가 있으면 라운드 비교가 무의미해진다. */
+      holdout: { listed: number; leaked: string[] }
+      directional: { cls: string; r: number }[]
+    }
+
+export type BankQuery = {
+  cls?: string
+  tag?: string
+  low?: boolean
+  estimated?: boolean
+  q?: string
+  sort?: string
+  desc?: boolean
+}
+
+export const fetchBankState = () => get<BankState>('/api/bank/state')
+export const openBank = (root: string) => post<BankState>('/api/bank/open', { root })
+export const fetchBankSources = (query: BankQuery) => {
+  const p = new URLSearchParams()
+  if (query.cls) p.set('class', query.cls)
+  if (query.tag) p.set('tag', query.tag)
+  if (query.low) p.set('low', '1')
+  if (query.estimated) p.set('estimated', '1')
+  if (query.q) p.set('q', query.q)
+  if (query.sort) p.set('sort', query.sort)
+  if (query.desc) p.set('desc', '1')
+  return get<{ sources: BankSourceRow[]; total: number }>(`/api/bank/sources?${p}`)
+}
+export const deleteBankSources = (ids: string[]) =>
+  post<{ removed: number; state: BankState }>('/api/bank/delete', { ids })
+
+/** 보관함 타일은 캐시하지 않는다(마스크를 다듬으면 그림이 바뀐다) — 버전 쿼리로 강제 갱신한다. */
+export const bankImageUrl = (id: string, kind: 'tile' | 'detail' | 'mask' = 'tile', v = 0) =>
+  `/api/bank/image?id=${encodeURIComponent(id)}&kind=${kind}${v ? `&v=${v}` : ''}`
+
+// ---------------------------------------------------------------- 결함 표시(U4)
+
+import type { LabelStats } from './label'
+
+export type LabelState =
+  | { open: false }
+  | {
+      open: true
+      path: string
+      width: number
+      height: number
+      canUndo: boolean
+      canRedo: boolean
+      stats: LabelStats
+    }
+
+export type SaveResult = {
+  added: { id: string; cls: string; areaPx: number }[]
+  warnings: string[]
+  bank: string
+}
+
+export const fetchLabelState = () => get<LabelState>('/api/label/state')
+export const openLabel = (path: string, mask = '') =>
+  post<LabelState>('/api/label/open', { path, mask })
+/** 좌표는 **원본 픽셀** 기준. 획이 끝날 때 한 번만 보낸다(점마다 보내면 요청이 폭주한다). */
+export const sendStroke = (points: [number, number][], radius: number, erase: boolean) =>
+  post<LabelState>('/api/label/stroke', { points, radius, erase })
+export const sendPolygon = (points: [number, number][], erase = false) =>
+  post<LabelState>('/api/label/polygon', { points, erase })
+export const autoSelect = (box: [number, number, number, number], method = 'grabcut') =>
+  post<LabelState & { method: string }>('/api/label/auto', { box, method })
+export const undoLabel = (redo = false) => post<LabelState>('/api/label/undo', { redo })
+export const clearMask = () => post<LabelState>('/api/label/clear', {})
+export const saveToBank = (bank: string, cls: string, tags: string[] = [], umPerPx?: number) =>
+  post<SaveResult>('/api/label/save', { bank, cls, tags, umPerPx })
+
+/** 마스크는 그릴 때마다 바뀐다 — `v` 로 캐시를 깬다. */
+export const labelImageUrl = (kind: 'base' | 'mask' | 'overlay', v = 0) =>
+  `/api/label/image?kind=${kind}${v ? `&v=${v}` : ''}`

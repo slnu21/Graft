@@ -35,9 +35,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from anograft.bank.browse import SORT_KEYS, BankSession, BankSessionError, SourceRow
 from anograft.core.appearance import gray_of, mask_lighting
 from anograft.core.channels import promote_to_bgr
-from anograft.gui.bank.session import SORT_KEYS, BankSession, BankSessionError, SourceRow
 from anograft.gui.qt_image import to_qpixmap
 from anograft.gui.studio.panels import flat_icon, h4
 from anograft.preview import GT_EDGE, source_tile
