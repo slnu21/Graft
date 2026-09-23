@@ -148,7 +148,7 @@ pytest ; ruff check . ; ruff format --check .
 
 구조·규약은 `CLAUDE.md`, 진행은 `docs/TASKS.md`, v0.1 설계는 `docs/design/v0.1-core.md`(docs는 로컬 컨텍스트). 새 알고리즘 = 스테이지 클래스 1 + 레지스트리 1줄 + 프리셋 YAML 1장.
 
-**공개 데이터로 확인·재기**(실데이터 없을 때): `python tools/fetch_public_datasets.py metal_nut magnetic-tile --import`(표준 라이브러리만, MVTec 은 CC BY-NC-SA 로컬 개발용) → `recipes/public-*.yaml` 로 한 바퀴. 받아서 확인할 항목은 **`TESTING.md`**, 잰 숫자(박스→마스크 IoU 1180 인스턴스 · 합성 유/무 YOLO mAP)는 **`BENCHMARKS.md`**, 결정 대기 항목의 근거는 `KNOWN-ISSUES.md`. `tools/bench_mask_from_box.py`·`tools/train_mvtec_map.py`(별도 venv ultralytics) 로 재현.
+**공개 데이터로 확인·재기**(실데이터 없을 때): `python tools/fetch_public_datasets.py metal_nut magnetic-tile --import`(표준 라이브러리만, MVTec 은 CC BY-NC-SA 로컬 개발용) → `recipes/public-*.yaml` 로 한 바퀴. 받아서 확인할 항목은 **`TESTING.md`**, 잰 숫자(박스→마스크 IoU 1180 인스턴스 · 합성 유/무 YOLO mAP)는 **`BENCHMARKS.md`**, 결정 대기 항목의 근거는 `KNOWN-ISSUES.md`. `tools/bench_mask_from_box.py`·`tools/train_mvtec_map.py` 로 재현(학습은 `trainers.yaml` 에 등록한 **학습기 어댑터**가 별도 venv 에서 맡는다 — `anograft trainer list` 로 확인, `trainers.example.yaml` 참고).
 
 ## 라이선스
 
@@ -287,7 +287,7 @@ pytest && ruff check . && ruff format --check .
 
 A new algorithm = one stage class + one registry line + one preset YAML.
 
-**Public data, when you have none of your own**: `python tools/fetch_public_datasets.py metal_nut magnetic-tile --import` (stdlib only; MVTec AD is CC BY-NC-SA — local development use) and run `recipes/public-*.yaml`. What to check is in **`TESTING.md`**, the measured numbers (box→mask IoU over 1,180 instances, synthetic-vs-none YOLO mAP) in **`BENCHMARKS.md`**, and the evidence for pending defaults in `KNOWN-ISSUES.md`. Reproduce with `tools/bench_mask_from_box.py` and `tools/train_mvtec_map.py` (separate venv with ultralytics).
+**Public data, when you have none of your own**: `python tools/fetch_public_datasets.py metal_nut magnetic-tile --import` (stdlib only; MVTec AD is CC BY-NC-SA — local development use) and run `recipes/public-*.yaml`. What to check is in **`TESTING.md`**, the measured numbers (box→mask IoU over 1,180 instances, synthetic-vs-none YOLO mAP) in **`BENCHMARKS.md`**, and the evidence for pending defaults in `KNOWN-ISSUES.md`. Reproduce with `tools/bench_mask_from_box.py` and `tools/train_mvtec_map.py` (training goes through a **trainer adapter** registered in `trainers.yaml` and running in its own venv — check with `anograft trainer list`; see `trainers.example.yaml`).
 
 ### License
 

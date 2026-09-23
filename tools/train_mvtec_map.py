@@ -1,11 +1,14 @@
 """합성 유/무 YOLO mAP 비교 — GT 마스크가 있는 공개 데이터(MVTec 카테고리 · pairs.csv)로 "합성 데이터가 검출력을 올리는가"의 숫자.
 
-    <train-venv>/python tools/train_mvtec_map.py samples/mvtec/metal_nut --anograft .venv/Scripts/python.exe \\
+    # 학습은 **학습기 계약**으로 나간다(T3) — 먼저 trainers.yaml 에 yolo 어댑터를 등록한다:
+    #   yolo: {command: ["<train-venv>/Scripts/python.exe", "adapters/yolo.py"]}
+    # 그래서 이 스크립트 자체는 코어 venv(numpy·opencv)에서 돌아도 된다. ultralytics 는 어댑터 쪽에만 있다.
+    .venv/Scripts/python.exe tools/train_mvtec_map.py samples/mvtec/metal_nut --anograft .venv/Scripts/python.exe \\
         --classes bent color scratch --k 8 --count 200 --epochs 40 --out out/train-map
-    <train-venv>/python tools/train_mvtec_map.py samples/magnetic-tile/pairs.csv --anograft .venv/Scripts/python.exe \\
+    .venv/Scripts/python.exe tools/train_mvtec_map.py samples/magnetic-tile/pairs.csv --anograft .venv/Scripts/python.exe \\
         --classes blowhole break crack --roi none --mask-from grabcut hybrid --train-seeds 7 8 9 --out out/train-map-mt
     # 결함 성격별 프리셋: 클래스 그룹마다 따로 합성(recipe init --classes) → dataset merge --dedupe-normals → B 셋 하나
-    <train-venv>/python tools/train_mvtec_map.py samples/magnetic-tile/pairs.csv --anograft .venv/Scripts/python.exe \\
+    .venv/Scripts/python.exe tools/train_mvtec_map.py samples/magnetic-tile/pairs.csv --anograft .venv/Scripts/python.exe \\
         --classes blowhole break crack --roi none --mask-from hybrid --presets \\
         --class-presets blowhole=hard-paste break=poisson-graft crack=poisson-graft --train-seeds 7 8 9 --out out/train-map-mt
 
@@ -18,13 +21,16 @@
    한 레시피 안의 ``geometry.per_class``). ``--class-presets <cls>=<preset> …`` 는 프리셋별 클래스 그룹으로 갈라 합성(``count`` 를
    클래스 수 비례로 나눔, ``source.classes``) 하고 ``dataset merge --dedupe-normals`` 로 합친 B 셋 하나 — "결함 성격별 프리셋" 가설용.
 3. 학습 A = real-train 만 · B = real-train + 합성(프리셋 × 은행) — 같은 모델·epoch·imgsz. 평가는 real-val 에서 mAP50 / mAP50-95.
+   학습 호출은 ``anograft trainer fit <--trainer> --dataset … --spec {model,epochs,imgsz} --json`` 한 줄이고, 그 뒤는 어댑터 몫이다
+   (``--trainer`` 기본 ``yolo``). 어댑터 진행 로그(stderr)는 그대로 콘솔에 흐른다.
    ``--train-seeds`` 로 학습 시드만 여러 개(분할·합성은 고정) → 표에 시드별 + 평균 Δ. 끝난 (셋, 시드) 는 ``results/`` 에 캐시되어
-   같은 ``--out`` 으로 다시 부르면 건너뛴다(프리셋·은행을 나중에 보태는 흐름).
-4. 결과 표(markdown) — ``BENCHMARKS.md`` 에 옮긴다. 이 스크립트는 ultralytics 가 있는 **별도 venv** 에서 돌린다(코어 의존성 아님).
+   같은 ``--out`` 으로 다시 부르면 건너뛴다(프리셋·은행을 나중에 보태는 흐름). 캐시 형식은 T3 전후가 같다.
+4. 결과 표(markdown) — ``BENCHMARKS.md`` 에 옮긴다. **이 스크립트는 ultralytics 를 import 하지 않는다**(T3) — 학습 환경은
+   ``trainers.yaml`` 에 등록된 어댑터가 들고 있다.
 
 **한 ``--out`` 폴더 = 한 분할**(``real/split.json``) — 다른 ``--split-seed``·``--k``·``--classes`` 면 새 폴더.
 순수 부분(``boxes_from_mask``·``split_per_class``·``parse_pairs_csv``·``split_normals``·``summarize``·``parse_preset_spec``·
-``parse_class_presets``·``split_counts``·``safe_name``)은 ``tests/test_tools_train_map.py`` 가 고정한다.
+``parse_class_presets``·``split_counts``·``safe_name``·``metrics_to_result``)은 ``tests/test_tools_train_map.py`` 가 고정한다.
 """
 
 from __future__ import annotations
@@ -463,49 +469,73 @@ def make_train_set(real: Path, syn_roots: list[Path], out: Path) -> Path:
     return out
 
 
-def train_eval(
-    data_yaml: Path, *, model: str, epochs: int, imgsz: int, project: Path, name: str, seed: int
-) -> dict:
-    from ultralytics import YOLO
+def metrics_to_result(metrics: dict, minutes: float) -> dict:
+    """계약의 **평평한 지표 맵** → 이 벤치의 결과 dict.
 
-    t0 = time.perf_counter()
-    m = YOLO(model)
-    res = m.train(
-        data=str(data_yaml),
-        epochs=epochs,
-        imgsz=imgsz,
-        project=str(project.resolve()),  # 상대 경로면 ultralytics 가 runs/detect/ 를 앞에 붙인다
-        name=name,
-        exist_ok=True,
-        seed=seed,
-        deterministic=True,
-        workers=0,
-        verbose=False,
-        plots=False,
-        val=True,
-        device="cpu",
-        batch=16,
-    )
-    save_dir = Path(getattr(res, "save_dir", project.resolve() / name))
-    best = save_dir / "weights" / "best.pt"
-    metrics = YOLO(str(best)).val(
-        data=str(data_yaml),
-        imgsz=imgsz,
-        split="val",
-        device="cpu",
-        plots=False,
-        verbose=False,
-        workers=0,
-    )
-    return {
-        "map50": round(float(metrics.box.map50), 4),
-        "map50_95": round(float(metrics.box.map), 4),
-        "per_class_map50": {
-            metrics.names[i]: round(float(v), 4)
-            for i, v in zip(metrics.box.ap_class_index, metrics.box.ap50, strict=False)
-        },
-        "minutes": round((time.perf_counter() - t0) / 60, 1),
+    클래스별 값은 ``mAP50/<class>`` 키로 온다(계약 §1.1) — 여기서 되편다. 표·캐시·`summarize` 의
+    형식은 T3 이전과 같다(옛 ``results/`` 캐시가 그대로 읽힌다).
+    """
+    per_class = {
+        k.split("/", 1)[1]: v for k, v in metrics.items() if k.startswith("mAP50/") and "/" in k
     }
+    return {
+        "map50": round(float(metrics.get("mAP50", float("nan"))), 4),
+        "map50_95": round(float(metrics.get("mAP50-95", float("nan"))), 4),
+        "per_class_map50": per_class,
+        "minutes": round(float(metrics.get("minutes", minutes)), 1),
+    }
+
+
+def train_eval(
+    data_yaml: Path,
+    *,
+    anograft: str,
+    trainer: str,
+    trainers_file: Path | None,
+    model: str,
+    epochs: int,
+    imgsz: int,
+    project: Path,
+    name: str,
+    seed: int,
+) -> dict:
+    """학습·평가를 **학습기 계약 위에서** 한다(T3) — ``anograft trainer fit`` → 등록된 어댑터.
+
+    이 스크립트는 더 이상 ultralytics 를 import 하지 않는다. 학습 환경은 ``trainers.yaml`` 의 어댑터가
+    들고 있고(별도 venv), 여기는 데이터셋을 만들어 넘기고 지표를 받는다 — **벤치가 곧 계약 검증**이다.
+    """
+    t0 = time.perf_counter()
+    out = project.resolve() / name
+    out.mkdir(parents=True, exist_ok=True)
+    spec_path = out / "spec.json"
+    spec_path.write_text(
+        json.dumps({"model": model, "epochs": epochs, "imgsz": imgsz}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    cmd = [
+        anograft,
+        "-m",
+        "anograft",
+        "trainer",
+        "fit",
+        trainer,
+        "--dataset",
+        str(data_yaml),
+        "--out",
+        str(out),
+        "--seed",
+        str(seed),
+        "--spec",
+        str(spec_path),
+        "--json",
+    ]
+    if trainers_file:
+        cmd += ["--file", str(trainers_file)]
+    print("  $", " ".join(cmd), flush=True)
+    # stderr 는 물려받는다 — 어댑터 진행 로그가 그대로 콘솔에 흐른다(학습은 길다).
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE, text=True, encoding="utf-8", check=True)
+    payload = json.loads(proc.stdout.strip().splitlines()[-1])
+    return metrics_to_result(dict(payload.get("metrics") or {}), (time.perf_counter() - t0) / 60)
 
 
 def _mean(xs: list[float]) -> float:
@@ -590,7 +620,18 @@ def main(argv: list[str] | None = None) -> int:
         default=["grabcut"],
         help="은행 박스→마스크 방법(여럿이면 은행마다 B 셋)",
     )
-    ap.add_argument("--model", default="yolov8n.pt")
+    ap.add_argument(
+        "--trainer",
+        default="yolo",
+        help="trainers.yaml 의 학습기 이름 — 학습은 계약(anograft trainer fit)으로 나간다",
+    )
+    ap.add_argument(
+        "--trainers-file",
+        type=Path,
+        default=None,
+        help="trainers.yaml 경로(기본: cwd → ~/.anograft/trainers.yaml)",
+    )
+    ap.add_argument("--model", default="yolov8n.pt", help="어댑터에 넘기는 spec.model(불투명)")
     ap.add_argument("--epochs", type=int, default=30)
     ap.add_argument("--imgsz", type=int, default=320)
     ap.add_argument("--seed", type=int, default=7, help="합성 시드(+ 분할·학습 시드의 기본값)")
@@ -678,6 +719,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"== train {name} s{s}", flush=True)
             r = train_eval(
                 root / "data.yaml",
+                anograft=a.anograft,
+                trainer=a.trainer,
+                trainers_file=a.trainers_file,
                 model=a.model,
                 epochs=a.epochs,
                 imgsz=a.imgsz,

@@ -7,9 +7,11 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import json
 import multiprocessing
 import sys
 from pathlib import Path
+from typing import Any
 
 import yaml
 from pydantic import ValidationError
@@ -47,6 +49,11 @@ EXIT_ALL_SKIPPED = 2
 
 def _err(msg: str) -> None:
     print(msg, file=sys.stderr)
+
+
+def _stderr_line(line: str) -> None:
+    """어댑터 로그 한 줄 — 계약상 stderr 는 로그 채널이라 그대로 흘린다(실시간)."""
+    print(line, file=sys.stderr, flush=True)
 
 
 def _load_recipe(args: argparse.Namespace, **overrides: object) -> R.Recipe | None:
@@ -739,6 +746,109 @@ def cmd_trainer_info(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _trainer_spec(args: argparse.Namespace) -> tuple[Path, Any] | None:
+    """등록부에서 ``args.name`` 스펙을 꺼낸다. 없으면 사유를 찍고 ``None``."""
+    found = _trainer_table(args)
+    if found is None:
+        return None
+    path, trainers = found
+    spec = trainers.get(args.name)
+    if spec is None:
+        known = ", ".join(sorted(trainers)) or "(없음)"
+        print(f"오류: {args.name!r} 는 {path} 에 없습니다. 등록된 것: {known}", file=sys.stderr)
+        return None
+    return path, spec
+
+
+def _spec_override(path: str | None) -> dict[str, Any]:
+    """``--spec`` JSON 파일(불투명). 읽기·형식 오류는 그대로 올린다 — 조용히 무시하면 학습이 엉뚱해진다."""
+    if not path:
+        return {}
+    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError("--spec JSON 의 최상위는 오브젝트여야 합니다")
+    return raw
+
+
+def cmd_trainer_fit(args: argparse.Namespace) -> int:
+    """등록된 학습기를 계약대로 부른다 — ``fit``. 벤치·루프가 공용으로 쓰는 진입점.
+
+    어댑터 로그(stderr)는 **줄 단위로 그대로** 흘린다(학습은 길다). 결과는 사람이 읽는 줄 +
+    ``--json`` 이면 기계가 읽는 한 줄.
+    """
+    from anograft.loop.contract import DEFAULT_TIMEOUT_S, TrainerError, fit, merge_spec
+    from anograft.loop.registry import resolve_cwd
+
+    try:
+        found = _trainer_spec(args)
+        if found is None:
+            return EXIT_RECIPE_ERROR
+        path, spec = found
+        merged = merge_spec(spec.spec, _spec_override(args.spec))
+        result = fit(
+            spec.command,
+            dataset=Path(args.dataset),
+            out=Path(args.out),
+            seed=args.seed,
+            spec=merged,
+            cwd=resolve_cwd(spec, path.parent),
+            timeout=spec.timeout or DEFAULT_TIMEOUT_S,
+            on_log=_stderr_line,
+        )
+    except (TrainerError, OSError, ValueError, json.JSONDecodeError) as exc:
+        print(f"오류: {exc}", file=sys.stderr)
+        return EXIT_RECIPE_ERROR
+
+    if args.json:
+        print(
+            json.dumps({"model": result.model, "metrics": dict(result.metrics)}, ensure_ascii=False)
+        )
+    else:
+        print(f"모델: {result.model}")
+        for k, v in result.metrics.items():
+            print(f"  {k:<16} {v}")
+    return EXIT_OK
+
+
+def cmd_trainer_predict(args: argparse.Namespace) -> int:
+    """등록된 학습기를 계약대로 부른다 — ``predict``. 출력은 ``bank import-*`` 가 그대로 받는 형식."""
+    from anograft.loop.contract import DEFAULT_TIMEOUT_S, TrainerError, merge_spec, predict
+    from anograft.loop.registry import resolve_cwd
+
+    try:
+        found = _trainer_spec(args)
+        if found is None:
+            return EXIT_RECIPE_ERROR
+        path, spec = found
+        result = predict(
+            spec.command,
+            model=args.model,
+            images=Path(args.images),
+            out=Path(args.out),
+            # 학습 때와 같은 spec 을 준다 — 추론 해상도가 달라지면 조용히 나빠진다
+            spec=merge_spec(spec.spec, _spec_override(args.spec)),
+            cwd=resolve_cwd(spec, path.parent),
+            timeout=spec.timeout or DEFAULT_TIMEOUT_S,
+            on_log=_stderr_line,
+        )
+    except (TrainerError, OSError, ValueError) as exc:
+        print(f"오류: {exc}", file=sys.stderr)
+        return EXIT_RECIPE_ERROR
+
+    if args.json:
+        print(
+            json.dumps(
+                {"predictions": str(result.predictions), "count": result.count}, ensure_ascii=False
+            )
+        )
+    else:
+        print(f"예측 {result.count}장 → {result.predictions}")
+        print(
+            "  masks/ 는 bank import-pairs · scores/ 의 instances 는 bank import-yolo 로 들어갑니다"
+        )
+    return EXIT_OK
+
+
 def cmd_dataset_textures(args: argparse.Namespace) -> int:
     """텍스처셋(DTD)에서 perlin-texture 용 목록 파일을 만든다 — 은행에 넣지 않는다."""
     from anograft.datasets.dtd import DtdAdapter, write_texture_list
@@ -1249,6 +1359,30 @@ def build_parser() -> argparse.ArgumentParser:
     ti.add_argument("name")
     ti.add_argument("--file", help="trainers.yaml 경로")
     ti.set_defaults(func=cmd_trainer_info)
+
+    tf = tsub.add_parser(
+        "fit", help="등록된 학습기로 학습 — 데이터셋(writer 출력) → 모델 참조·지표"
+    )
+    tf.add_argument("name")
+    tf.add_argument("--dataset", required=True, help="학습 데이터셋 루트(어댑터가 선언한 형식)")
+    tf.add_argument("--out", required=True, help="모델이 저장될 폴더")
+    tf.add_argument("--seed", type=int, default=0)
+    tf.add_argument("--spec", help="추가 spec JSON 파일(불투명 — 등록부 spec 위에 얹는다)")
+    tf.add_argument("--file", help="trainers.yaml 경로")
+    tf.add_argument("--json", action="store_true", help="결과를 JSON 한 줄로(도구가 읽는다)")
+    tf.set_defaults(func=cmd_trainer_fit)
+
+    tp = tsub.add_parser(
+        "predict", help="등록된 학습기로 예측 — masks/·scores/ (bank import-* 입력)"
+    )
+    tp.add_argument("name")
+    tp.add_argument("--model", required=True, help="fit 이 돌려준 모델 참조(불투명)")
+    tp.add_argument("--images", required=True, help="이미지 경로 목록 .txt")
+    tp.add_argument("--out", required=True, help="예측이 저장될 폴더")
+    tp.add_argument("--spec", help="추가 spec JSON 파일(학습 때와 같은 값을 주는 게 기본)")
+    tp.add_argument("--file", help="trainers.yaml 경로")
+    tp.add_argument("--json", action="store_true")
+    tp.set_defaults(func=cmd_trainer_predict)
 
     p = sub.add_parser(
         "sample",
