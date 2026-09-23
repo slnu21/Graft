@@ -32,5 +32,8 @@ Thumbs.db
 
 /runs/
 
+# 학습기 등록(사람마다 경로가 다르다 — 예시는 trainers.example.yaml)
+/trainers.yaml
+
 # ultralytics 가 cwd 에 내려받는 가중치(yolov8n.pt 등, tools/train_mvtec_map.py)
 /*.pt

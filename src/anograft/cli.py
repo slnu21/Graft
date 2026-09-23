@@ -656,6 +656,89 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _trainer_table(args: argparse.Namespace) -> tuple[Path, dict] | None:
+    """``trainers.yaml`` 을 찾아 읽는다. 없으면 안내만 하고 ``None``."""
+    from anograft.loop.registry import find_trainers_file, load_trainers
+
+    path = find_trainers_file(Path(args.file) if args.file else None)
+    if path is None:
+        print("trainers.yaml 이 없습니다 — 학습기를 등록하면 루프가 그것을 부릅니다.")
+        print("  찾은 곳: ./trainers.yaml · ~/.anograft/trainers.yaml")
+        print("  예시는 trainers.example.yaml 을 복사해서 쓰세요.")
+        return None
+    return path, load_trainers(path)
+
+
+def cmd_trainer_list(args: argparse.Namespace) -> int:
+    """등록된 학습기와 **가용 여부·사유** — `methods` 가 스테이지에 하는 일을 학습기에 한다."""
+    from anograft.loop.contract import TrainerError
+    from anograft.loop.registry import probe_all
+
+    try:
+        found = _trainer_table(args)
+    except TrainerError as exc:
+        print(f"오류: {exc}", file=sys.stderr)
+        return EXIT_RECIPE_ERROR
+    if found is None:
+        return EXIT_OK
+    path, trainers = found
+
+    print(f"{path}")
+    if not trainers:
+        print("  (등록된 학습기가 없습니다)")
+        return EXIT_OK
+
+    statuses = probe_all(trainers, path.parent)
+    width = max(len(s.name) for s in statuses)
+    for s in statuses:
+        mark = "ok  " if s.available else "불가"
+        print(f"  {mark} {s.name:<{width}}  {s.summary}")
+    usable = sum(1 for s in statuses if s.available)
+    print(f"\n  쓸 수 있는 학습기 {usable}/{len(statuses)}")
+    return EXIT_OK
+
+
+def cmd_trainer_info(args: argparse.Namespace) -> int:
+    """학습기 하나의 선언을 그대로 보여 준다(계약 점검용)."""
+    from anograft.loop.contract import TrainerError
+    from anograft.loop.registry import probe
+
+    try:
+        found = _trainer_table(args)
+    except TrainerError as exc:
+        print(f"오류: {exc}", file=sys.stderr)
+        return EXIT_RECIPE_ERROR
+    if found is None:
+        return EXIT_RECIPE_ERROR
+    path, trainers = found
+
+    spec = trainers.get(args.name)
+    if spec is None:
+        known = ", ".join(sorted(trainers)) or "(없음)"
+        print(f"오류: {args.name!r} 는 {path} 에 없습니다. 등록된 것: {known}", file=sys.stderr)
+        return EXIT_RECIPE_ERROR
+
+    status = probe(args.name, spec, path.parent)
+    print(f"{args.name}  ({' '.join(spec.command)})")
+    if not status.available:
+        print(f"  쓸 수 없음 — {status.reason}")
+        return EXIT_OK
+    info = status.info
+    assert info is not None
+    print(f"  버전           {info.version or '(없음)'}")
+    print(f"  데이터 형식    {info.dataset_format}  (Graft 가 이 writer 로 내보냅니다)")
+    print(
+        f"  학습 입력      {'정상 이미지만 — 합성 결함은 평가에만' if info.normal_only else '라벨 포함'}"
+    )
+    print(f"  할 수 있는 것  {', '.join(info.capabilities)}")
+    print(
+        f"  결정적         {'예' if info.deterministic else '아니오 — 루프가 시드 여러 개로 평균 냅니다'}"
+    )
+    if spec.spec:
+        print(f"  기본 spec      {spec.spec}")
+    return EXIT_OK
+
+
 def cmd_dataset_textures(args: argparse.Namespace) -> int:
     """텍스처셋(DTD)에서 perlin-texture 용 목록 파일을 만든다 — 은행에 넣지 않는다."""
     from anograft.datasets.dtd import DtdAdapter, write_texture_list
@@ -1151,6 +1234,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_doctor)
+
+    p = sub.add_parser(
+        "trainer",
+        help="학습기 어댑터 보기 (등록은 레시피 밖 trainers.yaml — 학습 루프 v1.x)",
+    )
+    tsub = p.add_subparsers(dest="trainer_cmd", required=True)
+    tl = tsub.add_parser("list", help="등록된 학습기와 가용 여부·사유")
+    tl.add_argument(
+        "--file", help="trainers.yaml 경로 (기본: ./trainers.yaml → ~/.anograft/trainers.yaml)"
+    )
+    tl.set_defaults(func=cmd_trainer_list)
+    ti = tsub.add_parser("info", help="학습기 하나의 선언(데이터 형식·학습 입력·결정성)")
+    ti.add_argument("name")
+    ti.add_argument("--file", help="trainers.yaml 경로")
+    ti.set_defaults(func=cmd_trainer_info)
 
     p = sub.add_parser(
         "sample",
