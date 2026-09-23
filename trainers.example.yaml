@@ -1,0 +1,12 @@
+﻿# 학습기 등록 예시 — 이 파일을 trainers.yaml 로 복사해서 경로만 고치세요.
+# 레시피에는 이름만 씁니다(trainer: noop). 실행 명령은 여기에만 둡니다 — 레시피는 공유되니까요.
+trainers:
+  # 계약 검증·테스트용 더미. 학습하지 않고 가짜 예측만 냅니다(stdlib 만 씁니다).
+  noop:
+    command: [python, adapters/noop.py]
+
+  # 실제 학습기는 별도 venv 를 가리킵니다(코어는 순수 wheel 만 씁니다).
+  # yolo-seg:
+  #   command: ["C:/Users/<you>/Documents/Workspace/.venvs/graft-train/Scripts/python.exe", "adapters/yolo_seg.py"]
+  #   spec: {epochs: 40, imgsz: 640}
+  #   timeout: 43200
