@@ -16,3 +16,10 @@ trainers:
   #   anograft trainer list                    # 가용 여부·사유
   #   anograft trainer fit yolo --dataset out/set-A --out out/model --seed 7
   #   anograft trainer predict yolo --model out/model/train/weights/best.pt --images imgs.txt --out out/pred
+
+  # 비지도(정상만 학습) — anomalib. 합성 결함은 **학습이 아니라 평가**에만 쓰입니다(trains_on: normal_only).
+  # 데이터는 mvtec writer 출력의 카테고리 폴더(<out>/mvtec/<category>)를 그대로 줍니다.
+  # anomalib:
+  #   command: ["C:/Users/<you>/Documents/Workspace/.venvs/graft-train/Scripts/python.exe", "adapters/anomalib_trainer.py"]
+  #   spec: {model: patchcore, image_size: 256}   # padim · fastflow · cfa · dfkde · dfm 도
+  #   timeout: 43200

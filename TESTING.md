@@ -82,6 +82,9 @@ python tools/fetch_public_datasets.py screw --import            # (선택) 흑�
 | 31 | `trainers.example.yaml` 을 `trainers.yaml` 로 복사(경로 그대로) → `anograft trainer list` · `trainer info noop` | `ok noop pairs · 라벨 학습 · score·mask·box` · 등록 파일이 없으면 죽지 않고 안내만 |
 | 32 | `anograft trainer fit noop --dataset out/sample --out out/model --seed 7` → `anograft trainer predict noop --model out/model/model.json --images imgs.txt --out out/pred` | 학습 로그(stderr)가 **그때그때** 흐르고 마지막에 모델 경로·지표 · 예측 폴더에 `masks/<stem>.png` + `scores/<stem>.json` → 그대로 `bank import-pairs`/`import-yolo` 입력 |
 | 33 | (학습 환경이 있을 때) `trainers.yaml` 의 `yolo` 항목 주석을 풀고 venv 경로를 고친 뒤 `anograft trainer list` · `tools/train_mvtec_map.py … --epochs 2 --k 4 --count 20` | `ok yolo yolo · 라벨 학습 · score·box` · 벤치 표가 예전과 같은 모양(A/B 행·클래스별 mAP50)으로 나온다 — 학습이 계약을 통해 나간다는 증거 |
+| 34 | (학습 환경) `pip install anomalib` 뒤 `trainers.yaml` 의 `anomalib` 항목을 풀고 `anograft trainer info anomalib` | `정상 이미지만 — 합성 결함은 평가에만` · `할 수 있는 것 score, mask` · `결정적 아니오` — **비지도 선언**이 보이는지가 핵심(이게 합성 오염을 막는 장치다) |
+| 35 | `anograft trainer fit anomalib --dataset <out>/mvtec/<category> --out out/ano --seed 7` (합성 출력을 그대로) | `image_AUROC`·`pixel_AUROC` 가 나온다. **학습에 쓰는 정상과 합성 대상 정상이 겹치면 값이 비현실적으로 좋아진다** — 갈라서 쓸 것(`tools/bench_model_rank.py` 가 그 규율을 코드로 지킨다) |
+| 36 | `tools/bench_model_rank.py <mvtec 카테고리> --anograft .venv/Scripts/python.exe --models padim patchcore --n-train 60 --n-targets 60 --count 60 --k 5 --image-size 128` | 실제·합성 두 순위 표 + **Spearman ρ**. 결함 5장/클래스만 은행에 넣고 그 5장은 실제 평가에서 빠진다 |
 
 `real.csv` 예시(항목 8·9):
 

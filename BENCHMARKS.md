@@ -1,6 +1,6 @@
 # BENCHMARKS — 공개 데이터로 잰 것 (결정 아님, 근거)
 
-> 사용자 실데이터 없이 **GT 가 있는 공개 데이터**로 도구의 두 질문에 첫 숫자를 붙인다: (1) 박스→마스크 추정이 얼마나 맞나, (2) 합성 데이터가 검출력을 올리나. 재현 명령은 각 절에. 라이선스: MVTec AD CC BY-NC-SA(로컬 개발용) · Magnetic Tile 논문 인용.
+> 사용자 실데이터 없이 **GT 가 있는 공개 데이터**로 도구의 세 질문에 첫 숫자를 붙인다: (1) 박스→마스크 추정이 얼마나 맞나, (2) 합성 데이터가 검출력을 올리나, (3) 결함이 거의 없을 때 **합성셋만으로 모델을 고를 수 있나**. 재현 명령은 각 절에. 라이선스: MVTec AD CC BY-NC-SA(로컬 개발용) · Magnetic Tile 논문 인용.
 
 ## 1. 박스→마스크 추정 (`tools/bench_mask_from_box.py`, 2026-09-16)
 
@@ -119,3 +119,27 @@ MVTec 이 아닌 레이아웃의 첫 카테고리(`tools/train_mvtec_map.py samp
 - **프리셋은 결함 성격을 따라가야 한다** — MT 에서 한 프리셋(poisson)으로는 −0.02 였던 합성이, blowhole 만 paste 계열로 갈라 `dataset merge` 하니 **+0.09(3/3)**·mAP50-95 도 상승. 검수 탭의 클래스별 대비 히스토그램(합성 vs 은행 실제)이 학습 전에 어느 클래스가 옅어졌는지 보여 주고, `recipe init --classes` × n → `run` × n → `dataset merge --dedupe-normals` 가 그 흐름. 대비가 신호인 결함엔 `relative-paste`(노출 보정 paste).
 - **분산은 학습 운(±0.04)보다 분할(0.18~0.40)에서 온다** — 결정에 쓰려면 학습 시드보다 **분할을 3개 이상** 잡고, 실데이터에서 같은 절차(`TESTING.md` §3). 실제 NG 24장뿐인 소표본에서 합성 200장이 mAP50 을 올리면 도구의 전제가 살아 있는 것이고, 내리면 합성 결함이 실제 분포와 다르다는 뜻(검수 탭 분포·조명 R 로 원인을 좁힌다). 같은 시드·같은 데이터는 소수 셋째 자리까지 재현된다(`deterministic=True`, CPU).
 - 재현(v0.9.x/T3 부터 **학습은 학습기 계약으로 나간다** — `trainers.yaml` 에 `yolo: {command: ["<train-venv>/Scripts/python.exe", "adapters/yolo.py"]}` 를 등록하면 벤치 스크립트 자체는 코어 venv 에서 돌아도 된다): `.venv/Scripts/python.exe tools/train_mvtec_map.py samples/mvtec/metal_nut --anograft .venv/Scripts/python.exe --k 8 --count 200 --presets poisson-graft dent-graft --mask-from grabcut hybrid --epochs 40 --split-seed 7 --train-seeds 7 8 9 --out out/train-map-split7`(A 3 + B 12 학습 ≈ 5 h; 분할만 바꾸려면 `--seed 8 --out out/train-map-s8`). 끝난 (셋, 시드) 는 `results/` 캐시라 프리셋·은행을 나중에 보태도 다시 돌지 않는다. Magnetic Tile: `samples/magnetic-tile/pairs.csv --classes blowhole break crack --roi none`. 결함 성격별 분할: `--presets poisson-graft relative-paste --class-presets blowhole=relative-paste break=poisson-graft crack=poisson-graft --mask-from hybrid`(hard-paste 행은 `blowhole=hard-paste`; 한 번에 `--class-presets` 하나, 결과는 `results/` 에 쌓여 표는 합쳐 읽는다).
+
+## 3. 합성셋으로 모델을 고를 수 있나 — 순위 상관 (`tools/bench_model_rank.py`, 2026-09-23)
+
+§2 가 "합성이 검출력을 올리나"였다면 여기는 **"실제 결함이 거의 없어도 합성셋만으로 모델을 고를 수 있나"** 다(설계 `v1.x-training-loop.md` §5 (A)). 현장의 진짜 문제는 결함 샘플이 없다는 것이라, 이 질문이 실무에 더 가깝다.
+
+**구성**(MVTec metal_nut · 비지도 anomalib 2.6 · CPU · 128 px · seed 7): `train/good` 220 장을 **학습 정상 60 / 합성 대상 60** 으로 **가른다**(겹치면 배경을 외운 모델이 그 이미지의 합성본에서 비현실적으로 깨끗한 이상맵을 내 낙관 편향). 은행은 **결함 5 장/클래스**(bent·color·flip·scratch)만, 그 5 장은 실제 평가에서 뺀다. 평가 루트 둘은 **`train/good` 이 똑같고 `test/` 만 다르다** — 실제 = MVTec test(73 장 + 정상 22), 합성 = `poisson-graft`·`annulus` 로 만든 40 장(+ 정상 60). 모델마다 `anograft trainer fit anomalib` 을 두 루트에서 한 번씩.
+
+| 모델 | 실제 image_AUROC (순위) | 합성 image_AUROC (순위) | 실제 pixel_AUROC |
+|---|---|---|---|
+| patchcore | **0.954** (1) | **0.726** (1) | 0.982 |
+| padim | 0.949 (2) | 0.720 (2) | 0.954 |
+| dfm | 0.892 (3) | 0.654 (3) | 0.905 |
+| dfkde | 0.605 (4) | 0.510 (4) | — (이미지 레벨 전용) |
+
+**Spearman ρ(실제, 합성) = 1.000** — 네 모델의 순위가 완전히 같다.
+
+읽는 법:
+
+- **절대값은 옮겨 쓰면 안 된다.** 합성셋의 AUROC(0.51~0.73)는 실제(0.61~0.95)보다 일관되게 낮다 — 합성 결함이 더 어렵다(또는 다르다). 쓸 수 있는 건 **순서**지 값이 아니다.
+- **ρ = 1.0 은 모델 4 개짜리 한 카테고리·한 시드의 결과다.** n=4 에서 ρ 가 가질 수 있는 값은 몇 개뿐이라(1.0·0.8·0.6…) 우연히 1.0 이 나올 확률도 작지 않다. 결론은 "**합성셋으로 고른 1 등이 실제 1 등이었다**"까지이고, 일반화하려면 카테고리·시드·모델을 늘려야 한다(어댑터가 `deterministic: false` 를 선언하므로 루프는 시드 평균을 쓴다).
+- **합성셋이 못 만드는 결함이 있다** — metal_nut 의 `flip`(부품 전체가 뒤집힘)은 결함 조각 이식으로 만들 수 없어 합성 test 에 그 클래스가 없다(bent·color·scratch 만). 순위를 읽을 때 "합성셋이 대표하는 결함 계열"을 함께 봐야 한다.
+- dfkde 는 픽셀 지표가 없다 — 지표가 없는 모델은 순위에서 `nan` 으로 남긴다(0 으로 채우면 '최악'이라는 거짓 순위가 된다).
+
+재현: `.venv/Scripts/python.exe tools/bench_model_rank.py samples/mvtec/metal_nut --anograft .venv/Scripts/python.exe --models padim patchcore dfm dfkde --n-train 60 --n-targets 60 --count 60 --k 5 --image-size 128 --out out/rank-mn`(8 회 학습 ≈ 50 분, CPU). `trainers.yaml` 에 `anomalib` 항목이 있어야 한다(`trainers.example.yaml` 참고).
