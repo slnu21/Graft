@@ -342,3 +342,298 @@ code,
     animation: none;
   }
 }
+
+/* ---------- 검수(U3) ---------- */
+.openbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.openbar label {
+  color: var(--tx3);
+}
+
+.openbar input {
+  flex: 1;
+  min-width: 0;
+  max-width: 560px;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+  color: var(--tx);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.openbar input:focus-visible,
+.btn:focus-visible,
+.tile:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 1px;
+}
+
+.btn {
+  padding: 5px 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+  color: var(--tx2);
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--panel2);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btn.primary {
+  background: var(--teal);
+  border-color: var(--teal);
+  color: #fff;
+}
+
+.btn.primary:hover:not(:disabled) {
+  background: var(--teal-h);
+}
+
+.btn.danger {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+.btn kbd {
+  margin-left: 5px;
+  padding: 0 4px;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.review {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.review-side {
+  display: grid;
+  gap: 12px;
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.field span {
+  flex: 0 0 52px;
+  color: var(--tx3);
+}
+
+.field select {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+  color: var(--tx);
+}
+
+.progress {
+  height: 6px;
+  margin-top: 10px;
+  border-radius: 3px;
+  background: var(--panel2);
+  overflow: hidden;
+}
+
+.progress i {
+  display: block;
+  height: 100%;
+  background: var(--teal);
+}
+
+.row-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.tile {
+  position: relative;
+  display: block;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.tile img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  background: var(--panel2);
+}
+
+.tile-empty {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 4 / 3;
+  color: var(--tx3);
+  background: var(--panel2);
+}
+
+.tile-cap {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 3px 6px;
+  font-size: 11px;
+  color: var(--tx3);
+  border-top: 1px solid var(--line);
+}
+
+.tile-cap b {
+  color: var(--tx2);
+}
+
+.tile-cap em {
+  margin-left: auto;
+  font-style: normal;
+  opacity: 0.8;
+}
+
+.tile.on {
+  border-color: var(--teal);
+  box-shadow: 0 0 0 1px var(--teal);
+}
+
+.tile.on .tile-cap {
+  background: var(--teal);
+  color: #fff;
+  border-top-color: var(--teal);
+}
+
+.tile.on .tile-cap b {
+  color: #fff;
+}
+
+/* 판정은 색만으로 알리지 않는다 — 캡션의 ✓/✗ 기호와 함께 쓴다(색각) */
+.tile.v-accept .tile-cap b {
+  color: var(--ok);
+}
+
+.tile.v-reject {
+  opacity: 0.62;
+}
+
+.tile.v-reject .tile-cap b {
+  color: var(--bad);
+}
+
+.detail {
+  display: grid;
+  grid-template-columns: 1fr 260px;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+}
+
+.detail-img img {
+  display: block;
+  width: 100%;
+  border-radius: var(--r);
+  background: var(--panel2);
+}
+
+.verdict-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.hist svg {
+  display: block;
+  width: 100%;
+  height: 96px;
+  color: var(--tx3);
+}
+
+.hist figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--tx3);
+}
+
+.hist .key {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.hist .key i {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.hist .range {
+  margin-left: auto;
+  font-family: var(--mono);
+}
+
+@media (max-width: 1100px) {
+  .review,
+  .detail {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 정상·건너뜀 타일은 판정 대상이 아니다 — 누를 수 없고 선택 표시도 없다 */
+.tile.plain {
+  cursor: default;
+  opacity: 0.75;
+}
+
+.tile.plain .tile-cap {
+  color: var(--tx3);
+}
+
+/* 상세는 그리드 위에 — 고른 즉시 보여야 키보드로 계속 훑을 수 있다.
+   이미지는 뷰포트를 넘지 않게 묶는다(4K 합성 결과가 화면을 밀어내면 판정이 스크롤 작업이 된다). */
+.detail {
+  margin: 0 0 12px;
+}
+
+.detail-img img {
+  max-height: 44vh;
+  object-fit: contain;
+}

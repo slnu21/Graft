@@ -41,6 +41,24 @@ def port_in_use(port: int, host: str = HOST) -> bool:
         return sock.connect_ex((host, port)) == 0
 
 
+#: 쓰기 요청이 달고 와야 하는 헤더. 값은 보지 않는다 — **있다는 사실**이 방어다:
+#: 커스텀 헤더가 붙으면 브라우저가 단순 요청(simple request)으로 보내지 못해 preflight(OPTIONS)를
+#: 먼저 쏘고, 우리는 OPTIONS 에 CORS 허용을 주지 않으므로 다른 사이트의 스크립트는 거기서 막힌다.
+#: `Host` 검사(DNS rebinding)와 함께 쓰는 두 번째 자물쇠다.
+CSRF_HEADER = "X-Graft-Request"
+#: 쓰기 본문 상한 — 경로 몇 개짜리 JSON 이면 충분하다.
+MAX_BODY = 1 << 20
+
+
+def origin_allowed(origin: str | None) -> bool:
+    """`Origin` 이 있으면 로컬이어야 한다. 없으면(같은 오리진 요청·curl) 통과시킨다."""
+    if not origin:
+        return True
+    rest = origin.split("://", 1)[-1]
+    name = rest.split("]", 1)[0] + "]" if rest.startswith("[") else rest.rsplit(":", 1)[0]
+    return name in {"127.0.0.1", "localhost", "[::1]"}
+
+
 class GraftHandler(BaseHTTPRequestHandler):
     """GET·HEAD 만 받는다. 쓰기는 U3 이후에 POST 로 들어온다(그때 CSRF 를 같이 본다)."""
 
@@ -60,8 +78,11 @@ class GraftHandler(BaseHTTPRequestHandler):
     def do_HEAD(self) -> None:
         self._handle(body=False)
 
+    def do_POST(self) -> None:
+        self._handle(body=True, method="POST")
+
     # ------------------------------------------------------------------ 내부
-    def _handle(self, *, body: bool) -> None:
+    def _handle(self, *, body: bool, method: str = "GET") -> None:
         if not host_allowed(self.headers.get("Host"), self.server.server_address[1]):
             self._send_json(403, {"error": "로컬(127.0.0.1)에서만 쓸 수 있습니다."}, body=body)
             return
@@ -69,10 +90,42 @@ class GraftHandler(BaseHTTPRequestHandler):
         parts = urlsplit(self.path)
         path = parts.path
 
+        if method == "POST" and not web_api.is_api_path(path):
+            self._send_json(404, {"error": "쓰기는 API 경로로만 받습니다."}, body=body)
+            return
+
         if web_api.is_api_path(path):
-            query = dict(parse_qsl(parts.query))
-            result = web_api.handle_api(path, query)
-            self._send_json(result.status, result.payload, body=body, extra=result.headers)
+            payload: dict = {}
+            if method == "POST":
+                if not origin_allowed(self.headers.get("Origin")):
+                    self._send_json(403, {"error": "다른 사이트에서 보낸 요청입니다."}, body=body)
+                    return
+                if self.headers.get(CSRF_HEADER) is None:
+                    self._send_json(
+                        403,
+                        {"error": f"쓰기 요청에는 {CSRF_HEADER} 헤더가 필요합니다."},
+                        body=body,
+                    )
+                    return
+                parsed = self._read_json()
+                if parsed is None:
+                    return  # 이미 응답했다
+                payload = parsed
+            result = web_api.handle(
+                web_api.Request(path, method, dict(parse_qsl(parts.query)), payload)
+            )
+            if result.body is not None:
+                self._respond(
+                    result.status,
+                    result.content_type or "application/octet-stream",
+                    result.body,
+                    body=body,
+                    cache=result.headers.get("Cache-Control", "no-store"),
+                )
+            else:
+                self._send_json(
+                    result.status, result.payload or {}, body=body, extra=result.headers
+                )
             return
 
         if self.api_only:
@@ -93,6 +146,26 @@ class GraftHandler(BaseHTTPRequestHandler):
             return
 
         self._send_file(target, body=body)
+
+    def _read_json(self) -> dict | None:
+        """POST 본문을 읽는다. 잘못됐으면 여기서 응답하고 ``None`` 을 돌려준다."""
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            length = -1
+        if length < 0 or length > MAX_BODY:
+            self._send_json(413, {"error": "요청 본문이 너무 큽니다."}, body=True)
+            return None
+        raw = self.rfile.read(length) if length else b"{}"
+        try:
+            parsed = json.loads(raw.decode("utf-8") or "{}")
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            self._send_json(400, {"error": f"JSON 을 읽지 못했습니다: {exc}"}, body=True)
+            return None
+        if not isinstance(parsed, dict):
+            self._send_json(400, {"error": "JSON 객체를 보내세요."}, body=True)
+            return None
+        return parsed
 
     def _send_file(self, target: Path, *, body: bool) -> None:
         data = target.read_bytes()

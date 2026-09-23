@@ -313,7 +313,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 def _write_run_report(root: Path) -> None:
     """``run --report`` — 출력 폴더에 검수 리포트 HTML 을 바로(= ``dataset report <root>``). 실패해도 run 결과는 유효하니 경고만."""
-    from anograft.gui.review.session import ReviewError, ReviewSession
+    from anograft.review import ReviewError, ReviewSession
 
     s = ReviewSession()
     try:
@@ -554,7 +554,7 @@ def cmd_dataset_prune(args: argparse.Namespace) -> int:
     if (
         args.drop_flipped
     ):  # 은행이 있어야 실제 방향을 안다(검수 탭 필터 '조명 뒤집힘 의심'과 같은 집합)
-        from anograft.gui.review.session import ReviewError, ReviewSession
+        from anograft.review import ReviewError, ReviewSession
 
         sess = ReviewSession()
         try:
@@ -902,8 +902,8 @@ def cmd_dataset_textures(args: argparse.Namespace) -> int:
 
 def cmd_dataset_report(args: argparse.Namespace) -> int:
     """검수 리포트 HTML(의존성 0) — 검수 탭 '리포트' 와 같은 내용."""
-    from anograft.gui.review.session import ReviewError, ReviewSession
     from anograft.io.report import contrast_hint_text
+    from anograft.review import ReviewError, ReviewSession
 
     s = ReviewSession()
     try:

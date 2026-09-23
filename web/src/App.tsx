@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { type Doctor, type Health, type MethodInfo, fetchDoctor, fetchHealth, fetchMethods } from './api'
 import { type StageInfo } from './format'
+import { Review } from './screens/Review'
 import { Start } from './screens/Start'
 import { Soon } from './screens/Soon'
 
@@ -12,7 +13,7 @@ const SCREENS = [
   { id: 'label', num: '②', label: '결함 표시', ready: false },
   { id: 'studio', num: '③', label: '미리보기', ready: false },
   { id: 'batch', num: '④', label: '일괄 생성', ready: false },
-  { id: 'review', num: '⑤', label: '검수', ready: false },
+  { id: 'review', num: '⑤', label: '검수', ready: true },
   { id: 'loop', num: '⑥', label: '학습 루프', ready: false },
 ] as const
 
@@ -116,6 +117,8 @@ export function App() {
               stages={stages}
               error={error}
             />
+          ) : screen === 'review' ? (
+            <Review />
           ) : (
             <Soon label={SCREENS.find((s) => s.id === screen)!.label} />
           )}

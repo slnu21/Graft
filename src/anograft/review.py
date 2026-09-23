@@ -155,6 +155,19 @@ def histogram(
     return Histogram(real_edges, tuple(int(v) for v in ca), tuple(int(v) for v in cb), log)
 
 
+#: 필터 한국어 이름 — **한 원천**. Qt 검수 탭과 웹(`/api/review/state`)이 같은 표를 쓴다
+#: (프론트에 사본을 만들면 둘이 갈린다 — 용어 사전 §3.6 정본 규율).
+FILTER_LABELS: dict[str, str] = {
+    "all": "전체",
+    "unreviewed": "미검수",
+    "accept": "채택",
+    "reject": "반려",
+    "fallback": "대체 처리됨",
+    "skipped": "건너뜀",
+    "flipped": "빛 방향이 뒤집힌 듯함",
+}
+
+
 def _split(s: str) -> tuple[str, ...]:
     return tuple(x for x in s.split(";") if x)
 

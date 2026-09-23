@@ -9,8 +9,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import cv2
-import numpy as np
 from PySide6.QtCore import QRectF, QSize, Qt, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QKeySequence, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (
@@ -30,43 +28,24 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from anograft.core.channels import promote_to_bgr
 from anograft.gui.notice import Notice
 from anograft.gui.qt_image import to_qpixmap
-from anograft.gui.review.session import FILTERS, Histogram, ReviewError, ReviewItem, ReviewSession
 from anograft.gui.studio.panels import flat_icon, h4
 from anograft.gui.theme import COLORS, REAL_COLOR, SYNTH_COLOR  # 검수 계열색 고정(색각 검증)
 from anograft.io import imgio
 from anograft.io.report import contrast_hint_text, lighting_broken_classes
-from anograft.preview import GT_EDGE
+from anograft.preview import overlay_image
+from anograft.review import (
+    FILTER_LABELS,
+    FILTERS,
+    Histogram,
+    ReviewError,
+    ReviewItem,
+    ReviewSession,
+)
 
 THUMB = 176
-FILTER_LABELS: dict[str, str] = {
-    "all": "전체",
-    "unreviewed": "미검수",
-    "accept": "채택",
-    "reject": "반려",
-    "fallback": "대체 처리됨",
-    "skipped": "건너뜀",
-    "flipped": "빛 방향이 뒤집힌 듯함",
-}
 VERDICT_MARK: dict[str, str] = {"accept": "✓ ", "reject": "✗ ", "": ""}
-
-
-def overlay_image(image: np.ndarray, mask: np.ndarray | None, *, long_side: int) -> np.ndarray:
-    """이미지 + GT 윤곽(초록) → 긴 변 ``long_side`` 축소(INTER_AREA)."""
-    img = promote_to_bgr(image).copy()
-    if mask is not None and mask.shape[:2] == img.shape[:2]:
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        thick = max(1, round(max(img.shape[:2]) / 400))
-        cv2.drawContours(img, contours, -1, GT_EDGE, thick)
-    h, w = img.shape[:2]
-    s = long_side / float(max(h, w))
-    if s < 1:
-        img = cv2.resize(
-            img, (max(1, round(w * s)), max(1, round(h * s))), interpolation=cv2.INTER_AREA
-        )
-    return img
 
 
 class HistogramWidget(QWidget):

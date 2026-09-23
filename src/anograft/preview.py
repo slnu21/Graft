@@ -93,6 +93,22 @@ def render_preview(
     return canvas
 
 
+def overlay_image(image: np.ndarray, mask: np.ndarray | None, *, long_side: int) -> np.ndarray:
+    """이미지 + GT 윤곽(초록) → 긴 변 ``long_side`` 축소(INTER_AREA). 검수 화면(Qt·웹)이 함께 쓴다."""
+    img = promote_to_bgr(image).copy()
+    if mask is not None and mask.shape[:2] == img.shape[:2]:
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        thick = max(1, round(max(img.shape[:2]) / 400))
+        cv2.drawContours(img, contours, -1, GT_EDGE, thick)
+    h, w = img.shape[:2]
+    s = long_side / float(max(h, w))
+    if s < 1:
+        img = cv2.resize(
+            img, (max(1, round(w * s)), max(1, round(h * s))), interpolation=cv2.INTER_AREA
+        )
+    return img
+
+
 def render_grid(tiles: Sequence[np.ndarray], *, cols: int = 4, gap: int = 4) -> np.ndarray:
     """같은 크기가 아니어도 되는 타일들을 격자로 — ``bank preview``(#758)·비교 그리드 공용."""
     if not tiles:
