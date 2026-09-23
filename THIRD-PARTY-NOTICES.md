@@ -23,6 +23,32 @@ Graft (`anograft`) is MIT-licensed (`LICENSE`). The components below are bundled
 |---|---|---|
 | PyInstaller | GPL-2.0 with **bootloader exception** | 부트로더가 exe에 결합되지만 예외 조항에 따라 Graft의 MIT 라이선스에 영향 없음 / bootloader exception keeps Graft MIT |
 | pytest · ruff | MIT | 개발 전용 / dev only |
+| Node.js · npm | MIT (Node는 MIT + 동봉 구성 요소 각자의 라이선스) | 웹 UI 빌드 전용 — **런타임에는 필요 없습니다**(`pip install anograft` 불변) / builds the web UI only |
+
+## 웹 UI (npm) / Web UI (npm)
+
+아래 절은 `tools/collect_npm_notices.mjs` 가 `web/package-lock.json` 에서 만들어 넣습니다 —
+의존성이 바뀌면 CI 가 `--check` 로 낡음을 잡습니다. 갱신은 `cd web && npm run notices -- --write`.
+
+<!-- npm:begin — tools/collect_npm_notices.mjs 가 만든다. 손으로 고치지 말 것 -->
+
+### 웹 UI 번들에 포함 / Bundled in the web UI
+
+`anograft serve` 가 내보내는 화면 파일에 코드가 들어갑니다. 폰트·아이콘은 받지 않습니다(시스템 폰트 + 인라인 SVG).
+
+| 구성 요소 Component | 버전 Version | 라이선스 License |
+|---|---|---|
+| react | 19.3.0 | MIT |
+| react-dom | 19.3.0 | MIT |
+| scheduler | 0.28.0 | MIT |
+
+### 웹 빌드 도구 (배포물에 코드가 포함되지 않음) / Web build tooling (no code shipped)
+
+Vite·TypeScript·Babel·vitest 등 **빌드 때만** 쓰는 것들입니다 — 총 150개 · MIT 139 · ISC 6 · Apache-2.0 3 · BSD-3-Clause 1 · CC-BY-4.0 1.
+플랫폼별 선택 의존성까지 포함한 목록이라 실제로 설치되는 것은 이보다 적습니다.
+전체 목록은 `node tools/collect_npm_notices.mjs` 로 뽑을 수 있고, 버전은 `web/package-lock.json` 이 고정합니다.
+
+<!-- npm:end -->
 
 ## 데이터셋·모델 (재배포하지 않음) / Datasets & models (never redistributed)
 

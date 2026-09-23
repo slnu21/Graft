@@ -1,0 +1,344 @@
+/*
+ * 팔레트는 `gui/theme.py`(대비 검증 완료)와 목업 v2 에서 그대로 이식한 것 — UI 독립이라 Qt 를 은퇴해도 남는다.
+ * 규칙은 목업과 같다: **`:root` 자체가 라이트**이고 다크만 `[data-theme="dark"]` 로 덮는다
+ * (JS 가 돌기 전 깜빡임이 없다). 토큰 정의부를 다른 토큰으로 치환하지 말 것 — 목업에서 그렇게 해서
+ * `--ov:var(--ov)` 순환 정의가 생겼고 **다크에서만** 죽어 있었다.
+ */
+:root {
+  --bg: #f3f5f7;
+  --panel: #ffffff;
+  --panel2: #eef1f4;
+  --raise: #e5e9ee;
+  --line: #d5dbe2;
+  --line2: #b9c2cc;
+  --tx: #1b2129;
+  --tx2: #3e4b58;
+  --tx3: #5e6b78;
+  --teal: #007a66;
+  --teal-h: #00654f;
+  --amber: #9b5e0c;
+  --ok: #1f8a63;
+  --warn: #a8600f;
+  --bad: #c0323f;
+  --warn-line: #dcbf87;
+  --nt-bg: #fcf4e4;
+  --nt-line: #e4cfa2;
+  --nt-tx: #5a4415;
+  --r: 6px;
+  --mono: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  --sans: 'Malgun Gothic', 'Apple SD Gothic Neo', -apple-system, 'Segoe UI', sans-serif;
+}
+
+:root[data-theme='dark'] {
+  --bg: #14171b;
+  --panel: #1a1e23;
+  --panel2: #20252b;
+  --raise: #262c33;
+  --line: #2c333b;
+  --line2: #39424c;
+  --tx: #e3e8ed;
+  --tx2: #98a4b0;
+  --tx3: #87939f;
+  --teal: #00a188;
+  --teal-h: #12b39a;
+  --amber: #c8841c;
+  --ok: #3fbf8f;
+  --warn: #d9822b;
+  --bad: #e05260;
+  --warn-line: #4a3a20;
+  --nt-bg: #241d13;
+  --nt-line: #43351f;
+  --nt-tx: #e6d6bd;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--tx);
+  font: 13px/1.5 var(--sans);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+code,
+.mono {
+  font-family: var(--mono);
+}
+
+/* ---------- 셸 ---------- */
+.app {
+  display: grid;
+  grid-template-rows: 38px 1fr 23px;
+  height: 100%;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 700;
+}
+
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: var(--teal);
+}
+
+.muted {
+  color: var(--tx3);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.chip {
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  font-size: 11.5px;
+  color: var(--tx2);
+}
+
+.icon-btn {
+  padding: 4px 7px;
+  border-radius: var(--r);
+  color: var(--tx2);
+}
+
+.icon-btn:hover {
+  background: var(--panel2);
+}
+
+.body {
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  min-height: 0;
+}
+
+/* ---------- 사이드바 ---------- */
+.rail {
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  padding: 8px 0;
+  overflow-y: auto;
+}
+
+.rail button {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 9px 4px;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--tx3);
+  line-height: 1.35;
+}
+
+.rail button:hover {
+  background: var(--panel2);
+  color: var(--tx2);
+}
+
+.rail button.on {
+  color: var(--teal);
+  background: var(--panel2);
+  box-shadow: inset 2px 0 0 var(--teal);
+}
+
+.rail .num {
+  display: block;
+  font-size: 9.5px;
+  color: var(--tx3);
+}
+
+.rail .soon {
+  display: block;
+  width: fit-content;
+  margin: 3px auto 0;
+  padding: 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  font-size: 9px;
+  color: var(--tx3);
+}
+
+/* ---------- 본문 ---------- */
+.main {
+  overflow-y: auto;
+  padding: 18px 20px 28px;
+}
+
+.page-head {
+  margin-bottom: 14px;
+}
+
+.page-head h1 {
+  margin: 0 0 2px;
+  font-size: 17px;
+}
+
+.page-head p {
+  margin: 0;
+  color: var(--tx3);
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 13px 14px;
+}
+
+.card h2 {
+  margin: 0 0 2px;
+  font-size: 13px;
+}
+
+.card .sub {
+  margin: 0 0 10px;
+  color: var(--tx3);
+  font-size: 12px;
+}
+
+.kv {
+  display: grid;
+  grid-template-columns: minmax(96px, auto) 1fr;
+  gap: 3px 10px;
+}
+
+.kv dt {
+  color: var(--tx3);
+}
+
+.kv dd {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--tx2);
+  overflow-wrap: anywhere;
+}
+
+.stage-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 0;
+  border-top: 1px solid var(--line);
+}
+
+.stage-row:first-of-type {
+  border-top: none;
+}
+
+.stage-row .name {
+  flex: 0 0 116px;
+  color: var(--tx2);
+}
+
+.stage-row .methods {
+  flex: 1;
+  color: var(--tx3);
+  font-size: 12px;
+}
+
+.stage-row .off {
+  color: var(--warn);
+}
+
+.notice {
+  display: flex;
+  gap: 8px;
+  padding: 9px 11px;
+  border: 1px solid var(--nt-line);
+  border-radius: var(--r);
+  background: var(--nt-bg);
+  color: var(--nt-tx);
+}
+
+.notice.bad {
+  border-color: var(--bad);
+  background: transparent;
+  color: var(--bad);
+}
+
+.steps {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--tx2);
+}
+
+.steps li {
+  margin: 5px 0;
+}
+
+.steps code {
+  background: var(--panel2);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 11.5px;
+}
+
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  color: var(--tx3);
+  font-size: 11.5px;
+}
+
+.skeleton {
+  height: 12px;
+  border-radius: 3px;
+  background: var(--panel2);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}

@@ -5,6 +5,57 @@ on:
     branches: [main]
   pull_request:
 jobs:
+  web:
+    # 웹 UI(v0.10) — node 는 **빌드 때만** 필요하다(사용자는 node 의 존재를 모른다).
+    # 한 job 안에서 프론트 테스트 → 번들 빌드 → 고지 최신 여부 → **번들이 실린 wheel 로 serve 스모크**까지 한 바퀴.
+    # 번들이 *없는* 경로(소스 체크아웃의 정상 상태)는 tests/test_web.py 가 지키므로 build job 은 손대지 않는다.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Install web deps (lock 그대로)
+        working-directory: web
+        run: npm ci
+      - name: Frontend unit tests (vitest — 순수 함수만)
+        working-directory: web
+        run: npm test
+      - name: Type check + build bundle
+        working-directory: web
+        run: npm run build
+      - name: Third-party notices are up to date
+        run: node tools/collect_npm_notices.mjs --check
+      - name: Build wheel (번들 포함)
+        run: |
+          python -m pip install --upgrade build
+          python -m build --wheel
+      - name: Bundle really is inside the wheel
+        run: |
+          python - <<'EOF'
+          import glob, zipfile
+          whl = sorted(glob.glob("dist/*.whl"))[-1]
+          names = zipfile.ZipFile(whl).namelist()
+          assert "anograft/web/static/index.html" in names, "wheel 에 웹 번들이 없다"
+          assert any(n.startswith("anograft/web/static/assets/") for n in names), "assets 가 없다"
+          print("bundle OK", whl)
+          EOF
+      - name: serve smoke (설치된 wheel 로)
+        run: |
+          python -m pip install --no-deps --force-reinstall dist/*.whl
+          python -m pip install numpy opencv-python-headless pydantic pyyaml
+          anograft serve --port 8123 --no-browser &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:8123/api/health && break || sleep 1; done
+          curl -sf http://127.0.0.1:8123/api/health | grep -q '"ok": true'
+          # 번들이 실렸으면 안내 페이지가 아니라 진짜 화면이 와야 한다
+          curl -sf http://127.0.0.1:8123/ | grep -q '<div id="root">'
+          # 한국어 라벨이 core/help.py 에서 실려 오는지(프론트에 사전 사본을 두지 않는 규약)
+          curl -sf http://127.0.0.1:8123/api/methods | grep -q '결함 고르기'
+
   build:
     strategy:
       matrix:

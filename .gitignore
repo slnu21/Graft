@@ -37,3 +37,8 @@ Thumbs.db
 
 # ultralytics 가 cwd 에 내려받는 가중치(yolov8n.pt 등, tools/train_mvtec_map.py)
 /*.pt
+
+# === 웹 UI (v0.10) ===
+/web/node_modules/
+# 빌드 산출물은 저장소에 두지 않는다 — CI 가 만들어 wheel·zip 에 싣는다(결정 6 ①).
+/src/anograft/web/static/

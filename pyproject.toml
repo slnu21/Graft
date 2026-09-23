@@ -55,7 +55,13 @@ where = ["src"]
 
 # 프리셋은 패키지 안에 실어야 pip 설치만으로 동작한다. 예시 레시피는 repo 루트 recipes/.
 [tool.setuptools.package-data]
-anograft = ["presets/*.yaml"]
+anograft = [
+  "presets/*.yaml",
+  # 웹 번들(v0.10) — repo 에는 없고 CI 가 `npm run build` 로 넣은 뒤 빌드한다. 없으면 조용히 빠지고
+  # `serve` 가 안내를 띄운다(fail-soft). 해시가 붙은 파일 이름이라 와일드카드로 받는다.
+  "web/static/*",
+  "web/static/assets/*",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
