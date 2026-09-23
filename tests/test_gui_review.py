@@ -15,10 +15,10 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
 from anograft.gui.app import MainWindow
-from anograft.gui.review.session import histogram
 from anograft.gui.review.tab import HistogramWidget, ReviewTab, overlay_image
 from anograft.gui.theme import apply_theme
 from anograft.io.prune import read_review
+from anograft.review import histogram
 from tests.fixtures import disk_image
 from tests.test_review_session import output_root  # noqa: F401 — 픽스처 재사용
 
@@ -189,7 +189,7 @@ def test_contrast_hint_in_histogram_title(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """대비 분포 제목에 ⚠ 힌트(옅어진 클래스만) — 전체 보기와 그 클래스에서 보이고, 다른 클래스·다른 지표에선 없다."""
-    from anograft.gui.review.session import ReviewSession
+    from anograft.review import ReviewSession
 
     t = ReviewTab()
     t.open_root(output_root)

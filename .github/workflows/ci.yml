@@ -55,6 +55,10 @@ jobs:
           curl -sf http://127.0.0.1:8123/ | grep -q '<div id="root">'
           # 한국어 라벨이 core/help.py 에서 실려 오는지(프론트에 사전 사본을 두지 않는 규약)
           curl -sf http://127.0.0.1:8123/api/methods | grep -q '결함 고르기'
+          # 검수(U3): 열기 전 상태가 오고, 쓰기는 CSRF 헤더 없이는 거부된다
+          curl -sf http://127.0.0.1:8123/api/review/state | grep -q '"open": false'
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8123/api/review/open)
+          test "$code" = 403
 
   build:
     strategy:

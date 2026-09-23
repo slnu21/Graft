@@ -10,9 +10,9 @@ import yaml
 
 from anograft.bank.importers import yolo as Y
 from anograft.cli import EXIT_OK, main
-from anograft.gui.review.session import ReviewError, ReviewSession, histogram
 from anograft.io.manifest import read_manifest
 from anograft.io.prune import PruneError, prune_dataset, read_review, write_review
+from anograft.review import ReviewError, ReviewSession, histogram
 from tests.fixtures import fake_yolo_dataset
 
 
@@ -238,7 +238,7 @@ def test_report_render_and_session_report(output_root: Path, tmp_path: Path) -> 
 def test_contrast_distribution_synthetic_vs_real(output_root: Path) -> None:
     import numpy as np
 
-    from anograft.gui.review.session import DIST_KEYS, mask_contrast
+    from anograft.review import DIST_KEYS, mask_contrast
 
     assert "contrast" in DIST_KEYS
     g = np.full((40, 40), 100, dtype=np.uint8)
@@ -277,7 +277,7 @@ def test_contrast_distribution_synthetic_vs_real(output_root: Path) -> None:
 def test_texture_and_sharpness_distributions(output_root: Path) -> None:
     import numpy as np
 
-    from anograft.gui.review.session import IMAGE_KEYS, mask_sharpness, mask_texture
+    from anograft.review import IMAGE_KEYS, mask_sharpness, mask_texture
 
     assert IMAGE_KEYS == ("contrast", "texture", "sharpness", "lighting")
     flat = np.full((32, 32), 100, dtype=np.uint8)
@@ -309,13 +309,13 @@ def test_lighting_direction_and_concentration(output_root: Path, tmp_path: Path)
     """조명 방향(링에서 밝은 쪽 각도)·일관성 R — KI #5(회전 ±180 이 하이라이트를 뒤집는다)의 검수 근거."""
     import numpy as np
 
-    from anograft.gui.review.session import (
+    from anograft.io.report import lighting_broken_classes, lighting_line
+    from anograft.review import (
         FIXED_RANGE,
         LIGHT_RING_PX,
         circular_concentration,
         mask_lighting,
     )
-    from anograft.io.report import lighting_broken_classes, lighting_line
 
     g = np.full((40, 40), 100, dtype=np.uint8)
     m = np.zeros((40, 40), dtype=np.uint8)
@@ -398,7 +398,7 @@ def test_lighting_direction_and_concentration(output_root: Path, tmp_path: Path)
 def test_flipped_lighting_filter(output_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """0.7.3 — 실제 클래스 방향이 뚜렷할 때(R ≥ 0.5, n ≥ 3) 거기서 > 90° 벗어난 합성 인스턴스 = '조명 뒤집힘 의심' 필터."""
     from anograft.core.appearance import angle_diff, circular_mean
-    from anograft.gui.review.session import FILTERS, IMAGE_KEYS
+    from anograft.review import FILTERS, IMAGE_KEYS
 
     assert circular_mean([]) is None and abs(circular_mean([80, 100]) - 90.0) < 1e-6
     assert abs(circular_mean([170, -170]) - 180.0) < 1e-6  # 경계를 넘어도 평균은 180
