@@ -5,6 +5,7 @@
 ## [Unreleased]
 
 ### Added
+- **anomalib 어댑터(비지도) + (A) 모델 순위 상관**(학습 루프 T2) — `adapters/anomalib_trainer.py`(PatchCore·PaDiM·FastFlow·Cfa·Dfkde·Dfm, 별도 venv): **`trains_on: normal_only`** 를 선언해 **합성 결함이 학습셋에 들어가지 않게** 한다(평가에만). 데이터는 `mvtec` writer 출력의 카테고리 폴더를 그대로 받고, `predict` 는 이상맵 임계 마스크 + 이미지 점수. `tools/bench_model_rank.py` 는 설계 §5 (A) 실험 — 학습 정상과 합성 대상 정상을 **코드가** 가르고(겹치면 낙관 편향), 결함 **k 장/클래스**만 은행에 넣어(그 k 장은 실제 평가에서 제외) 실제·합성 두 순위의 **Spearman ρ** 를 낸다 → `BENCHMARKS.md` §3.
 - **YOLO 학습기 어댑터 + `anograft trainer fit|predict`**(학습 루프 T3) — `adapters/yolo.py`(ultralytics 검출: `fit` = train+val, `predict` = `scores/<stem>.json`, seg 가중치면 `masks/` 까지)를 `trainers.yaml` 에 등록하면 CLI 한 줄로 학습·예측이 나간다. 어댑터는 **별도 venv**(코어는 순수 wheel 그대로)이고 `anograft` 를 import 하지 않는다. 지표는 **평평한 float 맵**(`mAP50` · `mAP50-95` · 클래스별 `mAP50/<class>` · `minutes`), `--spec` 은 불투명하게 등록부 spec 위에 얕게 병합, 어댑터 로그(stderr)는 **줄 단위 실시간**으로 흐른다(학습은 길다).
 - **`tools/train_mvtec_map.py` 가 계약 위로**(T3) — 이제 ultralytics 를 import 하지 않고 `anograft trainer fit --json` 으로 학습을 시킨다(`--trainer` 기본 `yolo` · `--trainers-file`). 표·`results/` 캐시 형식은 그대로라 옛 결과가 계속 읽힌다. **벤치를 돌리는 것이 곧 계약 검증**이고 루프(T10)가 같은 경로를 쓴다.
 
