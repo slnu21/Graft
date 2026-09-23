@@ -1,4 +1,4 @@
-"""``gui/label/session.py`` — Qt 없이 도는 라벨 편집 로직: 스트로크/지우개/폴리곤/자동 선택/팽창·침식 · 되돌리기 왕복 ·
+"""``anograft/labeling.py`` — Qt 없이 도는 라벨 편집 로직: 스트로크/지우개/폴리곤/자동 선택/팽창·침식 · 되돌리기 왕복 ·
 통계 · 은행 저장(임포터와 같은 화폐 — 성분 분리·mask_origin·bank.yaml 병합·기존 은행에 이어 쓰기) · 오류(빈 마스크·빈 클래스)."""
 
 from __future__ import annotations
@@ -9,8 +9,8 @@ import numpy as np
 import pytest
 
 from anograft.bank import Bank
-from anograft.gui.label.session import LabelError, LabelSession
 from anograft.io import imgio
+from anograft.labeling import LabelError, LabelSession
 from tests.fixtures import blob_image, blob_mask, disk_image
 
 
@@ -245,7 +245,7 @@ def test_stats_lighting_direction() -> None:
     """0.7.3 — 마스크 둘레 2 px 링에서 밝은 쪽 각도(검수 탭·bank ls lightR 와 같은 정의). 아래 림이 밝으면 ≈ 90°."""
     import numpy as np
 
-    from anograft.gui.label.session import LabelSession
+    from anograft.labeling import LabelSession
 
     img = np.full((60, 60, 3), 120, dtype=np.uint8)
     img[36:39, 22:38] = 220  # 마스크(24:36) 바로 아래 림
@@ -256,7 +256,7 @@ def test_stats_lighting_direction() -> None:
     s.set_mask(m)
     st = s.stats()
     assert st.lighting_deg is not None and abs(st.lighting_deg - 90.0) < 5
-    from anograft.gui.label.session import lighting_word  # Qt 없는 모듈(CI ubuntu 는 PySide6 없음)
+    from anograft.labeling import lighting_word  # Qt 없는 모듈(CI ubuntu 는 PySide6 없음)
 
     assert lighting_word(90) == "아래" and lighting_word(0) == "오른" and lighting_word(-90) == "위"
     assert (

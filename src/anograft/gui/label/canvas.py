@@ -16,10 +16,10 @@ from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QImage, QKeyEvent, QMouseEvent, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QWidget
 
-from anograft.gui.label.session import LabelError, LabelSession
 from anograft.gui.qt_image import to_qpixmap
 from anograft.gui.studio.canvas import CompareCanvas
 from anograft.gui.theme import COLORS
+from anograft.labeling import LabelError, LabelSession
 
 TOOLS: tuple[str, ...] = ("brush", "eraser", "polygon", "auto", "pan")
 BRUSH_MIN, BRUSH_MAX = 1, 200

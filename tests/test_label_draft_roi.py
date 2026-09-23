@@ -10,7 +10,8 @@ import numpy as np
 import pytest
 
 from anograft.core.roi import roi_from_mask
-from anograft.gui.label.session import (
+from anograft.io import imgio
+from anograft.labeling import (
     LabelError,
     LabelSession,
     find_names_file,
@@ -18,7 +19,6 @@ from anograft.gui.label.session import (
     parse_yolo_draft,
     roi_png_path,
 )
-from anograft.io import imgio
 from tests.fixtures import blob_image, fake_yolo_dataset
 
 # --- 이웃 라벨 찾기 -------------------------------------------------------------

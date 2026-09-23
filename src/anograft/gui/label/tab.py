@@ -51,15 +51,15 @@ from anograft.bank.bank import BANK_FILE, read_bank_meta
 from anograft.bank.mask_from_box import LOW_CONFIDENCE
 from anograft.bank.mask_from_box import METHODS as AUTO_METHODS
 from anograft.gui.label.canvas import LabelCanvas
-from anograft.gui.label.session import (
+from anograft.gui.studio.panels import h4
+from anograft.io import imgio
+from anograft.labeling import (
     LabelError,
     LabelSession,
     find_yolo_label,
     lighting_word,
     roi_png_path,
 )
-from anograft.gui.studio.panels import h4
-from anograft.io import imgio
 
 TOOL_BUTTONS: tuple[tuple[str, str, str], ...] = (
     ("brush", "✎", "브러시 (B) — 왼쪽 드래그로 칠합니다 · Brush"),

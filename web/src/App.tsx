@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 
 import { type Doctor, type Health, type MethodInfo, fetchDoctor, fetchHealth, fetchMethods } from './api'
 import { type StageInfo } from './format'
+import { BankScreen } from './screens/BankScreen'
+import { Label } from './screens/Label'
 import { Review } from './screens/Review'
 import { Start } from './screens/Start'
 import { Soon } from './screens/Soon'
@@ -9,8 +11,8 @@ import { Soon } from './screens/Soon'
 /** 화면 순서 = 목업 v2 의 흐름(①보관함 ②결함 표시 …). U2 는 '시작'만 실물이고 나머지는 자리만 잡아 둔다. */
 const SCREENS = [
   { id: 'start', num: '', label: '시작', ready: true },
-  { id: 'bank', num: '①', label: '결함 보관함', ready: false },
-  { id: 'label', num: '②', label: '결함 표시', ready: false },
+  { id: 'bank', num: '①', label: '결함 보관함', ready: true },
+  { id: 'label', num: '②', label: '결함 표시', ready: true },
   { id: 'studio', num: '③', label: '미리보기', ready: false },
   { id: 'batch', num: '④', label: '일괄 생성', ready: false },
   { id: 'review', num: '⑤', label: '검수', ready: true },
@@ -119,6 +121,10 @@ export function App() {
             />
           ) : screen === 'review' ? (
             <Review />
+          ) : screen === 'bank' ? (
+            <BankScreen />
+          ) : screen === 'label' ? (
+            <Label />
           ) : (
             <Soon label={SCREENS.find((s) => s.id === screen)!.label} />
           )}
