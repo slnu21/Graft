@@ -63,6 +63,9 @@ jobs:
           curl -sf http://127.0.0.1:8123/api/studio/state | grep -q '"open": false'
           code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8123/api/studio/preview)
           test "$code" = 405
+          # 카드 편집(U5b): 쓰기는 CSRF 없이 거부되고, 카드 읽기는 열기 전이라 500(안내 메시지)
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8123/api/studio/field)
+          test "$code" = 403
 
   build:
     strategy:

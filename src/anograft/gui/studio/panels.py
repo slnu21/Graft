@@ -40,29 +40,16 @@ from anograft.gui.qt_image import to_qpixmap
 from anograft.gui.studio.param_form import ParamForm
 from anograft.gui.studio.per_class import PerClassEditor
 from anograft.gui.theme import COLORS
-from anograft.preview import fit_long_side
+from anograft.studio.cards import (  # 카드의 Qt 없는 부분(웹 폼과 공용) — 여기서 다시 쓰지 않는다
+    LONG_SIDES,
+    STAGE_TIPS,
+    STAGE_TITLES,
+    params_text,
+    per_class_text,
+    stage_thumbnail,
+    stage_warnings,
+)
 from anograft.studio.params import baseline_config, field_specs
-
-STAGE_ORDER: tuple[str, ...] = (
-    "source",
-    "geometry",
-    "placement",
-    "blend",
-    "harmonize",
-    "degrade",
-    "gtmask",
-)
-# (스테이지 키, 한국어 제목) — 문안은 core/help.STAGE_HELP 한 원천. 영어·YAML 키는 STAGE_TIPS 툴팁으로
-STAGE_TITLES: tuple[tuple[str, str], ...] = tuple((k, STAGE_HELP[k].label) for k in STAGE_ORDER)
-STAGE_TIPS: dict[str, str] = {
-    k: f"{h.en} · YAML pipeline.{k} — {h.desc}" for k, h in STAGE_HELP.items() if k != "roi"
-}
-LONG_SIDES: tuple[tuple[str, int], ...] = (
-    ("긴 변 1024px", 1024),
-    ("긴 변 768px", 768),
-    ("긴 변 512px", 512),
-    ("원본 해상도", 0),
-)
 
 
 def _compact_combo(combo: QComboBox) -> None:
@@ -400,62 +387,6 @@ class TargetRail(QWidget):
 # ---------------------------------------------------------------------------
 
 
-def params_text(cfg: Any) -> str:
-    """설정 모델 → ``key: v · key: v`` 한 줄(method/policy 제외, 범위는 ``a–b``)."""
-    d = cfg.model_dump(mode="json") if hasattr(cfg, "model_dump") else dict(cfg)
-    parts: list[str] = []
-    for k, v in d.items():
-        if k in ("method", "policy", "roi"):
-            continue
-        if isinstance(v, list) and len(v) == 2 and all(isinstance(x, (int, float)) for x in v):
-            parts.append(f"{k} {v[0]:g}–{v[1]:g}")
-        elif isinstance(v, dict):
-            parts.append(f"{k} " + "/".join(f"{a}={b}" for a, b in v.items()))
-        elif v is None:
-            parts.append(f"{k} –")
-        else:
-            parts.append(f"{k} {v}")
-    return " · ".join(parts)
-
-
-def stage_thumbnail(stage: str, steps: Sequence[TraceStep], size: int = 132) -> np.ndarray | None:
-    """스테이지의 마지막 TraceStep에서 보여 줄 이미지 하나. 결함 루프 단계는 배치 bbox 주변 크롭."""
-    mine = [s for s in steps if s.stage == stage]
-    if not mine:
-        return None
-    ctx = mine[-1].ctx
-    img: np.ndarray | None
-    if stage == "source":
-        img = ctx.source.image if ctx.source is not None else None
-    elif stage == "geometry":
-        img = ctx.patch
-    elif stage == "roi":
-        img = (ctx.roi.astype(np.uint8) * 255) if ctx.roi is not None else None
-    elif stage == "gtmask":
-        img = ctx.gt_mask
-    elif stage == "degrade":
-        img = ctx.composite
-    else:  # placement · blend · harmonize — 배치 bbox 주변 크롭
-        if ctx.placement is None:
-            return None
-        x, y, w, h = ctx.placement.bbox
-        m = 24
-        hh, ww = ctx.composite.shape[:2]
-        img = ctx.composite[max(0, y - m) : min(hh, y + h + m), max(0, x - m) : min(ww, x + w + m)]
-        if stage == "placement" and ctx.placed_mask is not None:
-            img = img.copy()
-            pm = (
-                ctx.placed_mask[
-                    max(0, y - m) : min(hh, y + h + m), max(0, x - m) : min(ww, x + w + m)
-                ]
-                > 0
-            )
-            img[pm] = (img[pm] * 0.5 + np.array([109, 77, 255]) * 0.5).astype(np.uint8)
-    if img is None or img.size == 0:
-        return None
-    return fit_long_side(np.ascontiguousarray(img), size)
-
-
 class StageCard(QFrame):
     """파이프라인 카드 하나 — 헤더(번호·제목·method 콤보) · 썸네일 + 경고/오류 · **파라미터 폼**(스키마에서 자동 생성).
     배치 카드는 하위 스테이지 ROI(자기 method 콤보 + 폼)를 함께 가진다."""
@@ -704,15 +635,8 @@ class StageCard(QFrame):
             self.roi_form.set_error(field if roi else None)
 
     def set_warnings(self, messages: Sequence[str]) -> None:
-        """이 스테이지의 경고만(자기 접두 ``<stage>:`` 는 떼고). ROI 는 배치 카드의 하위 블록이라 ``roi:`` 경고는
-        배치 카드에 접두를 남긴 채 보인다. 비면 숨긴다."""
-        own = f"{self.stage}:"
-        prefixes = (own, "roi:") if self.stage == "placement" else (own,)
-        mine = [
-            (m[len(own) :].strip() if m.startswith(own) else m.strip())
-            for m in messages
-            if m.startswith(prefixes)
-        ]
+        """이 스테이지의 경고만 — 고르는 규칙은 `studio.cards.stage_warnings`(웹 카드와 공용). 비면 숨긴다."""
+        mine = stage_warnings(self.stage, messages)
         if not mine:
             self.notice.set_text(None)
             return
@@ -800,19 +724,3 @@ class PipelinePanel(QScrollArea):
     def stage_warnings(self) -> dict[str, str]:
         """카드에 표시 중인 경고 {stage: text} — 테스트·상태 표시용."""
         return {s: c.note.text() for s, c in self.cards.items() if not c.note.isHidden()}
-
-
-def per_class_text(geo: Any) -> str:
-    """기하 카드 정보 줄 — `geometry.per_class`(카드 폼엔 안 나오는 dict) 를 한 줄로. 없으면 빈 문자열."""
-    per = getattr(geo, "per_class", None) or {}
-    parts = []
-    for cls, o in per.items():
-        bits = []
-        if o.rotate is not None:
-            bits.append(f"회전 {o.rotate[0]:g}~{o.rotate[1]:g}°")
-        if o.flip is not None:
-            bits.append("뒤집기 " + ("켬" if o.flip else "끔"))
-        if o.scale is not None:
-            bits.append(f"크기 {o.scale[0]:g}~{o.scale[1]:g}")
-        parts.append(f"{cls}: {' · '.join(bits) or '(변경 없음)'}")
-    return ("클래스별 예외(per_class) — " + " / ".join(parts)) if parts else ""

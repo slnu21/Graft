@@ -2,7 +2,7 @@
 
 - MainWindow: 탭 5개(ko/en 라벨), 스튜디오가 기본 탭.
 - open_inputs → prepared → 레일 채움 → 변형 N장 결과 → 캔버스에 이미지 → 프리셋 변경 시 워커가 새 파이프라인을 쓴다.
-- qt_image 왕복 바이트 동일 · 캔버스 와이프/줌 · params_text · stage_thumbnail.
+- qt_image 왕복 바이트 동일 · 캔버스 와이프/줌. (Qt 없는 `params_text`·`stage_thumbnail` 은 `test_studio_cards.py`)
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from anograft.bank.importers import yolo as Y
 from anograft.gui.app import TABS, MainWindow
 from anograft.gui.qt_image import from_qimage, to_qimage, to_qpixmap
 from anograft.gui.studio.canvas import CompareCanvas
-from anograft.gui.studio.panels import PipelinePanel, params_text, stage_thumbnail
+from anograft.gui.studio.panels import PipelinePanel
 from anograft.gui.studio.variants import VariantStrip
 from anograft.gui.theme import apply_theme
 from anograft.studio.session import StudioSession, default_recipe
@@ -172,26 +172,6 @@ def test_canvas_wipe_and_zoom(qapp: QApplication) -> None:
     c.set_original_only(img)
     c.clear("x")
     c.grab()
-
-
-def test_params_text_and_stage_thumbnail(qapp: QApplication) -> None:
-    from anograft.core.pipeline import Pipeline
-    from tests.fixtures import disk_target, line_defect, memory_bank, pipeline_deps
-
-    rec = default_recipe()
-    text = params_text(rec.pipeline.geometry)
-    assert "scale 0.8–1.25" in text and "method" not in text and "flip both" in text
-    assert params_text(rec.pipeline.blend).startswith("poisson_mode normal")
-    bank = memory_bank([line_defect(14, 3)])
-    ses = StudioSession(rec)
-    ses.set_stage_field("placement", "margin_px", 4)
-    ses.set_stage_field("roi", "erode_px", 2)
-    pipe = Pipeline.from_recipe(ses.recipe, pipeline_deps(ses.recipe, bank))
-    _r, steps = pipe.run_one_traced(disk_target(96), 0)
-    for stage in ("source", "geometry", "placement", "blend", "harmonize", "degrade", "gtmask"):
-        th = stage_thumbnail(stage, steps, 40)
-        assert th is not None and max(th.shape[:2]) <= 40, stage
-    assert stage_thumbnail("blend", [], 40) is None
 
 
 def test_stage_cards_show_fail_soft_warnings_and_variant_tooltip(qapp: QApplication) -> None:

@@ -18,6 +18,7 @@ const meta = (over: Partial<PreviewMeta> = {}): PreviewMeta => ({
   defects: [{ cls: 'stain', sourceId: 'a1', blend: 'poisson' }],
   instances: [],
   warnings: [],
+  stageWarnings: {},
   lowConfidence: [],
   flipped: [],
   hasGt: true,
