@@ -867,3 +867,273 @@ select:focus-visible {
     max-height: none;
   }
 }
+
+/* ---------- 파이프라인 카드 편집(U5b) ----------
+   새 셀렉터는 전부 `.stage`(카드) 아래로 스코프한다 — 전역 `.row`/`.num` 을 두면 다른 화면이 깨진다
+   (목업에서 전역 `.row .lb` 폭을 바꿨다가 결함 표시 패널 입력이 잘린 적이 있다). */
+.pipe-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 0 2px;
+}
+
+.pipe-head h2 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.chg {
+  padding: 1px 6px;
+  border-radius: 9px;
+  background: var(--panel2);
+  color: var(--teal);
+  font-size: 11px;
+}
+
+.card.stage {
+  padding: 8px 10px 10px;
+}
+
+.card.stage.sub {
+  margin-left: 10px;
+  border-left: 2px solid var(--line2);
+}
+
+.stage-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stage-head h2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 2px;
+  font-size: 12.5px;
+}
+
+.stage-head .no {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--panel2);
+  color: var(--tx3);
+  font-size: 10px;
+  font-style: normal;
+}
+
+.card.stage select.method {
+  width: 100%;
+  margin: 4px 0 6px;
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+  color: var(--tx);
+  font-size: 11.5px;
+}
+
+.stage-thumb {
+  display: block;
+  max-width: 100%;
+  max-height: 96px;
+  margin: 0 auto 6px;
+  border-radius: 3px;
+  background: var(--panel2);
+}
+
+.card.stage .form {
+  display: grid;
+  gap: 3px;
+}
+
+.card.stage .row {
+  display: grid;
+  grid-template-columns: 104px 1fr 18px;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+}
+
+.card.stage .row.bad .in input,
+.card.stage .row.bad .in select {
+  border-color: var(--bad);
+}
+
+.card.stage .row.chg .lb {
+  color: var(--teal);
+}
+
+.card.stage .row label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  color: var(--tx3);
+}
+
+.card.stage .row .lb {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card.stage .row .in {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.card.stage .row .in input[type='range'] {
+  flex: 1;
+  min-width: 40px;
+}
+
+.card.stage .row .in select,
+.card.stage .row .in .text-in {
+  flex: 1;
+  min-width: 0;
+}
+
+.card.stage .num {
+  width: 100%;
+  min-width: 0;
+  padding: 2px 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+  color: var(--tx);
+  font-family: var(--mono);
+  font-size: 11px;
+  text-align: right;
+}
+
+.card.stage .num.bad {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+.card.stage .tilde {
+  color: var(--tx3);
+}
+
+.card.stage .icon-btn.hidden {
+  visibility: hidden;
+}
+
+.card.stage .more {
+  margin-top: 6px;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--tx3);
+  font-size: 11px;
+  text-align: left;
+}
+
+.card.stage .more:hover {
+  color: var(--teal);
+}
+
+.perclass {
+  margin-top: 8px;
+  border-top: 1px solid var(--line);
+  padding-top: 6px;
+}
+
+.pc-row {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 4px;
+  font-size: 11.5px;
+}
+
+.pc-row > label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--tx2);
+}
+
+.pc-in {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 16px;
+}
+
+.pc-in .muted {
+  white-space: nowrap; /* "회전" 이 두 줄로 쪼개지면 표가 흔들린다 */
+}
+
+.pc-in .num {
+  width: 52px;
+}
+
+.pc-in select {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+  color: var(--tx);
+  font-size: 11px;
+}
+
+/* ---------- 시드 변형 그리드(U5b) ---------- */
+.variants {
+  margin-top: 10px;
+}
+
+.vhd {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 11.5px;
+}
+
+.vgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 6px;
+}
+
+.vtile {
+  position: relative;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel2);
+  overflow: hidden;
+}
+
+.vtile img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+}
+
+.vtile span {
+  position: absolute;
+  left: 3px;
+  bottom: 3px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: #000000a8;
+  color: #fff;
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.vtile.on {
+  border-color: var(--teal);
+  box-shadow: 0 0 0 1px var(--teal);
+}

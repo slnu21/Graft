@@ -2,20 +2,31 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
   ApiError,
+  type CardsPayload,
+  type EditResult,
+  type PerClassRow,
   type PresetCard,
   type PreviewMeta,
   type StudioState,
+  fetchCards,
   fetchPresets,
   fetchStudioState,
   openStudio,
   presetImageUrl,
+  resetStage,
   runPreview,
   saveRecipe,
+  setField,
+  setMethod,
+  setPerClass,
   setPreset,
   setSeed,
   studioImageUrl,
   studioThumbUrl,
+  variantImageUrl,
 } from '../api'
+import { StageCards } from '../components/StageCards'
+import { variantKeys } from '../params'
 import {
   cleanSeed,
   scaleNote,
@@ -38,6 +49,13 @@ export function Studio() {
   const [state, setState] = useState<StudioState | null>(null)
   const [meta, setMeta] = useState<PreviewMeta | null>(null)
   const [cards, setCards] = useState<PresetCard[]>([])
+  const [pipe, setPipe] = useState<CardsPayload | null>(null)
+  const [editError, setEditError] = useState<{
+    stage: string
+    name?: string
+    message: string
+  } | null>(null)
+  const [nVariants, setNVariants] = useState(6)
   const [gallery, setGallery] = useState(false)
   /** 이 입력으로 합성이 안 되는 프리셋 — 그림 요청이 404 로 오면 빈 칸을 둔다(fail-soft). */
   const [noThumb, setNoThumb] = useState<string[]>([])
@@ -95,8 +113,38 @@ export function Studio() {
     fetchPresets()
       .then((p) => setCards(p.presets))
       .catch(() => setCards([]))
+    fetchCards()
+      .then(setPipe)
+      .catch(() => setPipe(null))
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 처음 한 번만
   }, [])
+
+  /** 레시피가 바뀌면 카드도 같이 받는다(편집 응답은 둘을 함께 준다 — 왕복을 줄이고 어긋나지 않게). */
+  const applyEdit = useCallback(
+    async (fn: () => Promise<EditResult>) => {
+      try {
+        const r = await fn()
+        setState(r.state)
+        setPipe(r.cards)
+        setSeedText(String(r.state.open ? r.state.recipe.seed : 0))
+        setEditError(null)
+        setMeta(null)
+        await preview()
+      } catch (err) {
+        if (err instanceof ApiError) {
+          // 서버가 어느 행이 틀렸는지 함께 준다 — 그 카드·그 행만 붉게
+          setEditError({
+            stage: err.body.stage ?? '',
+            name: err.body.name,
+            message: err.message,
+          })
+        } else {
+          setError(String(err))
+        }
+      }
+    },
+    [preview],
+  )
 
   const doOpen = async () => {
     setBusy(true)
@@ -110,6 +158,8 @@ export function Studio() {
         setSavePath(s.recipePath || 'recipes/studio.yaml')
       }
       setMessage(null)
+      setPipe(await fetchCards())
+      setEditError(null)
       await preview({ targetIndex: 0 })
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err))
@@ -125,6 +175,8 @@ export function Studio() {
       setState(s)
       if (s.open) setSeedText(String(s.recipe.seed))
       setMeta(null)
+      setEditError(null)
+      setPipe(await fetchCards())
       await preview()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err))
@@ -167,6 +219,15 @@ export function Studio() {
   }, [preview, state])
 
   const version = meta?.version ?? 0
+  // 단계 접두(`<stage>: …`)가 붙은 경고는 그 카드가 받는다 — 여기서는 남은 것만.
+  const staged = new Set(
+    Object.values(meta?.stageWarnings ?? {})
+      .flat()
+      .map((w) => w),
+  )
+  const generalWarnings = [
+    ...new Set(meta?.warnings ?? (state?.open ? state.warnings : [])),
+  ].filter((w) => !staged.has(w) && !/^[a-z_]+:/.test(w))
 
   return (
     <>
@@ -310,6 +371,41 @@ export function Studio() {
               <span className="mono">{statusLine(meta)}</span>
             </div>
             <p className="muted scale-note">{scaleNote(meta)}</p>
+
+            {meta && (
+              <div className="variants">
+                <div className="vhd">
+                  <b>다른 시드로 {nVariants}개</b>
+                  <span className="muted">같은 시드면 언제 돌려도 같은 결과</span>
+                  <span className="spacer" />
+                  <button
+                    className="btn"
+                    onClick={() => setNVariants(nVariants === 6 ? 12 : 6)}
+                    title="한 번에 볼 변형 수"
+                  >
+                    {nVariants === 6 ? '12개로' : '6개로'}
+                  </button>
+                </div>
+                <div className="vgrid">
+                  {variantKeys(nVariants).map((k) => (
+                    <button
+                      key={k}
+                      className={`vtile${k === meta.variant ? ' on' : ''}`}
+                      title={`시드 변형 ${k + 1} — 누르면 크게 봅니다`}
+                      onClick={() => void preview({ variant: k })}
+                    >
+                      <img
+                        src={variantImageUrl(k, version)}
+                        alt=""
+                        loading="lazy"
+                        onError={(e) => (e.currentTarget.style.visibility = 'hidden')}
+                      />
+                      <span>v{k + 1}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </section>
 
           <aside className="studio-side">
@@ -396,23 +492,37 @@ export function Studio() {
               <p className="sub">스페이스로 원본 ↔ 합성 전체 보기</p>
             </section>
 
-            <section className="card">
+            <div className="pipe-head">
               <h2>파이프라인</h2>
-              <p className="sub">단계별 알고리즘 — 값 편집은 다음 단위에서 붙습니다.</p>
-              {state.stages.map((s) => (
-                <div className="stage-row" key={s.stage}>
-                  <span className="name" title={`${s.stage} · ${s.method}`}>
-                    {s.label}
-                  </span>
-                  <span className="methods">{s.methodLabel}</span>
-                </div>
-              ))}
-            </section>
+              <span className="spacer" />
+              {pipe && pipe.modified > 0 && (
+                <span className="chg" title="프리셋에서 바뀐 설정의 수">
+                  프리셋에서 {pipe.modified}곳 바뀜
+                </span>
+              )}
+            </div>
+            {pipe ? (
+              <StageCards
+                cards={pipe}
+                onField={(stage, name, value) => void applyEdit(() => setField(stage, name, value))}
+                onMethod={(stage, method) => void applyEdit(() => setMethod(stage, method))}
+                onReset={(stage, name) => void applyEdit(() => resetStage(stage, name))}
+                onPerClass={(rows: PerClassRow[]) => void applyEdit(() => setPerClass(rows))}
+                error={editError}
+                warningsOf={(stage) => meta?.stageWarnings?.[stage] ?? []}
+                version={meta?.version ?? 0}
+              />
+            ) : (
+              <section className="card">
+                <h2>파이프라인</h2>
+                <p className="sub">설정을 읽는 중…</p>
+              </section>
+            )}
 
-            {(state.warnings.length > 0 || (meta?.warnings.length ?? 0) > 0) && (
+            {generalWarnings.length > 0 && (
               <section className="card">
                 <h2>경고</h2>
-                {[...new Set([...(meta?.warnings ?? state.warnings)])].map((w) => (
+                {generalWarnings.map((w) => (
                   <div className="notice" key={w}>
                     <span>{w}</span>
                   </div>

@@ -26,7 +26,7 @@ import numpy as np
 from anograft import runner
 from anograft.core import recipe as R
 from anograft.core.channels import promote_to_bgr
-from anograft.studio import diagnose, gallery
+from anograft.studio import cards, diagnose, gallery
 from anograft.studio.jobs import (
     KIND_PREVIEW,
     PreviewJob,
@@ -36,11 +36,18 @@ from anograft.studio.jobs import (
     roi_overlay_bgra,
     run_preview,
 )
+from anograft.studio.params import FieldSpec, coerce, spin_step
 from anograft.studio.session import DEFAULT_PRESET, SessionError, StudioSession, default_recipe
 from anograft.web.api import ApiResult, Handler, Request, register
 
 #: 대상 목록 썸네일 긴 변(px) — 목업의 184px 열.
 THUMB_LONG_SIDE = 192
+#: 카드 안 단계별 중간 결과 썸네일(px).
+CARD_THUMB_PX = 132
+#: 시드 변형 그리드 한 칸의 **표시** 크기(px). 합성은 미리보기 축척에서 하고 여기까지 줄인다
+#: — 작은 축척에서 합성하면 줄어든 ROI 에 패치가 못 들어가 "이 시드는 안 나온다"는 거짓말이 된다
+#: (프리셋 썸네일에서 겪은 것과 같은 함정, U5a).
+VARIANT_TILE_PX = 320
 
 _LOCK = threading.Lock()
 _SESSION: StudioSession | None = None
@@ -271,6 +278,7 @@ def _preview_payload(session: StudioSession, res: PreviewResult) -> dict:
     prep = session.prepared
     roi = diagnose.roi_of(res.steps)
     fit = diagnose.fit_for_preview(prep, session.recipe, roi, res.scale, res.target.path.name)
+    warnings = [*session.warnings, *r.warnings, *diagnose.fit_warnings(fit)]
     low = diagnose.low_confidence_sources(prep, r)
     flipped = diagnose.flipped(prep, r)
     h, w = res.target.image.shape[:2]
@@ -295,7 +303,12 @@ def _preview_payload(session: StudioSession, res: PreviewResult) -> dict:
             for i in r.instances
         ],
         # prepare 경고 + 결과의 fail-soft 경고 + 배치 가능성 진단 — Qt 파이프라인 카드가 받는 그 목록.
-        "warnings": [*session.warnings, *r.warnings, *diagnose.fit_warnings(fit)],
+        "warnings": warnings,
+        # 카드별로 나눠 둔 것(U5b) — 고르는 규칙은 `cards.stage_warnings`(Qt 카드와 같다).
+        # `roi:` 는 자기 카드가 없어 배치 카드가 받는다. 프론트가 접두를 다시 해석하지 않게 서버가 나눈다.
+        "stageWarnings": {
+            s: w for s in (*cards.STAGE_ORDER, "roi") if (w := cards.stage_warnings(s, warnings))
+        },
         "lowConfidence": low,
         "flipped": [
             {"n": i + 1, "cls": r.instances[i].cls} for i in flipped if i < len(r.instances)
@@ -378,6 +391,237 @@ def _save(req: Request) -> ApiResult:
     return ApiResult(200, {"path": Path(saved).as_posix(), "runCommand": session.run_command()})
 
 
+# ---------------------------------------------------------------- 파이프라인 카드(U5b)
+
+
+def _field_json(f: FieldSpec) -> dict:
+    """`FieldSpec` 하나 → 폼이 그릴 수 있는 JSON. **라벨·툴팁도 서버가 만든다**(문안의 한 원천은
+    `core/help.py` — 프론트가 라벨 규칙을 다시 쓰면 Qt 폼과 갈린다)."""
+    return {
+        "name": f.name,
+        "kind": f.kind,
+        "value": f.value,
+        "optional": f.optional,
+        "enabled": f.enabled,
+        "choices": list(f.choices),
+        "lo": f.lo,
+        "hi": f.hi,
+        "loOpen": f.lo_open,
+        "hiOpen": f.hi_open,
+        "onDefault": f.on_default,
+        "title": f.title,
+        "tooltip": f.tooltip,
+        "desc": f.desc,
+        "advanced": f.advanced,
+        "baseline": f.baseline if f.has_baseline else None,
+        "hasBaseline": f.has_baseline,
+        "modified": f.modified,
+        "step": spin_step(f),
+        # 좁은 실수 범위(세기 0..1 · 임계 −1..1)는 슬라이더를 함께 — Qt 폼과 같은 규칙
+        "slider": bool(
+            f.kind == "float" and f.lo is not None and f.hi is not None and f.hi - f.lo <= 10.0
+        ),
+    }
+
+
+def _card_json(m: cards.StageCardModel) -> dict:
+    return {
+        "stage": m.stage,
+        "no": m.no,
+        "label": m.label,
+        "tip": m.tip,
+        "method": m.method,
+        "methodLabel": m.method_label,
+        "summary": m.summary,
+        "modified": m.modified,
+        "methods": [
+            {
+                "method": c.method,
+                "label": c.label,
+                "usable": c.usable,
+                "reason": c.reason,
+                "summary": c.summary,
+            }
+            for c in m.methods
+        ],
+        "fields": [_field_json(f) for f in m.fields],
+    }
+
+
+def _per_class_payload(session: StudioSession) -> dict:
+    """기하 카드의 `per_class` 표 — 행은 **은행 클래스 ∪ 레시피에 이미 있는 키**(규칙은 `studio.cards`)."""
+    prep = session.prepared
+    classes = [] if prep is None or session.recipe.bankless else list(prep.bank.classes)
+    rows = cards.per_class_rows(session.recipe.pipeline.geometry, classes)
+    return {
+        "classes": classes,
+        "flipChoices": [{"label": lab, "value": val} for lab, val in cards.FLIP_CHOICES],
+        "rows": [
+            {
+                "cls": r.cls,
+                "on": r.on,
+                "rotate": list(r.rotate),
+                "flip": r.flip,
+                "scale": list(r.scale) if r.scale else None,
+            }
+            for r in rows
+        ],
+        "text": cards.per_class_text(session.recipe.pipeline.geometry),
+    }
+
+
+def _cards_payload(session: StudioSession) -> dict:
+    models = cards.stage_cards(session.recipe)
+    return {
+        "cards": [_card_json(m) for m in models],
+        "perClass": _per_class_payload(session),
+        "longSides": [{"label": lab, "px": px} for lab, px in cards.LONG_SIDES],
+        "modified": sum(m.modified for m in models),
+        "version": _VERSION,
+    }
+
+
+def _cards(_req: Request) -> ApiResult:
+    return ApiResult(200, _cards_payload(_session()))
+
+
+def _spec_for(session: StudioSession, stage: str, name: str) -> FieldSpec | None:
+    return next((f for f in cards.stage_card(session.recipe, stage).fields if f.name == name), None)
+
+
+def _edit_result(session: StudioSession) -> ApiResult:
+    return ApiResult(200, {"state": _state_payload(session), "cards": _cards_payload(session)})
+
+
+def _known_stage(stage: str) -> bool:
+    return stage in {*cards.STAGE_ORDER, "roi"}
+
+
+def _field(req: Request) -> ApiResult:
+    """필드 하나. 값은 **그 필드의 스펙으로 정리**해서(`params.coerce`) 넣는다 — Qt 폼과 같은 변환이다.
+
+    재검증에 실패하면 **이전 레시피를 유지**하고 어느 필드인지 함께 돌려준다(화면이 그 행을 강조한다).
+    """
+    global _PREVIEW
+    session = _session()
+    stage = str(req.json.get("stage", ""))
+    name = str(req.json.get("name", ""))
+    if not _known_stage(stage):
+        return ApiResult(400, {"error": f"모르는 스테이지입니다: {stage}"})
+    spec = _spec_for(session, stage, name)
+    if spec is None:
+        return ApiResult(400, {"error": f"이 알고리즘에 없는 설정입니다: {stage}.{name}"})
+    raw = req.json.get("value")
+    try:
+        value = None if raw is None else coerce(spec, raw)
+    except (TypeError, ValueError) as exc:
+        return ApiResult(
+            400, {"error": f"값을 읽지 못했습니다: {exc}", "stage": stage, "name": name}
+        )
+    try:
+        session.set_stage_field(stage, name, value)
+    except SessionError as exc:
+        return ApiResult(400, {"error": str(exc), "stage": stage, "name": name})
+    _PREVIEW = None
+    return _edit_result(session)
+
+
+def _method(req: Request) -> ApiResult:
+    """스테이지 알고리즘 교체 — 그 블록은 새 method 의 기본값만 남는다(`Recipe.with_method` 규칙)."""
+    global _PREVIEW
+    session = _session()
+    stage = str(req.json.get("stage", ""))
+    method = str(req.json.get("method", ""))
+    if not _known_stage(stage):
+        return ApiResult(400, {"error": f"모르는 스테이지입니다: {stage}"})
+    try:
+        session.set_method(stage, method)
+    except SessionError as exc:
+        return ApiResult(400, {"error": str(exc), "stage": stage})
+    _PREVIEW = None
+    return _edit_result(session)
+
+
+def _reset(req: Request) -> ApiResult:
+    """프리셋 값으로 되돌리기 — 필드 하나(`name`) 또는 그 카드의 바뀐 행 전부. 기준이 없으면 아무것도 안 한다."""
+    global _PREVIEW
+    session = _session()
+    stage = str(req.json.get("stage", ""))
+    if not _known_stage(stage):
+        return ApiResult(400, {"error": f"모르는 스테이지입니다: {stage}"})
+    name = req.json.get("name")
+    fields = cards.stage_card(session.recipe, stage).fields
+    targets = [
+        f for f in fields if f.has_baseline and (f.modified if name is None else f.name == name)
+    ]
+    for f in targets:
+        try:
+            session.set_stage_field(stage, f.name, f.baseline)
+        except SessionError as exc:
+            return ApiResult(400, {"error": str(exc), "stage": stage, "name": f.name})
+    if targets:
+        _PREVIEW = None
+    return _edit_result(session)
+
+
+def _per_class(req: Request) -> ApiResult:
+    """`geometry.per_class` 표 → 레시피. **꺼진 행은 빠지고**(그 클래스는 전체 설정) `scale` 은 보존된다."""
+    global _PREVIEW
+    session = _session()
+    rows = req.json.get("rows")
+    if not isinstance(rows, list):
+        return ApiResult(400, {"error": "클래스별 예외 행 목록이 필요합니다."})
+    try:
+        value = cards.per_class_dict(rows)
+    except (TypeError, ValueError, IndexError, KeyError) as exc:
+        return ApiResult(400, {"error": f"값을 읽지 못했습니다: {exc}"})
+    try:
+        session.set_stage_field("geometry", "per_class", value)
+    except SessionError as exc:
+        return ApiResult(400, {"error": str(exc), "stage": "geometry", "name": "per_class"})
+    _PREVIEW = None
+    return _edit_result(session)
+
+
+def _stage_image(req: Request) -> ApiResult:
+    """단계별 중간 결과 썸네일 — 마지막 미리보기의 추적에서. Qt 카드 썸네일과 **같은 함수**."""
+    res = _PREVIEW
+    if res is None:
+        return ApiResult(404, {"error": "아직 미리보기를 만들지 않았습니다."})
+    image = cards.stage_thumbnail(req.get("stage"), res.steps, req.int_of("size", CARD_THUMB_PX))
+    if image is None:
+        return ApiResult(404, {"error": "이 단계는 보여 줄 중간 결과가 없습니다."})
+    return _png(promote_to_bgr(image))
+
+
+def _variant_image(req: Request) -> ApiResult:
+    """시드 변형 k 한 장(작은 그림) — 캔버스의 마지막 미리보기는 건드리지 않는다.
+
+    `image_rng(seed, k)` 로 **같은 바탕**에 다시 합성한다(CLI `run` 은 바탕도 rng 로 뽑지만 미리보기는
+    사용자가 고른 바탕에 고정한다 — Qt 변형 카드와 같은 규칙).
+    """
+    session = _session()
+    if session.prepared is None or session.target is None:
+        return ApiResult(404, {"error": "바탕 이미지가 준비되지 않았습니다."})
+    from anograft.preview import fit_long_side
+
+    job = PreviewJob(
+        KIND_PREVIEW,
+        session.generation,
+        target=session.target,
+        index=max(0, req.int_of("k", 0)),
+        long_side=session.long_side,
+    )
+    try:
+        res = run_preview(session.prepared, job)
+    except (runner.PrepareError, ValueError, OSError) as exc:
+        return ApiResult(400, {"error": f"미리보기 실패: {exc}"})
+    if res.result.status != "ok":
+        return ApiResult(404, {"error": res.result.reason or "이 시드로는 붙이지 못했습니다."})
+    tile = req.int_of("tile", VARIANT_TILE_PX)
+    return _png(fit_long_side(promote_to_bgr(res.result.image), tile))
+
+
 def _serialized(handler: Handler) -> Handler:
     """`ThreadingHTTPServer` 이므로 세션을 만지는 핸들러는 직렬화한다(`StudioSession` 은 스레드 안전하지 않다)."""
 
@@ -403,4 +647,11 @@ def ensure_registered() -> None:
     register("/api/studio/preset", _serialized(_preset), write=True)
     register("/api/studio/seed", _serialized(_seed), write=True)
     register("/api/studio/save", _serialized(_save), write=True)
+    register("/api/studio/cards", _serialized(_cards))
+    register("/api/studio/stage-image", _serialized(_stage_image))
+    register("/api/studio/variant-image", _serialized(_variant_image))
+    register("/api/studio/field", _serialized(_field), write=True)
+    register("/api/studio/method", _serialized(_method), write=True)
+    register("/api/studio/reset", _serialized(_reset), write=True)
+    register("/api/studio/per-class", _serialized(_per_class), write=True)
     _REGISTERED = True
