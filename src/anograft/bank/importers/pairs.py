@@ -144,10 +144,15 @@ def import_pair_records(
     keep_whole: bool = False,
     um_per_px: float | None = None,
     tags: Sequence[str] = (),
+    mask_origin: str = "png",
     entry: dict[str, Any] | None = None,
     log: Logger | None = None,
 ) -> PairsImportResult:
-    """쌍 목록 → 은행. 쌍 하나가 깨져도 경고 후 계속(fail-soft). ``entry``는 bank.yaml imports 이력에 덧붙일 키."""
+    """쌍 목록 → 은행. 쌍 하나가 깨져도 경고 후 계속(fail-soft). ``entry``는 bank.yaml imports 이력에 덧붙일 키.
+
+    ``mask_origin`` 기본값 ``png`` 는 "사람이 준 정확한 마스크"라는 뜻이다. 모델이 낸 마스크를 넣을 때는
+    ``pred:<학습기>`` 를 준다(루프 T5) — 추정 마스크는 추정이라고 적어야 `bank ls` 의 ``est`` 가 사실이 된다.
+    """
     log = log or (lambda _m: None)
     check_margin(margin)
     writer = BankWriter(out, log=log)
@@ -178,7 +183,7 @@ def import_pair_records(
             cls=pr.cls,
             origin=origin,
             id_hint=pr.id_hint or pr.image.stem,
-            mask_origin="png",
+            mask_origin=mask_origin,
             um_per_px=um_per_px,
             tags=tuple(tags) + tuple(pr.tags),
         )

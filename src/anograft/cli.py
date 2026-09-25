@@ -18,7 +18,7 @@ from pydantic import ValidationError
 
 from anograft import __version__, runner
 from anograft.bank import Bank
-from anograft.bank.bank import BankError
+from anograft.bank.bank import BankError, is_estimated
 from anograft.bank.importers import dataset as dataset_importer
 from anograft.bank.importers import pairs as pairs_importer
 from anograft.bank.importers import yolo as yolo_importer
@@ -32,6 +32,7 @@ from anograft.core.help import method_help
 from anograft.datasets import DatasetError, adapter_names, get_adapter, info_lines
 from anograft.io import imgio
 from anograft.io.targets import load_target
+from anograft.loop.queue import DEFAULT_IOU, DEFAULT_N, DEFAULT_THRESHOLD
 from anograft.preview import (
     crop,
     render_compare,
@@ -551,7 +552,7 @@ def cmd_bank_preview(args: argparse.Namespace) -> int:
         for s in sources
     ]
     imgio.write_image(Path(args.out), render_grid(tiles, cols=args.cols))
-    est = sum(1 for s in sources if s.mask_origin.startswith("yolo-box:"))
+    est = sum(1 for s in sources if is_estimated(s.mask_origin))
     low = sum(1 for s in sources if s.confidence is not None and s.confidence < LOW_CONFIDENCE)
     print(
         f"은행 미리보기: {Path(args.out).as_posix()} — 소스 {len(tiles)}개 (추정 마스크 {est}, 저신뢰 {low} = 빨간 테두리) · "
@@ -836,11 +837,38 @@ def cmd_trainer_fit(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _warn_duplicate_stems(listing: str) -> None:
+    """예측 출력은 ``scores/<stem>.json`` 이라 **같은 이름이 둘이면 덮어쓴다**(계약 §1.4).
+
+    MVTec 처럼 폴더마다 ``000.png`` 가 있는 데이터를 한 목록에 담으면 25장이 5장으로 조용히 줄어든다 —
+    어댑터는 ``count: 25`` 를 돌려주므로 파일을 세어 보기 전에는 드러나지 않는다. 그래서 부르기 전에 경고한다.
+    """
+    try:
+        paths = imgio.read_path_list(listing)
+    except (OSError, ValueError):
+        return  # 폴더를 준 경우 등 — 여기서 판단하지 않는다(어댑터 몫)
+    seen: dict[str, Path] = {}
+    dups: list[tuple[Path, Path]] = []
+    for p in paths:
+        if p.stem in seen:
+            dups.append((seen[p.stem], p))
+        else:
+            seen[p.stem] = p
+    if dups:
+        a, b = dups[0]
+        _err(
+            f"경고: 목록에 같은 이름의 이미지가 {len(dups)}쌍 있습니다(예: {a} + {b}) — "
+            f"예측은 이름(stem)으로 저장되므로 {len(paths)}장이 {len(seen)}장으로 덮어써집니다. "
+            "이름을 구분해 복사한 뒤 목록을 만드세요."
+        )
+
+
 def cmd_trainer_predict(args: argparse.Namespace) -> int:
     """등록된 학습기를 계약대로 부른다 — ``predict``. 출력은 ``bank import-*`` 가 그대로 받는 형식."""
     from anograft.loop.contract import DEFAULT_TIMEOUT_S, TrainerError, merge_spec, predict
     from anograft.loop.registry import resolve_cwd
 
+    _warn_duplicate_stems(args.images)
     try:
         found = _trainer_spec(args)
         if found is None:
@@ -871,6 +899,161 @@ def cmd_trainer_predict(args: argparse.Namespace) -> int:
         print(f"예측 {result.count}장 → {result.predictions}")
         print(
             "  masks/ 는 bank import-pairs · scores/ 의 instances 는 bank import-yolo 로 들어갑니다"
+        )
+    return EXIT_OK
+
+
+def _review_mix(spec: str | None):
+    """``--mix 0.6,0.2,0.2`` → ``ReviewMix``. 비율의 합은 자유(정규화한다)."""
+    from anograft.loop.policy import ReviewMix
+
+    if not spec:
+        return None
+    parts = [p.strip() for p in spec.split(",") if p.strip()]
+    if len(parts) != 3:
+        raise ValueError(f"--mix 는 '경계,확신,무작위' 세 값입니다: {spec!r}")
+    try:
+        b, c, r = (float(p) for p in parts)
+    except ValueError as exc:
+        raise ValueError(f"--mix 값이 숫자가 아닙니다: {spec!r}") from exc
+    return ReviewMix(boundary=b, confident=c, random=r)
+
+
+def cmd_loop_queue(args: argparse.Namespace) -> int:
+    """예측 → **검토 대기 폴더**(검수 화면이 그대로 여는 형식). 루프 T5.
+
+    불일치(예측 폴더를 둘 주면) → 경계 → 확신 → 무작위 순으로 담고, 원본 이미지·예측 마스크 사본과
+    사이드카를 함께 남긴다. 판정은 검수 화면에서, 되돌리기는 ``loop accept`` 에서.
+    """
+    from anograft.core.seeds import split_rng
+    from anograft.io.targets import TargetsError, list_targets
+    from anograft.loop.queue import (
+        QueueError,
+        build_queue,
+        index_images,
+        read_predictions,
+        select_queue,
+    )
+
+    try:
+        mix = _review_mix(args.mix)
+        preds = read_predictions(args.pred)
+        other = read_predictions(args.pred_b) if args.pred_b else None
+        images, dup_warnings = index_images(list_targets(args.images))
+    except (QueueError, TargetsError, ValueError, OSError) as exc:
+        _err(f"오류: {exc}")
+        return EXIT_RECIPE_ERROR
+
+    for w in preds.warnings + (other.warnings if other else []) + dup_warnings:
+        _err(f"  경고: {w}")
+
+    items = select_queue(
+        preds,
+        other,
+        threshold=args.threshold,
+        n=args.n,
+        mix=mix,
+        iou_thresh=args.iou,
+        rng=split_rng(args.seed),
+    )
+    if not items:
+        _err("검토 대기로 고를 예측이 없습니다.")
+        return EXIT_RECIPE_ERROR
+    try:
+        summary = build_queue(
+            items,
+            preds,
+            images,
+            args.out,
+            threshold=args.threshold,
+            trainer=args.trainer or "",
+            round_no=args.round,
+            pred_b=Path(args.pred_b) if args.pred_b else None,
+        )
+    except (QueueError, OSError) as exc:
+        _err(f"오류: {exc}")
+        return EXIT_RECIPE_ERROR
+
+    for w in summary.warnings:
+        _err(f"  경고: {w}")
+    reasons = summary.reasons()
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "out": str(summary.out),
+                    "count": len(summary.written),
+                    "reasons": reasons,
+                    "withoutMask": summary.without_mask,
+                    "missingImage": summary.missing_image,
+                },
+                ensure_ascii=False,
+            )
+        )
+        return EXIT_OK
+
+    out = Path(summary.out)
+    print(f"검토 대기 {len(summary.written)}장 → {out.as_posix()}")
+    if reasons:
+        print("  사유: " + " · ".join(f"{k} {v}" for k, v in reasons.items()))
+    if summary.without_mask:
+        print(
+            f"  마스크 없음 {len(summary.without_mask)}장 — 채택해도 결함 표시 화면에서 그려야 은행에 들어갑니다"
+        )
+    print(f"  검수 화면에서 열기: anograft serve → 검수 · 폴더 {out.as_posix()}")
+    print(f"  판정 뒤: anograft loop accept {out.as_posix()} --bank <결함 보관함>")
+    return EXIT_OK
+
+
+def cmd_loop_accept(args: argparse.Namespace) -> int:
+    """검토가 끝난 큐의 **채택분만** 결함 보관함으로 — 임포터 공통 처리를 그대로 탄다(루프 T5)."""
+    from anograft.loop.queue import QueueError, accept_to_bank
+
+    try:
+        summary = accept_to_bank(
+            args.queue,
+            args.bank,
+            cls=args.cls,
+            tags=_split_csv(args.tags),
+            round_no=args.round,
+            keep_whole=args.keep_whole,
+            min_area=args.min_area,
+            margin=args.margin,
+            um_per_px=args.um_per_px,
+            log=(lambda m: _err(f"  {m}")) if args.verbose else None,
+        )
+    except (QueueError, BankError, OSError, ValueError) as exc:
+        _err(f"오류: {exc}")
+        return EXIT_RECIPE_ERROR
+
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "bank": str(summary.bank),
+                    "accepted": summary.accepted,
+                    "imported": summary.imported,
+                    "perClass": summary.per_class,
+                    "noMask": summary.no_mask,
+                    "heldOut": summary.held_out,
+                },
+                ensure_ascii=False,
+            )
+        )
+        return EXIT_OK
+
+    print(
+        f"채택 {summary.accepted}장 → 결함 조각 {summary.imported}개: {Path(summary.bank).as_posix()}"
+    )
+    if summary.per_class:
+        print("  클래스별: " + " · ".join(f"{k} {v}" for k, v in sorted(summary.per_class.items())))
+    for w in summary.warnings:
+        _err(f"  경고: {w}")
+    if summary.held_out:
+        _err(f"  평가셋이라 뺀 것 {len(summary.held_out)}장 (holdout.txt)")
+    if summary.imported:
+        print(
+            "  마스크는 모델 초안입니다(mask_origin pred:*) — 결함 표시 화면에서 다듬으면 manual:* 이 됩니다"
         )
     return EXIT_OK
 
@@ -1514,6 +1697,66 @@ def build_parser() -> argparse.ArgumentParser:
     tp.add_argument("--file", help="trainers.yaml 경로")
     tp.add_argument("--json", action="store_true")
     tp.set_defaults(func=cmd_trainer_predict)
+
+    p = sub.add_parser(
+        "loop",
+        help="학습 루프 — 예측에서 검토 대기 목록을 만들고, 판정된 것을 결함 보관함으로 (v1.x)",
+    )
+    lsub = p.add_subparsers(dest="loop_cmd", required=True)
+    lq = lsub.add_parser(
+        "queue",
+        help="예측 → 검토 대기 폴더(검수 화면이 그대로 연다)",
+        description="불일치 → 경계 → 확신 → 무작위 순으로 담습니다. 예측 폴더를 둘 주면 두 모델이 "
+        "어긋난 것이 맨 앞에 옵니다(오류가 독립이라 정보량이 가장 많습니다).",
+    )
+    lq.add_argument(
+        "--pred", required=True, help="예측 폴더(trainer predict 출력 — scores/·masks/)"
+    )
+    lq.add_argument("--pred-b", help="교차 검증할 다른 모델의 예측 폴더(불일치 우선)")
+    lq.add_argument("--images", required=True, help="예측에 쓴 이미지 폴더 또는 목록 .txt")
+    lq.add_argument("--out", required=True, help="검토 대기 폴더(비어 있어야 한다)")
+    lq.add_argument("-n", type=int, default=DEFAULT_N, help=f"사람이 볼 장수 (기본 {DEFAULT_N})")
+    lq.add_argument(
+        "--threshold",
+        type=float,
+        default=DEFAULT_THRESHOLD,
+        help="운영 임계값 — 이 근처가 '경계'",
+    )
+    lq.add_argument("--mix", help="경계,확신,무작위 비율 (기본 0.6,0.2,0.2)")
+    lq.add_argument(
+        "--iou",
+        type=float,
+        default=DEFAULT_IOU,
+        help=f"두 예측을 같은 검출로 볼 IoU (기본 {DEFAULT_IOU})",
+    )
+    lq.add_argument("--seed", type=int, default=0, help="무작위 몫의 시드")
+    lq.add_argument("--trainer", help="예측을 만든 학습기 이름(사이드카·mask_origin 에 남는다)")
+    lq.add_argument("--round", type=int, help="라운드 번호(태그 round-n 으로 붙는다)")
+    lq.add_argument("--json", action="store_true", help="결과를 JSON 한 줄로")
+    lq.set_defaults(func=cmd_loop_queue)
+
+    la = lsub.add_parser(
+        "accept",
+        help="판정된 검토 대기 폴더의 채택분 → 결함 보관함",
+        description="review.csv 가 채택(accept)한 것만 넣습니다. 마스크는 모델 초안이라 "
+        "mask_origin 이 pred:<학습기> 이고, 평가셋(holdout.txt)은 보관함이 거부합니다.",
+    )
+    la.add_argument("queue", help="검토 대기 폴더")
+    la.add_argument("--bank", required=True, help="결함 보관함 폴더(없으면 만든다)")
+    la.add_argument("--class", dest="cls", help="클래스 이름 고정(기본: 예측 클래스)")
+    la.add_argument("--tags", help="추가 태그 (쉼표 구분)")
+    la.add_argument("--round", type=int, help="라운드 번호(태그 round-n · 큐 사이드카보다 우선)")
+    la.add_argument("--margin", type=int, help=f"크롭 여유 px (기본 {DEFAULT_MARGIN})")
+    la.add_argument("--min-area", type=int, help=f"최소 면적 px (기본 {DEFAULT_MIN_AREA})")
+    la.add_argument(
+        "--keep-whole",
+        action="store_true",
+        help="마스크를 성분으로 쪼개지 않고 통째로 하나의 조각으로",
+    )
+    la.add_argument("--um-per-px", type=float, help="픽셀 피치(µm/px)")
+    la.add_argument("--json", action="store_true")
+    la.add_argument("--verbose", action="store_true")
+    la.set_defaults(func=cmd_loop_accept)
 
     p = sub.add_parser(
         "sample",

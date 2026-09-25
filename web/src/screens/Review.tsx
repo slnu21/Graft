@@ -203,7 +203,7 @@ export function Review() {
           <aside className="review-side">
             <section className="card">
               <h2>고르기</h2>
-              <p className="sub">{countsText(state.counts)}</p>
+              <p className="sub">{countsText(state.counts, state.okLabel)}</p>
               <label className="field">
                 <span>필터</span>
                 <select value={filter} onChange={(e) => setFilter(e.target.value)}>
@@ -229,12 +229,12 @@ export function Review() {
                 <i style={{ width: `${done * 100}%` }} />
               </div>
               <p className="sub" style={{ margin: '6px 0 0' }}>
-                합성 {judgeable(items).length}장 중 {judgeable(items).filter((i) => i.verdict).length}
-                장 판정
+                {state.okLabel} {judgeable(items).length}장 중{' '}
+                {judgeable(items).filter((i) => i.verdict).length}장 판정
               </p>
             </section>
 
-            {hist && (
+            {hist && !state.isQueue && (
               <section className="card">
                 <h2>분포</h2>
                 <p className="sub">합성과 실제를 같은 구간에서 셉니다.</p>

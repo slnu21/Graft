@@ -20,6 +20,9 @@ from pathlib import Path
 from anograft.io.manifest import MANIFEST_FILE, read_manifest, write_manifest
 
 REVIEW_FILE = "review.csv"
+#: 루프의 검토 대기 폴더만 가지는 표식(`loop/queue.py` 가 쓴다) — 검수 화면이 "합성"과
+#: "검토 대기"를 가르는 데 쓴다. 이름의 한 원천을 여기 둔다(`review.csv` 와 같은 폴더에 산다).
+QUEUE_FILE = "queue.csv"
 VERDICTS: tuple[str, ...] = ("accept", "reject", "")
 COPY_AS_IS: tuple[str, ...] = ("recipe.resolved.yaml", "data.yaml")
 
@@ -136,6 +139,7 @@ def prune_dataset(
             kept_images.add(Path(r["image"]).name)
     out.mkdir(parents=True, exist_ok=True)
     write_manifest(out / MANIFEST_FILE, kept_rows)
+    _filter_queue_csv(root, out, {str(r.get("index", "")) for r in kept_rows}, summary)
     for name in COPY_AS_IS:
         if (root / name).is_file():
             _copy(root, out, name, summary)
@@ -155,3 +159,27 @@ def prune_dataset(
     if review:
         write_review(out / REVIEW_FILE, {k: v for k, v in review.items() if v[0] != "reject"})
     return summary
+
+
+def _filter_queue_csv(root: Path, out: Path, kept: set[str], summary: PruneSummary) -> None:
+    """검토 대기 표식(``queue.csv``)도 **남긴 행만** 옮긴다.
+
+    안 옮기면 정리본이 자기를 다시 "합성"이라 부르고(표식이 없으니까), 그대로 복사하면 반려한 항목의
+    사유가 남아 목록과 어긋난다. 열 구성은 쓴 쪽(`loop/queue.py`)이 정하므로 그대로 따른다.
+    """
+    src = root / QUEUE_FILE
+    if not src.is_file():
+        return
+    with src.open("r", encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        fields = list(reader.fieldnames or [])
+        rows = [r for r in reader if str(r.get("index", "")) in kept]
+    if not fields:
+        return
+    out.mkdir(parents=True, exist_ok=True)
+    with (out / QUEUE_FILE).open("w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
+        w.writeheader()
+        for r in rows:
+            w.writerow(r)
+    summary.files += 1

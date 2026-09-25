@@ -39,6 +39,14 @@ META_SUFFIX = ".json"
 IMAGE_SUFFIX = ".png"
 
 ESTIMATED_PREFIX = "yolo-box:"  # 이 접두사의 mask_origin은 추정 마스크
+#: 추정 마스크의 ``mask_origin`` 접두사 — YOLO 박스에서 푸른 것과 **모델이 낸 것**(루프 T5).
+#: 사람이 그렸거나(``png``·``manual:*``) 폴리곤 라벨(``yolo-polygon``)은 추정이 아니다.
+ESTIMATED_PREFIXES: tuple[str, ...] = (ESTIMATED_PREFIX, "pred:")
+
+
+def is_estimated(mask_origin: str) -> bool:
+    """추정 마스크인가 — 판정을 한 곳에 둔다(`bank ls` · `bank preview` · 보관함 타일이 같은 답을 내야 한다)."""
+    return mask_origin.startswith(ESTIMATED_PREFIXES)
 
 
 class BankError(RuntimeError):
@@ -54,7 +62,7 @@ class ClassSummary:
     count: int
     area_median: float
     exact: int  # mask_origin이 png/yolo-polygon
-    estimated: int  # mask_origin이 yolo-box:*
+    estimated: int  # mask_origin이 추정(yolo-box:* · pred:*)
     origins: Mapping[str, int]
     no_pitch: int = 0  # um_per_px 미지정(은행 기본값도 없음) — 축척 정합에서 빠지는 소스
     tags: Mapping[str, int] = field(default_factory=dict)  # 태그별 소스 수
@@ -140,7 +148,7 @@ class Bank:
                 origins[s.mask_origin] = origins.get(s.mask_origin, 0) + 1
                 for t in s.tags:
                     tags[t] = tags.get(t, 0) + 1
-            est = sum(n for o, n in origins.items() if o.startswith(ESTIMATED_PREFIX))
+            est = sum(n for o, n in origins.items() if is_estimated(o))
             light_r, light_n, light_dir = lighting_stats([(s.image, s.mask) for s in srcs])
             out.append(
                 ClassSummary(

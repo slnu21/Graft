@@ -6,6 +6,8 @@
   ``recipe.resolved.yaml`` 의 ``inputs.bank`` 를 cwd 기준으로 열어 보고, 없으면 실제 분포 없이(fail-soft).
   ``histogram(values_a, values_b, bins)`` 는 두 계열을 **같은 로그 구간**으로 세는 순수 함수 — 위젯이 막대만 그린다.
 - ``prune(out, drop_unreviewed)`` → ``io.prune.prune_dataset``.
+- 루프의 **검토 대기 폴더**(`loop queue` 산출물, `queue.csv` 표식)도 같은 세션이 그대로 열는다 — 항목이 합성이
+  아니라 현장 사진 + 모델 초안이라 ``is_queue`` 일 때 요약 문구만 "검토 대기"로 바뀜다(계산·API 불변).
 """
 
 from __future__ import annotations
@@ -45,6 +47,7 @@ from anograft.core.types import DefectSource
 from anograft.io import imgio
 from anograft.io.manifest import MANIFEST_FILE, read_manifest
 from anograft.io.prune import (
+    QUEUE_FILE,
     REVIEW_FILE,
     VERDICTS,
     PruneSummary,
@@ -182,6 +185,9 @@ class ReviewSession:
         self.real_csv: Path | None = None  # 실측 CSV(있으면 그 열들은 은행 대신)
         self.real_rows: list[dict[str, Any]] = []
         self.warnings: list[str] = []
+        #: 루프의 **검토 대기** 폴더인가(`queue.csv` 표식) — 같은 화면을 쓰지만 항목은 합성이 아니라
+        #: **현장 사진 + 모델 초안**이라 요약 문구가 "합성 12" 라고 말하면 거짓말이 된다.
+        self.is_queue = False
         self.dirty = False
 
     # ------------------------------------------------------------------ 열기
@@ -196,6 +202,7 @@ class ReviewSession:
             raise ReviewError(f"출력 폴더가 아닙니다 ({MANIFEST_FILE} 없음): {r}")
         self.root = r
         self.warnings = []
+        self.is_queue = (r / QUEUE_FILE).is_file()
         try:
             self.review = read_review(r / REVIEW_FILE)
         except ValueError as e:
@@ -308,12 +315,21 @@ class ReviewSession:
             "fallback": sum(1 for it in ok if it.fallback),
         }
 
+    def ok_label(self) -> str:
+        """``status == "ok"`` 행을 무엇이라 부를것인가 — **라벨의 한 원천**.
+
+        합성 출력 폴더면 "합성", 루프의 검토 대기 폴더면 "검토 대기". Qt 탭과 웹이 같은 단어를 쓴다
+        (프론트에 사본을 두면 둘이 갈린다 — 용어 사전 §3.6).
+        """
+        return "검토 대기" if self.is_queue else "합성"
+
     def summary_text(self) -> str:
         if self.root is None:
             return "출력 폴더 없음"
         c = self.counts()
+        what = self.ok_label()
         return (
-            f"{self.root.name}: 합성 {c['ok']} · 정상 {c['normal']} · 건너뜀 {c['skipped']} — "
+            f"{self.root.name}: {what} {c['ok']} · 정상 {c['normal']} · 건너뜀 {c['skipped']} — "
             f"채택 {c['accept']} · 반려 {c['reject']} · 미검수 {c['unreviewed']}"
             + (f" · 대체 처리 {c['fallback']}" if c["fallback"] else "")
         )

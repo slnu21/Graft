@@ -102,6 +102,9 @@ def _state_payload(session: ReviewSession) -> dict:
         "summary": session.summary_text(),
         "counts": counts,
         "classes": session.classes(),
+        # 이 폴더가 합성인가 검토 대기인가 — 화면은 이 라벨로 세기만 한다(분포 비교는 합성 전용이라 큐에선 감춘다)
+        "isQueue": session.is_queue,
+        "okLabel": session.ok_label(),
         # 라벨까지 함께 — 프론트에 용어 사본을 두지 않는다(사전 §3.6)
         "filters": [{"id": f, "label": FILTER_LABELS.get(f, f)} for f in FILTERS],
         "contrastHints": hints,

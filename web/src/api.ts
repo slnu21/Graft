@@ -111,6 +111,10 @@ export type ReviewState =
       summary: string
       counts: Record<string, number>
       classes: string[]
+      /** 루프의 검토 대기 폴더인가 — 분포 비교(합성 vs 은행 실제)는 그때 의미가 없다. */
+      isQueue: boolean
+      /** `status === 'ok'` 행을 부르는 이름(합성 / 검토 대기) — **서버가 준다**. */
+      okLabel: string
       filters: FilterOption[]
       contrastHints: ContrastHint[]
       directional: string[]
