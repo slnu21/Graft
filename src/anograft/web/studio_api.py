@@ -23,7 +23,7 @@ from typing import Any
 
 import numpy as np
 
-from anograft import runner
+from anograft import recent, runner
 from anograft.core import recipe as R
 from anograft.core.channels import promote_to_bgr
 from anograft.studio import cards, diagnose, gallery
@@ -270,6 +270,10 @@ def _open(req: Request) -> ApiResult:
         _SESSION = session
         _PREVIEW = None
         _THUMBS.clear()
+    if recipe_path:
+        recent.remember("recipe", recipe_path)
+    if bank:
+        recent.remember("bank", bank)
     return ApiResult(200, _state_payload(session))
 
 
@@ -388,7 +392,44 @@ def _save(req: Request) -> ApiResult:
         saved = session.save(path)
     except OSError as exc:
         return ApiResult(400, {"error": f"레시피를 저장하지 못했습니다: {exc}"})
+    recent.remember("recipe", Path(saved).as_posix())
     return ApiResult(200, {"path": Path(saved).as_posix(), "runCommand": session.run_command()})
+
+
+def _to_batch(req: Request) -> ApiResult:
+    """③ → ④ "일괄 생성으로 보내기" — **저장하고** 넘긴다 (U7).
+
+    Qt 는 ``Recipe`` 객체를 그대로 탭에 넘기지만(파일이 없어도 된다), 웹에서는 한 번 저장한다.
+    이유는 화면 밖에 있다: 일괄 생성 화면이 보여 주는 CLI 한 줄(``anograft run <레시피>``)을
+    사람이 나중에 그대로 돌리고, 사이드카의 ``pipeline_hash`` 로 "같은 합성인가"를 대조한다 —
+    저장하지 않으면 그 한 줄이 없는 파일을 가리키는 거짓말이 된다.
+
+    경로는 주면 그곳, 안 주면 열었던 레시피 자리. 둘 다 없으면 어디에 둘지 사람이 정해야 한다.
+    """
+    from anograft.batch import BatchError
+    from anograft.web import batch_api
+
+    session = _session()
+    path = str(req.json.get("path", "")).strip() or (
+        session.recipe_path.as_posix() if session.recipe_path else ""
+    )
+    if not path:
+        return ApiResult(400, {"error": "레시피를 저장할 경로가 필요합니다."})
+    try:
+        saved = session.save(path)
+    except OSError as exc:
+        return ApiResult(400, {"error": f"레시피를 저장하지 못했습니다: {exc}"})
+    recent.remember("recipe", Path(saved).as_posix())
+    try:
+        # 파일을 다시 읽지 않고 **메모리의 레시피**를 넘긴다 — 방금 쓴 것과 같은 객체라
+        # 경로 해석(`resolve_recipe_paths`)을 한 번 더 태워 어긋날 일이 없다.
+        state = batch_api.adopt(session.recipe, Path(saved))
+    except BatchError as exc:  # 돌고 있는 중이면 거절 — 설정을 발밑에서 바꾸지 않는다
+        return ApiResult(409, {"error": str(exc)})
+    return ApiResult(
+        200,
+        {"path": Path(saved).as_posix(), "runCommand": session.run_command(), "batch": state},
+    )
 
 
 # ---------------------------------------------------------------- 파이프라인 카드(U5b)
@@ -647,6 +688,7 @@ def ensure_registered() -> None:
     register("/api/studio/preset", _serialized(_preset), write=True)
     register("/api/studio/seed", _serialized(_seed), write=True)
     register("/api/studio/save", _serialized(_save), write=True)
+    register("/api/studio/to-batch", _serialized(_to_batch), write=True)
     register("/api/studio/cards", _serialized(_cards))
     register("/api/studio/stage-image", _serialized(_stage_image))
     register("/api/studio/variant-image", _serialized(_variant_image))

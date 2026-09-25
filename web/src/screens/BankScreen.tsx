@@ -6,17 +6,22 @@ import {
   type BankState,
   bankImageUrl,
   deleteBankSources,
+  editBankSource,
   fetchBankSources,
   fetchBankState,
   openBank,
 } from '../api'
 import { SORT_LABELS, bankCountsText, confidenceText, toggleId } from '../bank'
+import { PathField } from '../components/PathField'
 
 /**
  * 결함 보관함 — 모아 둔 결함 조각을 훑고, 못 쓸 것을 지운다.
  *
  * U3 검수 화면과 같은 뼈대(좌측 고르기 + 그리드 + 상세)를 쓴다. 다른 점 둘:
  * 여러 개를 **함께 고를 수 있고**(일괄 삭제), 타일을 캐시하지 않는다(마스크를 다듬으면 그림이 바뀐다).
+ *
+ * "다듬기"(U7)는 그 조각을 ② 결함 표시로 넘긴다 — 서버가 조각을 라벨 세션에 올려 두므로 화면은
+ * 그 화면으로 옮겨 가기만 한다. 거기서 저장하면 `BankWriter.replace_mask` 로 **같은 id 를 덮어쓴다**.
  */
 export function BankScreen() {
   const [state, setState] = useState<BankState | null>(null)
@@ -30,6 +35,7 @@ export function BankScreen() {
   const [text, setText] = useState('')
   const [picked, setPicked] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
+  const [recentKey, setRecentKey] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
 
@@ -68,6 +74,7 @@ export function BankScreen() {
     try {
       setState(await openBank(root.trim()))
       setMessage(null)
+      setRecentKey((k) => k + 1)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err))
     } finally {
@@ -93,6 +100,21 @@ export function BankScreen() {
     }
   }
 
+  /** ① → ②: 이 조각을 결함 표시 화면에서 연다. 저장하면 같은 id 를 덮어쓴다(새 조각이 생기지 않는다). */
+  const doEdit = async (id: string) => {
+    if (!open) return
+    setBusy(true)
+    setError(null)
+    try {
+      await editBankSource(state.root, id)
+      location.hash = '#/label'
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const detail = useMemo(
     () => (picked.length === 1 ? rows.find((r) => r.id === picked[0]) : undefined),
     [picked, rows],
@@ -107,13 +129,14 @@ export function BankScreen() {
 
       <div className="openbar">
         <label htmlFor="bank-root">보관함 폴더</label>
-        <input
+        <PathField
           id="bank-root"
+          kind="bank"
           value={root}
-          spellCheck={false}
+          onChange={setRoot}
+          onEnter={() => void doOpen()}
           placeholder="예: bank/metal_nut"
-          onChange={(e) => setRoot(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && void doOpen()}
+          reloadKey={recentKey}
         />
         <button className="btn primary" onClick={() => void doOpen()} disabled={busy || !root.trim()}>
           {busy ? '여는 중…' : '열기'}
@@ -237,6 +260,16 @@ export function BankScreen() {
                   모두 고르기
                 </button>
               </div>
+              <button
+                className="btn primary"
+                style={{ marginTop: 6 }}
+                disabled={picked.length !== 1 || busy}
+                title="결함 표시 화면에서 이 조각의 마스크를 고쳐 같은 자리에 덮어씁니다"
+                onClick={() => void doEdit(picked[0])}
+              >
+                다듬기 →
+              </button>
+              {picked.length > 1 && <p className="sub">다듬기는 한 번에 한 조각씩입니다.</p>}
             </section>
           </aside>
 
@@ -276,6 +309,14 @@ export function BankScreen() {
                       <span>{detail.flags.join(' · ')}</span>
                     </div>
                   )}
+                  <button
+                    className="btn primary"
+                    style={{ marginTop: 10 }}
+                    disabled={busy}
+                    onClick={() => void doEdit(detail.id)}
+                  >
+                    결함 표시에서 다듬기 →
+                  </button>
                 </div>
               </div>
             )}

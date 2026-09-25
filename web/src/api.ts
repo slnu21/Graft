@@ -255,6 +255,8 @@ export const bankImageUrl = (id: string, kind: 'tile' | 'detail' | 'mask' = 'til
 
 import type { LabelStats } from './label'
 
+export type EditTarget = { root: string; id: string }
+
 export type LabelState =
   | { open: false }
   | {
@@ -265,12 +267,26 @@ export type LabelState =
       canUndo: boolean
       canRedo: boolean
       stats: LabelStats
+      /** 보관함 조각을 다듬는 중이면 그 대상 — 저장이 "새 조각"이 아니라 "갱신"이 된다(U7). */
+      editTarget: EditTarget | null
+      /** `edit-source` 응답에만 있는 그 조각의 클래스. */
+      cls?: string
     }
 
 export type SaveResult = {
   added: { id: string; cls: string; areaPx: number }[]
   warnings: string[]
   bank: string
+  /** 보관함 화면이 지금 이 보관함을 보고 있는가 — 서버가 이미 갱신해 두었다는 뜻(U7). */
+  bankShown: boolean
+}
+
+export type UpdateSourceResult = {
+  id: string
+  bank: string
+  tool: string
+  state: LabelState
+  bankState: BankState
 }
 
 export const fetchLabelState = () => get<LabelState>('/api/label/state')
@@ -287,6 +303,10 @@ export const undoLabel = (redo = false) => post<LabelState>('/api/label/undo', {
 export const clearMask = () => post<LabelState>('/api/label/clear', {})
 export const saveToBank = (bank: string, cls: string, tags: string[] = [], umPerPx?: number) =>
   post<SaveResult>('/api/label/save', { bank, cls, tags, umPerPx })
+/** ① → ②: 보관함 조각의 사진·마스크를 연다. 저장은 `updateBankSource` 로 같은 id 를 덮어쓴다. */
+export const editBankSource = (root: string, id: string) =>
+  post<LabelState>('/api/label/edit-source', { root, id })
+export const updateBankSource = () => post<UpdateSourceResult>('/api/label/update-source', {})
 
 /** 마스크는 그릴 때마다 바뀐다 — `v` 로 캐시를 깬다. */
 export const labelImageUrl = (kind: 'base' | 'mask' | 'overlay', v = 0) =>
@@ -396,6 +416,9 @@ export const runPreview = (
 
 export const setPreset = (name: string) => post<StudioState>('/api/studio/preset', { name })
 export const setSeed = (seed: number) => post<StudioState>('/api/studio/seed', { seed })
+/** ③ → ④: 레시피를 저장하고 일괄 생성 세션이 그대로 받는다(U7). 돌고 있으면 409. */
+export const sendToBatch = (path: string) =>
+  post<{ path: string; runCommand: string; batch: BatchState }>('/api/studio/to-batch', { path })
 export const saveRecipe = (path: string) =>
   post<{ path: string; runCommand: string }>('/api/studio/save', { path })
 
@@ -568,3 +591,14 @@ export const setBatchSettings = (settings: Partial<BatchSettings>) =>
 /** 시작 — **디스크에 쓴다**. 화면이 먼저 확인을 받는다. */
 export const startBatch = () => post<BatchState>('/api/batch/start', {})
 export const stopBatch = () => post<BatchState>('/api/batch/stop', {})
+
+// ---------------------------------------------------------------- 최근 경로(U7)
+
+/** 칸의 뜻으로 나눈 종류 — ③ 에서 저장한 레시피가 ④ 목록에 그대로 뜨는 게 이 나눔의 목적. */
+export type RecentKind = 'bank' | 'image' | 'recipe' | 'output'
+
+/**
+ * 읽기뿐이다. "기억해 줘" 쓰기 API 는 **일부러 없다** — 무언가를 연 행위가 곧 기록이고,
+ * 그 판단은 서버가 한다(프론트가 무엇을 기억할지 정하면 그게 화면이 상태를 드는 것이다).
+ */
+export const fetchRecent = () => get<{ recent: Record<string, string[]> }>('/api/recent')

@@ -70,6 +70,11 @@ jobs:
           curl -sf http://127.0.0.1:8123/api/batch/state | grep -q '"open": false'
           code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8123/api/batch/start)
           test "$code" = 403
+          # 최근 경로(U7): 읽기만 있고 종류는 칸의 뜻으로 나뉜다. 파일이 없어도 빈 목록으로 답한다(fail-soft)
+          curl -sf http://127.0.0.1:8123/api/recent | grep -q '"recipe"'
+          # 인계(U7): 조각 다듬기 저장도 쓰기라 CSRF 없이는 거부된다(은행 파일을 덮어쓴다)
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8123/api/label/update-source)
+          test "$code" = 403
 
   build:
     strategy:

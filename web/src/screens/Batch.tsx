@@ -22,6 +22,7 @@ import {
   progressText,
   summaryLine,
 } from '../batch'
+import { PathField } from '../components/PathField'
 
 /**
  * 일괄 생성 — 미리보기에서 맞춘 레시피를 원본 해상도로 돌려 데이터셋을 만든다.
@@ -32,6 +33,7 @@ import {
 export function Batch() {
   const [state, setState] = useState<BatchState | null>(null)
   const [recipePath, setRecipePath] = useState('')
+  const [recentKey, setRecentKey] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const logRef = useRef<HTMLPreElement>(null)
@@ -73,6 +75,8 @@ export function Batch() {
     setError(null)
     try {
       setState(await fn())
+      // 레시피를 열거나 실행을 시작하면 서버의 최근 목록이 바뀐다 — 칸의 고르개도 따라간다(U7).
+      setRecentKey((k) => k + 1)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err))
     } finally {
@@ -111,13 +115,14 @@ export function Batch() {
 
       <div className="openbar">
         <label htmlFor="batch-recipe">레시피</label>
-        <input
+        <PathField
           id="batch-recipe"
+          kind="recipe"
           value={recipePath}
-          spellCheck={false}
+          onChange={setRecipePath}
+          onEnter={() => void call(() => openBatch(recipePath.trim()))}
           placeholder="예: recipes/sample-poisson.yaml"
-          onChange={(e) => setRecipePath(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && void call(() => openBatch(recipePath.trim()))}
+          reloadKey={recentKey}
         />
         <button
           className="btn primary"
@@ -163,15 +168,15 @@ export function Batch() {
               <h2>설정</h2>
               <label className="field">
                 <span>출력 폴더</span>
-                <input
+                <PathField
+                  id="batch-out"
+                  kind="output"
                   className="text-in"
                   value={state.settings.out}
-                  spellCheck={false}
                   disabled={phase === 'running'}
-                  onChange={(e) =>
-                    setState({ ...state, settings: { ...state.settings, out: e.target.value } })
-                  }
-                  onBlur={(e) => patch({ out: e.target.value })}
+                  onChange={(v) => setState({ ...state, settings: { ...state.settings, out: v } })}
+                  onBlur={(v) => patch({ out: v })}
+                  reloadKey={recentKey}
                 />
               </label>
               <label className="field">

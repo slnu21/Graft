@@ -111,3 +111,16 @@ def test_read_path_list_relative_to_list_file(tmp_path: Path) -> None:
     lst.write_text("# 주석\nimgs/a.png\n\n  imgs/b.png  \n", encoding="utf-8")
     paths = imgio.read_path_list(lst)
     assert paths == [tmp_path / "imgs" / "a.png", tmp_path / "imgs" / "b.png"]
+
+
+def test_is_gray_recognises_a_promoted_gray_image() -> None:
+    """은행 조각은 ``gray`` 를 메타로 들고 다니지 않는다 — 다시 라벨로 열 때 그림에서 되살린다(U7)."""
+    from anograft.core.channels import is_gray, promote_to_bgr
+
+    gray = np.arange(24, dtype=np.uint8).reshape(4, 6)
+    assert is_gray(gray)
+    assert is_gray(promote_to_bgr(gray))
+
+    color = promote_to_bgr(gray).copy()
+    color[0, 0, 0] = 255 - color[0, 0, 0]  # 한 픽셀만 채널이 갈려도 컬러다
+    assert not is_gray(color)
