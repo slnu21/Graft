@@ -4,7 +4,14 @@
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-09-25
+
+**웹 UI 릴리스** — `anograft serve` 한 줄로 브라우저에서 다섯 화면(결함 보관함 · 결함 표시 · 미리보기 · 일괄 생성 · 검수)이 전부 돈다. 기존 창(PySide6)은 그대로 유지하고 **둘을 함께 낸다**. 합성 알고리즘·레시피 스키마·출력·골든 불변, **런타임 의존성 4개 불변**(서버는 stdlib `http.server`, node 는 빌드 때만). 루프 선행 작업(학습기 계약·평가셋 누수 방지·보관함 스냅샷)도 함께.
+
 ### Added
+- **웹 UI(`anograft serve`, U2~U6)** — 127.0.0.1:8000 고정. **결함 보관함**(타일·필터·삭제 + 여는 순간 평가셋 누수 보고) · **결함 표시**(붓·지우개·다각형·자동 선택 — 마스크 연산은 전부 서버가 해 Qt 와 결과 동일, 획이 끝날 때 원본 픽셀 좌표를 한 번 전송) · **미리보기**(원본|합성 A/B 와이프 · 정답/허용 영역 오버레이 · 바탕 목록 · 프리셋 갤러리 · **7단계 카드 편집**(라벨·툴팁·제약은 `core/help.py`·스키마에서 서버가 실어 준다) · 시드 변형 그리드 · `per_class` 표 · 레시피 저장) · **일괄 생성**(설정·시작/중지·진행률·로그·요약 → 검수로 넘기기) · **검수**(그리드 + 키보드 판정 · 분포 · 대비/조명 힌트 · 정리된 데이터셋·리포트). 프론트는 **API 를 호출만** 하고(합성·판정 로직 0) 비즈니스 로직은 계속 `core`/`runner` 에 있다. 쓰기는 POST + 전용 헤더(CSRF) + `Host` 검사. 번들은 저장소에 없고 CI 가 만들어 wheel·zip 에 싣는다 — 없으면 `serve` 가 죽지 않고 안내 페이지를 보여 준다(fail-soft).
+- **평가셋(holdout) 누수 방지 + 보관함 스냅샷(T4)** — `<bank>/holdout.txt` 의 stem 은 `BankWriter.add` 한 지점에서 거부되고(임포터·결함 표시 저장 모두) 몇 건을 왜 뺐는지 요약에 찍힌다. 나중에 만든 목록은 `bank ls`·`bank verify` 가 `violations` 로 알린다(자동 삭제 없음). `bank snapshot`/`verify --snapshot` 은 **복사가 아니라 id+내용 해시 목록**이라 폴더를 옮겨도 같고(`pipeline_hash` 가 깨지지 않는다) 마스크를 다듬으면 `changed` 로 잡힌다.
+- **학습기 계약(`anograft trainer list|info|fit|predict`, 루프 T1·T3)** — 학습기는 ABC 가 아니라 **프로세스 경계 + JSON**(torch 가 코어 venv 로 들어오지 않게). 등록은 레시피 밖 `trainers.yaml`. `adapters/noop.py`(stdlib 만) · `adapters/yolo.py`(ultralytics 검출).
 - **anomalib 어댑터(비지도) + (A) 모델 순위 상관**(학습 루프 T2) — `adapters/anomalib_trainer.py`(PatchCore·PaDiM·FastFlow·Cfa·Dfkde·Dfm, 별도 venv): **`trains_on: normal_only`** 를 선언해 **합성 결함이 학습셋에 들어가지 않게** 한다(평가에만). 데이터는 `mvtec` writer 출력의 카테고리 폴더를 그대로 받고, `predict` 는 이상맵 임계 마스크 + 이미지 점수. `tools/bench_model_rank.py` 는 설계 §5 (A) 실험 — 학습 정상과 합성 대상 정상을 **코드가** 가르고(겹치면 낙관 편향), 결함 **k 장/클래스**만 은행에 넣어(그 k 장은 실제 평가에서 제외) 실제·합성 두 순위의 **Spearman ρ** 를 낸다 → `BENCHMARKS.md` §3.
 - **YOLO 학습기 어댑터 + `anograft trainer fit|predict`**(학습 루프 T3) — `adapters/yolo.py`(ultralytics 검출: `fit` = train+val, `predict` = `scores/<stem>.json`, seg 가중치면 `masks/` 까지)를 `trainers.yaml` 에 등록하면 CLI 한 줄로 학습·예측이 나간다. 어댑터는 **별도 venv**(코어는 순수 wheel 그대로)이고 `anograft` 를 import 하지 않는다. 지표는 **평평한 float 맵**(`mAP50` · `mAP50-95` · 클래스별 `mAP50/<class>` · `minutes`), `--spec` 은 불투명하게 등록부 spec 위에 얕게 병합, 어댑터 로그(stderr)는 **줄 단위 실시간**으로 흐른다(학습은 길다).
 - **`tools/train_mvtec_map.py` 가 계약 위로**(T3) — 이제 ultralytics 를 import 하지 않고 `anograft trainer fit --json` 으로 학습을 시킨다(`--trainer` 기본 `yolo` · `--trainers-file`). 표·`results/` 캐시 형식은 그대로라 옛 결과가 계속 읽힌다. **벤치를 돌리는 것이 곧 계약 검증**이고 루프(T10)가 같은 경로를 쓴다.
@@ -272,7 +279,8 @@ v0.4 — CPU 알고리즘 확장. **여전히 샘플 데이터로만 검증**(�
 - GUI는 스튜디오 탭만. 재현은 같은 OS·OpenCV 부버전 범위(`seamlessClone` 솔버).
 - `release.yml`의 Windows zip 잡은 첫 push 전이라 CI에서 미검증(로컬 `tools/build_zip.ps1`와 같은 절차).
 
-[Unreleased]: https://github.com/slnu21/Graft/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/slnu21/Graft/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/slnu21/Graft/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/slnu21/Graft/compare/v0.8.2...v0.9.0
 [0.8.2]: https://github.com/slnu21/Graft/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/slnu21/Graft/compare/v0.8.0...v0.8.1

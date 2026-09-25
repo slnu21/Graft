@@ -1,4 +1,4 @@
-# TESTING — 받아서 확인할 것 (v0.8.0 · v0.8.1 · v0.8.2 · v0.9.0)
+# TESTING — 받아서 확인할 것 (v0.8.0 · v0.8.1 · v0.8.2 · v0.9.0 · v0.10.0)
 
 > 자율 세션(2026-09-16 저녁 ~ 09-17 새벽)이 만든 것을 **다른 PC 에서 그대로 따라 하며** 확인하는 절차. 각 항목은 *무엇을 → 기대 결과 → 어긋나면*. 실데이터가 있으면 `KNOWN-ISSUES.md` "2차 적용 절차"를 먼저, 없으면 아래 공개 데이터로.
 > English summary at the end.
@@ -75,6 +75,19 @@ python tools/fetch_public_datasets.py screw --import            # (선택) 흑�
 | 29 | (v0.9) 샘플 레시피로 미리보기 → 크기·회전 카드 · 일괄 생성 24장 → 로그 · 검수 분포 `밝은 쪽 방향`/`밝기 차` | 카드 경고가 아이콘·문장·`▶ 빛 방향 클래스만 ±15°로 좁히기` 버튼 한 상자(문장은 '… 섞입니다. → 프리셋 dent-graft …'), 로그에 같은 경고 1번, 검수 히스토그램 아래 💡 상자에 조명/대비 힌트 |
 | 30 | (v0.9) 상단 ⚙ → 테마 라이트 · 글자 130 % → 저장 → 앱 다시 열기 | 상태바 '다시 열면 적용' · 재실행 뒤 밝은 배경·큰 글자(모든 탭). 다크로 되돌리기도 같은 길 |
 
+### v0.10.0 추가 항목(웹 UI — 기존 창과 병행)
+
+> zip/wheel 로 받았으면 번들이 들어 있다. **소스 체크아웃**이면 번들이 없으므로 `anograft serve` 가 안내 페이지를 보여 준다 — `cd web; npm ci; npm run build` 뒤 다시.
+
+| # | 무엇을 | 기대 결과 |
+|---|---|---|
+| 37 | `anograft serve` → 브라우저가 열린다(안 열리면 http://127.0.0.1:8000) | 왼쪽에 다섯 화면(① 결함 보관함 · ② 결함 표시 · ③ 미리보기 · ④ 일괄 생성 · ⑤ 검수) + 시작. 상단에 버전·`로컬 전용 127.0.0.1`. 오른쪽 위 ☾/☀ 로 테마 전환 |
+| 38 | ① 결함 보관함에 `bank/sample` 입력 → 열기 | 타일 그리드 + 요약, 클래스·정렬·저신뢰 필터. `holdout.txt` 를 둔 보관함이면 **평가셋 누수 경고**가 함께 |
+| 39 | ② 결함 표시에 결함 사진 한 장 → 붓으로 칠하고 Ctrl+Z · 보관함·클래스 적고 저장 | 칠한 곳만 반투명 빨강(사진 전체가 물들지 않는다) · 통계(px·%)가 갱신 · 되돌리기 동작 · 저장하면 보관함에 새 조각(기존 창에서 연 결과와 **같은 마스크**) |
+| 40 | ③ 미리보기에 `recipes/sample-poisson.yaml` → 열기 → 캔버스를 좌우로 끌기 · G/R · 바탕 목록 클릭 · 카드에서 `회전` 을 바꿔 보기 · 시드 변형 v3 클릭 | 원본\|합성 와이프가 따라오고 오버레이가 켜짐/꺼짐 · 캔버스 아래 `700 × 700 px · 원본의 …% 축소본` 상시 표시 · 카드 값을 바꾸면 **바뀜 1 · ↺** 와 함께 다시 합성(잘못된 값은 그 행만 빨강) · 변형을 누르면 캔버스가 그 시드로 |
+| 41 | ④ 일괄 생성에 같은 레시피 → 출력·장수 고치고 시작 → 도는 중 중지 | 확인 대화 뒤 진행률·로그가 흐르고(맨 윗줄에 같은 실행의 CLI 명령) 중지하면 **그때까지의 파일·manifest 가 남는다**(요약에 `취소됨`) · 완료 뒤 `검수 화면에서 열기 →` |
+| 42 | ⑤ 검수에서 A/R/U 로 몇 장 판정 → `정리된 데이터셋` | 판정이 `review.csv` 로 남고 **기존 창 검수 탭에서 그대로 보인다** · 반려 뺀 사본이 새 폴더에 |
+
 ### 학습기 계약(v0.9.x / 루프 T1·T3) — 학습 환경 없이도 되는 항목
 
 | # | 무엇을 | 기대 결과 |
@@ -108,11 +121,12 @@ scratch,10000,220
 
 ## English (summary)
 
-1. **Install**: unzip the release and run `anograft.exe doctor` (expect 0.9.0, `gui ok`), or `.\bootstrap.ps1 -Gui` + `pytest -q` (all green).
+1. **Install**: unzip the release and run `anograft.exe doctor` (expect 0.10.0, `gui ok`), or `.\bootstrap.ps1 -Gui` + `pytest -q` (all green).
 2. **Data**: `python tools/fetch_public_datasets.py metal_nut magnetic-tile --import` (MVTec is CC BY-NC-SA — local dev only).
 3. **Check** (table above): dry-run `fit` rows now show short/long side + reason; `source:` warning for whole-part classes; `targets:` warning when mask PNGs sit next to images; `dataset merge` (refuses different class lists; merges same-bank outputs with `d<k>_` prefixes and re-indexed manifest); review tab **per-class combo** and **measured CSV** button; `dataset report --real-csv`; `--mask-from hybrid` (opt-in; default unchanged); `tools/bench_mask_from_box.py`.
 4. **v0.8.1**: `source.redraw_on_empty` (tiny sources no longer skip the image), `output.root` follows the recipe folder when inputs fell back, `run --roi-cache N`, `source.single_class_per_image` (no mixed classes for the MVTec writer), the Sample-data options dialog, `geometry.tps` (thin-plate warp, off by default), and `BENCHMARKS.md` (box→mask IoU · synthetic vs. no-synthetic mAP).
 5. **After v0.8.1** (`tools/train_mvtec_map.py`): `--train-seeds 7 8 9` repeats only the training seed on a fixed split/synthesis and prints per-seed + mean Δ; `--mask-from grabcut hybrid` builds one B set per bank; a `pairs.csv` (Magnetic Tile) is accepted as the dataset; finished (set, seed) pairs are cached under `results/` so re-running the same `--out` skips training. Expect exact (3-decimal) reproduction for the same seed and data.
 6. **v0.8.2**: `recipe init --classes A B` restricts a preset to those bank classes (refused for self-cut/perlin); `harmonize.relative` / preset `relative-paste` keeps the defect's contrast and only compensates exposure (review tab: blowhole median contrast ≈ −37 vs real −48, poisson ≈ −17); `train_mvtec_map.py --class-presets cls=preset …` synthesizes per class group and merges (`syn-split-…/merge.json`).
 7. **v0.9.0 (usability)**: Korean-first UI (English/YAML keys in tooltips), stage names as verbs, parameter labels + 3-line tooltips (also `anograft explain <stage>.<field>` and `PARAMS.md`), modified-from-preset marker + ↺ reset, advanced-options fold, sliders, preset gallery with live thumbnails, numbered workflow tabs with badges and a Next button, start checklist, one notice component, light theme and font scale (⚙).
-8. **Report**: `doctor.json`, the exact command output, screenshots, and any reversed decision in `KNOWN-ISSUES.md`.
+8. **v0.10.0 (web UI)**: `anograft serve` opens all five screens in a browser (bank · labeling · preview · batch · review) alongside the desktop window. Check: bank tiles and the hold-out warning; painting a mask and saving it into the bank (same mask as the desktop window); the A/B wipe with overlays and the always-visible preview scale; editing a stage card (changed marker, ↺, invalid value highlights that row); batch run with progress, stop keeping what was written, and the hand-off to review; verdicts landing in `review.csv` that the desktop review tab also reads. A source checkout has no bundle, so `serve` shows a guide page until `cd web && npm ci && npm run build`.
+9. **Report**: `doctor.json`, the exact command output, screenshots, and any reversed decision in `KNOWN-ISSUES.md`.
