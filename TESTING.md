@@ -88,6 +88,17 @@ python tools/fetch_public_datasets.py screw --import            # (선택) 흑�
 | 41 | ④ 일괄 생성에 같은 레시피 → 출력·장수 고치고 시작 → 도는 중 중지 | 확인 대화 뒤 진행률·로그가 흐르고(맨 윗줄에 같은 실행의 CLI 명령) 중지하면 **그때까지의 파일·manifest 가 남는다**(요약에 `취소됨`) · 완료 뒤 `검수 화면에서 열기 →` |
 | 42 | ⑤ 검수에서 A/R/U 로 몇 장 판정 → `정리된 데이터셋` | 판정이 `review.csv` 로 남고 **기존 창 검수 탭에서 그대로 보인다** · 반려 뺀 사본이 새 폴더에 |
 
+### v0.10.1 추가 항목(화면 사이 손잡이)
+
+| # | 무엇을 | 기대 결과 |
+|---|---|---|
+| 43 | ③ 미리보기에서 값을 하나 바꾼 뒤 오른쪽 아래 `일괄 생성으로 보내기 →` | 레시피가 그 경로에 저장되고 **④ 일괄 생성으로 이동**하며 설정(출력·장수·시드·형식)이 채워져 있다 · 로그 위 CLI 한 줄이 **방금 저장한 파일**을 가리킨다 · 워커 수처럼 레시피 밖 설정은 그대로 |
+| 44 | ④ 가 도는 중에 ③ 에서 다시 `일괄 생성으로 보내기` | 거절되고 "일괄 생성이 돌고 있습니다" 안내(진행 중인 실행의 설정이 바뀌지 않는다) |
+| 45 | ② 결함 표시에서 조각을 저장 → 왼쪽 ① 결함 보관함으로 이동(또는 `결함 보관함에서 보기 →`) | **다시 열지 않아도** 새 조각이 목록에 있다 · 다른 보관함을 보고 있었으면 화면이 그대로 있고 버튼으로만 옮겨 간다 |
+| 46 | ① 에서 조각 하나를 골라 `다듬기 →`(또는 상세의 `결함 표시에서 다듬기 →`) → 붓으로 고치고 `조각 갱신` | ② 가 그 크롭과 **지금 마스크**를 열고, 저장 카드가 "보관함 조각 갱신"으로 바뀐다 · 저장하면 **새 조각이 생기지 않고** 같은 조각의 `<id>.json` 이 `mask_origin: manual:brush` · `confidence: null` 로 바뀐다 · ① 타일이 새 마스크로 |
+| 47 | ② 에서 `전부 지우기` 뒤 `조각 갱신` | 거절된다("마스크가 비어 있습니다") — 조각을 없애려면 ① 에서 삭제 |
+| 48 | 화면을 몇 번 연 뒤 각 열기 칸의 ▾ | 최근에 연 경로가 뜬다 · ③ 에서 저장한 레시피가 **④ 레시피 칸에도** · ④ 출력 폴더가 **⑤ 칸에** · `~/.anograft/recent.json` 에 종류별로 쌓인다(지워도 되고 `ANOGRAFT_HOME` 으로 옮길 수 있다) |
+
 ### 학습기 계약(v0.9.x / 루프 T1·T3) — 학습 환경 없이도 되는 항목
 
 | # | 무엇을 | 기대 결과 |
@@ -121,7 +132,7 @@ scratch,10000,220
 
 ## English (summary)
 
-1. **Install**: unzip the release and run `anograft.exe doctor` (expect 0.10.0, `gui ok`), or `.\bootstrap.ps1 -Gui` + `pytest -q` (all green).
+1. **Install**: unzip the release and run `anograft.exe doctor` (expect 0.10.1, `gui ok`), or `.\bootstrap.ps1 -Gui` + `pytest -q` (all green).
 2. **Data**: `python tools/fetch_public_datasets.py metal_nut magnetic-tile --import` (MVTec is CC BY-NC-SA — local dev only).
 3. **Check** (table above): dry-run `fit` rows now show short/long side + reason; `source:` warning for whole-part classes; `targets:` warning when mask PNGs sit next to images; `dataset merge` (refuses different class lists; merges same-bank outputs with `d<k>_` prefixes and re-indexed manifest); review tab **per-class combo** and **measured CSV** button; `dataset report --real-csv`; `--mask-from hybrid` (opt-in; default unchanged); `tools/bench_mask_from_box.py`.
 4. **v0.8.1**: `source.redraw_on_empty` (tiny sources no longer skip the image), `output.root` follows the recipe folder when inputs fell back, `run --roi-cache N`, `source.single_class_per_image` (no mixed classes for the MVTec writer), the Sample-data options dialog, `geometry.tps` (thin-plate warp, off by default), and `BENCHMARKS.md` (box→mask IoU · synthetic vs. no-synthetic mAP).
@@ -129,4 +140,5 @@ scratch,10000,220
 6. **v0.8.2**: `recipe init --classes A B` restricts a preset to those bank classes (refused for self-cut/perlin); `harmonize.relative` / preset `relative-paste` keeps the defect's contrast and only compensates exposure (review tab: blowhole median contrast ≈ −37 vs real −48, poisson ≈ −17); `train_mvtec_map.py --class-presets cls=preset …` synthesizes per class group and merges (`syn-split-…/merge.json`).
 7. **v0.9.0 (usability)**: Korean-first UI (English/YAML keys in tooltips), stage names as verbs, parameter labels + 3-line tooltips (also `anograft explain <stage>.<field>` and `PARAMS.md`), modified-from-preset marker + ↺ reset, advanced-options fold, sliders, preset gallery with live thumbnails, numbered workflow tabs with badges and a Next button, start checklist, one notice component, light theme and font scale (⚙).
 8. **v0.10.0 (web UI)**: `anograft serve` opens all five screens in a browser (bank · labeling · preview · batch · review) alongside the desktop window. Check: bank tiles and the hold-out warning; painting a mask and saving it into the bank (same mask as the desktop window); the A/B wipe with overlays and the always-visible preview scale; editing a stage card (changed marker, ↺, invalid value highlights that row); batch run with progress, stop keeping what was written, and the hand-off to review; verdicts landing in `review.csv` that the desktop review tab also reads. A source checkout has no bundle, so `serve` shows a guide page until `cd web && npm ci && npm run build`.
-9. **Report**: `doctor.json`, the exact command output, screenshots, and any reversed decision in `KNOWN-ISSUES.md`.
+9. **v0.10.1 (handoffs)**: Preview's `Send to batch` saves the recipe and hands it to Batch with settings filled in (refused while a run is in progress); saving a crop in Labeling shows up in the Bank without reopening; `Touch up` in the Bank opens that crop in Labeling and saving **overwrites the same crop** (`mask_origin: manual:*`, confidence cleared; an empty mask is refused); the open fields offer recent paths from `~/.anograft/recent.json`, shared by meaning (a recipe saved in Preview appears in Batch).
+10. **Report**: `doctor.json`, the exact command output, screenshots, and any reversed decision in `KNOWN-ISSUES.md`.
