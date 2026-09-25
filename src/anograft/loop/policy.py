@@ -332,3 +332,89 @@ def round_plan(
         else f"부족분 비례 배분(목표 각 {target})"
     )
     return RoundPlan(total, per_class, note)
+
+
+# --------------------------------------------------------------------------------------
+# 6. 트리거 — 지금 돌 때인가, 아니면 왜 안 도는가 (설계 §2b.3, T14)
+# --------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class TriggerPolicy:
+    """언제 새 라운드를 여는가. 실무 기본값은 **양 + 최소 간격**("N개 모이면, 단 7일에 한 번 이하").
+
+    기본값은 **전부 0 = 제한 없음**이다 — 임계값은 현장마다 다르고(설계 §8 확인 게이트) 기본값이 라운드를
+    막으면 "왜 안 도는지" 모르는 사람이 먼저 생긴다. 숫자는 `loop.yaml` 의 `trigger` 에서 사람이 정한다.
+    """
+
+    #: 지난 라운드 뒤로 **보관함에 들어온 조각** 수(0 = 이 기준 안 봄)
+    min_labels: int = 0
+    #: 아직 스코어링하지 않은 **현장 이미지** 장수(0 = 이 기준 안 봄)
+    min_images: int = 0
+    #: 마지막 라운드로부터 최소 이만큼은 지나야 한다(양 기준이 너무 자주 넘기지 않게)
+    min_interval_hours: float = 0.0
+    #: 이만큼 지나면 양과 무관하게 한 바퀴 돈다(드리프트 감시 — 없으면 양만 본다)
+    max_interval_hours: float | None = None
+
+
+@dataclass(frozen=True)
+class TriggerState:
+    """판정에 필요한 사실만. 파일·경로는 호출부가 읽어서 넣는다(이 함수는 순수)."""
+
+    has_round: bool = False
+    #: 끝나지 않은 라운드가 있다 — 이어 가는 것은 트리거가 막지 않는다
+    in_progress: bool = False
+    new_labels: int = 0
+    new_images: int = 0
+    #: 마지막으로 **끝난** 라운드로부터 지난 시간. ``None`` = 모른다(막지 않는다)
+    hours_since: float | None = None
+
+
+@dataclass(frozen=True)
+class TriggerDecision:
+    start: bool
+    reason: str
+
+
+def should_start_round(state: TriggerState, policy: TriggerPolicy) -> TriggerDecision:
+    """``(돌까?, 왜)`` — **이유를 항상 남긴다**. 조용히 안 도는 루프가 제일 나쁘다(설계 §2b.3).
+
+    순서에 뜻이 있다: 진행 중인 라운드 → 첫 라운드 → 최대 간격(양 무시) → 최소 간격 → 양.
+    """
+    if state.in_progress:
+        return TriggerDecision(True, "진행 중인 라운드를 이어 갑니다")
+    if not state.has_round:
+        return TriggerDecision(True, "첫 라운드입니다")
+
+    hours = state.hours_since
+    if policy.max_interval_hours is not None and (
+        hours is None or hours >= policy.max_interval_hours
+    ):
+        since = "모름" if hours is None else f"{hours:.1f}시간"
+        return TriggerDecision(
+            True,
+            f"마지막 라운드로부터 {since} — 최대 간격 {policy.max_interval_hours:.1f}시간을 넘었습니다",
+        )
+    if policy.min_interval_hours > 0 and hours is not None and hours < policy.min_interval_hours:
+        return TriggerDecision(
+            False,
+            f"마지막 라운드로부터 {hours:.1f}시간 — 최소 간격 {policy.min_interval_hours:.1f}시간이 안 됐습니다",
+        )
+
+    if policy.min_labels <= 0 and policy.min_images <= 0:
+        return TriggerDecision(True, "양 기준이 없어 바로 돕니다")
+
+    fired: list[str] = []
+    if policy.min_labels > 0 and state.new_labels >= policy.min_labels:
+        fired.append(f"새 조각 {state.new_labels}개 ≥ {policy.min_labels}")
+    if policy.min_images > 0 and state.new_images >= policy.min_images:
+        fired.append(f"새 이미지 {state.new_images}장 ≥ {policy.min_images}")
+    if fired:
+        return TriggerDecision(True, " · ".join(fired))
+
+    parts: list[str] = []
+    if policy.min_labels > 0:
+        parts.append(f"새 조각 {state.new_labels}/{policy.min_labels}개")
+    if policy.min_images > 0:
+        parts.append(f"새 이미지 {state.new_images}/{policy.min_images}장")
+    return TriggerDecision(False, " · ".join(parts) + " — 아직 양이 안 찼습니다")

@@ -14,10 +14,13 @@
 평가는 별도 predict 가 아니라 **학습 데이터셋의 `val` = 동결 평가셋**이고, `fit` 이 돌려주는 평평한 지표
 맵에서 `promote.metric` 을 읽는다 — `tools/train_mvtec_map.py` 가 이미 쓰는 그 경로다(계약 §1.1).
 
-상태는 두 파일뿐이다(T14 가 `rounds.jsonl` 로 승격한다):
+상태는 셋이다(T14 에서 **이력이 원장으로 승격**됐다 — `loop/ledger.py`):
 
-- ``<out>/loop.state.json`` — 라운드 번호 · champion 포인터 · 이력
-- ``<out>/round-NNN/round.json`` — 이 라운드의 단계·산출 요약
+- ``<out>/loop.state.json`` — **움직이는 포인터 둘**뿐이다(지금 라운드 번호 · champion). 롤백이 포인터를
+  되돌리는 일이라 이 파일은 덮어쓴다.
+- ``<out>/round-NNN/round.json`` — 이 라운드의 `done` 목록(= **다음 단계를 고르는 진실**)과 산출 요약.
+- ``<out>/rounds.jsonl`` — append-only 원장(시작·단계·끝·실패·안 돎). 감사·조회는 여기서 나오고,
+  **다음 단계를 여기서 재생(replay)해 고르지 않는다** — 한 줄이 깨질 때마다 루프가 멈추는 구조가 된다.
 
 여기는 `core` 위의 얇은 오케스트레이터다 — 합성은 `runner`, 학습은 `loop.contract`, 큐는 `loop.queue`,
 승급 판정은 `loop.policy` 가 하고 이 모듈은 **순서와 상태**만 들고 있다.
@@ -33,6 +36,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from anograft.loop import ledger as L
 from anograft.loop.config import SUPPORTED_FORMATS, LoopConfigError, ResolvedLoop
 from anograft.loop.ingest import (
     PROCESSED_FILE,
@@ -193,17 +197,19 @@ class RoundRecord:
 
 @dataclass
 class LoopState:
-    """``loop.state.json`` — 라운드 번호 · champion · 이력(사람이 읽을 수 있게 얕게)."""
+    """``loop.state.json`` — **움직이는 포인터 둘**(지금 라운드 번호 · champion).
+
+    이력은 여기 없다(T14) — `rounds.jsonl` 이 든다. 덮어쓰는 파일과 더하는 파일을 나누는 이유는 롤백이
+    "champion 포인터를 옛 라운드로 되돌리는 일"이고 감사는 "지워지지 않는 줄"이어야 하기 때문이다.
+    """
 
     round: int = 0
     champion: Champion | None = None
-    history: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "round": self.round,
             "champion": self.champion.to_dict() if self.champion else None,
-            "history": self.history,
         }
 
     @classmethod
@@ -212,7 +218,6 @@ class LoopState:
         return cls(
             round=int(d.get("round", 0)),
             champion=Champion.from_dict(champ) if isinstance(champ, Mapping) else None,
-            history=[dict(h) for h in d.get("history", []) if isinstance(h, Mapping)],
         )
 
 
@@ -498,6 +503,27 @@ def cursor_path(loop: ResolvedLoop) -> Path:
     return loop.out / PROCESSED_FILE
 
 
+def ledger_path(loop: ResolvedLoop) -> Path:
+    """라운드 원장 — ``<out>/rounds.jsonl`` (T14)."""
+    return loop.out / L.ROUNDS_FILE
+
+
+def tick_path(loop: ResolvedLoop) -> Path:
+    """마지막 tick 기록 — ``<out>/tick.json`` (T14)."""
+    return loop.out / L.TICK_FILE
+
+
+def log_event(
+    loop: ResolvedLoop, event: str, *, log: Log | None = None, round_no: int = 0, **fields: Any
+) -> None:
+    """원장에 한 줄. **원장 때문에 라운드를 죽이지 않는다** — 못 적으면 경고만 남긴다(fail-soft)."""
+    try:
+        L.append(ledger_path(loop), event, round_no=round_no, **fields)
+    except OSError as exc:
+        if log:
+            log(f"경고: 원장에 적지 못했습니다({exc})")
+
+
 def _field_list(
     loop: ResolvedLoop, round_dir: Path, log: Log, *, since: int | None = None
 ) -> tuple[Path, list[Path], list[FileStamp]]:
@@ -715,6 +741,19 @@ def _phase_synth(loop: ResolvedLoop, round_dir: Path, fmt: str, log: Log, worker
     except (ValueError, OSError) as exc:
         raise LoopError(f"레시피를 읽을 수 없습니다: {exc}") from exc
 
+    # 이 라운드가 **어떤 보관함으로** 만들었는지 남긴다 — 복사가 아니라 id+해시 목록(설계 §6.2).
+    snapshot_file = round_dir / "bank.snapshot.json"
+    bank_sources = 0
+    try:
+        from anograft.bank import snapshot as bank_snapshot
+        from anograft.bank.bank import BankError
+
+        snap = bank_snapshot.take(loop.bank)
+        bank_snapshot.write(snap, snapshot_file)
+        bank_sources = len(snap.sources)
+    except (BankError, OSError, ValueError) as exc:
+        log(f"경고: 보관함 스냅샷을 남기지 못했습니다({exc})")
+
     out = round_dir / "synth"
     if out.exists():
         shutil.rmtree(out)
@@ -743,6 +782,8 @@ def _phase_synth(loop: ResolvedLoop, round_dir: Path, fmt: str, log: Log, worker
         "ok": summary.writer.n_ok,
         "pipeline_hash": prep.pipeline_hash,
         "bank_fingerprint": prep.bank.fingerprint(),
+        "bank_snapshot": str(snapshot_file) if snapshot_file.is_file() else "",
+        "bank_sources": bank_sources,
     }
 
 
@@ -880,6 +921,14 @@ def _run_round(
         )
         state.round = current
         save_state(out, state)
+        log_event(
+            loop,
+            L.EVENT_ROUND_START,
+            log=log,
+            round_no=record.number,
+            phases=list(record.phases),
+            bootstrap=record.bootstrap,
+        )
     round_dir = out / round_name(record.number)
     round_dir.mkdir(parents=True, exist_ok=True)
     save_record(round_dir, record)
@@ -894,57 +943,64 @@ def _run_round(
         phase = next_phase(record.phases, record.done)
         if phase is None:
             break
-        log(f"· {phase} ({PHASE_LABEL.get(phase, phase)})")
-        if lock is not None:  # 하트비트 — 긴 학습이 버려진 잠금으로 보이지 않게
-            lock.touch(f"{round_name(record.number)} {PHASE_LABEL.get(phase, phase)}")
-        if phase == "predict":
-            record.mark(
+        try:
+            waiting = _run_phase(
+                loop,
+                state,
+                record,
+                round_dir,
                 phase,
-                _phase_predict(loop, state, round_dir, record.number, log, trainer, since=since),
+                log,
+                trainer=trainer,
+                fmt=fmt,
+                accept_partial=accept_partial,
+                workers=workers,
+                since=since,
+                lock=lock,
             )
-        elif phase == "queue":
-            record.mark(phase, _phase_queue(loop, round_dir, record.number, log))
-        elif phase == "review":
-            judged, total = _review_progress(round_dir)
-            if total == 0:
-                record.mark(phase, {"judged": 0, "total": 0, "note": "큐가 비었습니다"})
-            elif judged >= total or (accept_partial and judged > 0):
-                record.mark(phase, {"judged": judged, "total": total})
-            else:
-                save_record(round_dir, record)
-                save_state(out, state)
-                return RoundResult(
-                    record=record,
-                    state=state,
-                    round_dir=round_dir,
-                    waiting_for_human=True,
-                    message=(
-                        f"{review_line(judged, total)} — 검수 화면에서 판정한 뒤 다시 `loop run` 하세요"
-                        f" (폴더 {(round_dir / 'queue').as_posix()})"
-                    ),
-                )
-        elif phase == "accept":
-            record.mark(phase, _phase_accept(loop, round_dir, record.number, log))
-        elif phase == "synth":
-            record.mark(phase, _phase_synth(loop, round_dir, fmt, log, workers))
-        elif phase == "train":
-            record.mark(phase, _phase_train(loop, round_dir, fmt, log, trainer))
-        elif phase == "judge":
-            data = _phase_judge(loop, state, record, log)
-            record.mark(phase, data)
-            state.history.append(
-                {
-                    "round": record.number,
-                    "metric": data.get("metric"),
-                    "promoted": bool(data.get("promote")),
-                    "reason": data.get("reason", ""),
-                    "finished": _now(),
-                }
+        except LoopError as exc:
+            # 실패 사유는 원장에 남는다(설계 §2b.4) — 세 시간 뒤 실패를 아침에 읽을 사람이 있다.
+            log_event(
+                loop, L.EVENT_FAILED, log=log, round_no=record.number, phase=phase, reason=str(exc)
             )
+            save_record(round_dir, record)
+            save_state(out, state)
+            raise
+        if waiting is not None:
+            save_record(round_dir, record)
+            save_state(out, state)
+            return waiting
         save_record(round_dir, record)
         save_state(out, state)
+        log_event(
+            loop,
+            L.EVENT_PHASE,
+            log=log,
+            round_no=record.number,
+            phase=phase,
+            data=record.data.get(phase, {}),
+        )
 
     judge = record.data.get("judge") or {}
+    train = record.data.get("train") or {}
+    synth = record.data.get("synth") or {}
+    log_event(
+        loop,
+        L.EVENT_ROUND_END,
+        log=log,
+        round_no=record.number,
+        metric=judge.get("metric"),
+        metric_name=loop.config.promote.metric,
+        promoted=bool(judge.get("promote")),
+        reason=judge.get("reason", ""),
+        model=train.get("model", ""),
+        champion=state.champion.to_dict() if state.champion else None,
+        pipeline_hash=synth.get("pipeline_hash", ""),
+        bank_fingerprint=synth.get("bank_fingerprint", ""),
+        bank_snapshot=synth.get("bank_snapshot", ""),
+        bank_sources=int(synth.get("bank_sources", 0) or 0),
+        bootstrap=record.bootstrap,
+    )
     message = (
         f"{round_name(record.number)} 완료 — "
         f"{loop.config.promote.metric} {judge.get('metric', float('nan')):.4f} · "
@@ -953,6 +1009,150 @@ def _run_round(
     return RoundResult(
         record=record, state=state, round_dir=round_dir, message=message, warnings=record.warnings
     )
+
+
+def _run_phase(
+    loop: ResolvedLoop,
+    state: LoopState,
+    record: RoundRecord,
+    round_dir: Path,
+    phase: str,
+    log: Log,
+    *,
+    trainer: Trainer,
+    fmt: str,
+    accept_partial: bool,
+    workers: int,
+    since: int | None,
+    lock: RoundLock | None,
+) -> RoundResult | None:
+    """한 단계. 사람을 기다려야 하면 그 자리에서 `RoundResult` 를 돌려준다(그게 멈춤 신호다)."""
+    log(f"· {phase} ({PHASE_LABEL.get(phase, phase)})")
+    if lock is not None:  # 하트비트 — 긴 학습이 버려진 잠금으로 보이지 않게
+        lock.touch(f"{round_name(record.number)} {PHASE_LABEL.get(phase, phase)}")
+    if phase == "predict":
+        record.mark(
+            phase,
+            _phase_predict(loop, state, round_dir, record.number, log, trainer, since=since),
+        )
+    elif phase == "queue":
+        record.mark(phase, _phase_queue(loop, round_dir, record.number, log))
+    elif phase == "review":
+        judged, total = _review_progress(round_dir)
+        if total == 0:
+            record.mark(phase, {"judged": 0, "total": 0, "note": "큐가 비었습니다"})
+        elif judged >= total or (accept_partial and judged > 0):
+            record.mark(phase, {"judged": judged, "total": total})
+        else:  # 저장은 부르는 쪽이 한다(단계 하나가 상태 파일을 두 번 쓰지 않게)
+            return RoundResult(
+                record=record,
+                state=state,
+                round_dir=round_dir,
+                waiting_for_human=True,
+                message=(
+                    f"{review_line(judged, total)} — 검수 화면에서 판정한 뒤 다시 `loop run` 하세요"
+                    f" (폴더 {(round_dir / 'queue').as_posix()})"
+                ),
+            )
+    elif phase == "accept":
+        record.mark(phase, _phase_accept(loop, round_dir, record.number, log))
+    elif phase == "synth":
+        record.mark(phase, _phase_synth(loop, round_dir, fmt, log, workers))
+    elif phase == "train":
+        record.mark(phase, _phase_train(loop, round_dir, fmt, log, trainer))
+    elif phase == "judge":
+        record.mark(phase, _phase_judge(loop, state, record, log))
+    return None
+
+
+# --------------------------------------------------------------------------------------
+# 4b. 지금 돌 때인가 (`loop tick` — 설계 §2b.3, T14)
+# --------------------------------------------------------------------------------------
+
+
+def _hours_since(when: str) -> float | None:
+    """ISO 시각 → 지금까지 몇 시간. 못 읽으면 ``None``(모르면 막지 않는다)."""
+    if not when:
+        return None
+    try:
+        then = datetime.fromisoformat(when)
+    except ValueError:
+        return None
+    now = datetime.now(then.tzinfo) if then.tzinfo else datetime.now()
+    return max(0.0, (now - then).total_seconds() / 3600.0)
+
+
+def _bank_source_count(loop: ResolvedLoop) -> int:
+    from anograft.bank import Bank
+    from anograft.bank.bank import BankError
+
+    try:
+        return len(Bank.load(loop.bank).sources())
+    except (BankError, OSError, ValueError):
+        return 0
+
+
+def _new_image_count(loop: ResolvedLoop) -> int:
+    """아직 스코어링하지 않은 현장 이미지 — **해시를 읽지 않는 어림수**(`ingest.quick_new_count`)."""
+    if loop.field is None:
+        return 0
+    from anograft.io.targets import TargetsError, list_targets
+    from anograft.loop.ingest import quick_new_count
+
+    try:
+        candidates = list_targets(loop.field)
+    except (TargetsError, OSError):
+        return 0
+    return quick_new_count(candidates, read_processed(cursor_path(loop)))
+
+
+def trigger_state(loop: ResolvedLoop) -> Any:
+    """판정에 필요한 사실을 파일에서 모은다 — `policy.TriggerState`.
+
+    "새 조각"은 **마지막 라운드가 적어 둔 보관함 조각 수와의 차이**다(원장 `round_end.bank_sources`).
+    보관함에 시각이 없으므로 이 방법이 사람이 손으로 넣은 조각까지 같이 센다 — 그게 맞다(사람이 라벨을
+    스무 장 넣었으면 그건 돌 이유다).
+    """
+    from anograft.loop.policy import TriggerState
+
+    out = loop.out
+    state = load_state(out) if out.exists() else LoopState()
+    record = load_record(out / round_name(state.round)) if state.round else None
+    end = L.read(ledger_path(loop)).last_end
+    previous = int(end.get("bank_sources", 0) or 0) if end is not None else 0
+    return TriggerState(
+        has_round=bool(state.round) or end is not None,
+        in_progress=record is not None and not record.finished,
+        new_labels=max(0, _bank_source_count(loop) - previous),
+        new_images=_new_image_count(loop),
+        hours_since=_hours_since(end.at) if end is not None else None,
+    )
+
+
+def check_trigger(loop: ResolvedLoop) -> tuple[Any, Any]:
+    """``(결정, 사실)`` — `loop tick` 과 `loop status` 가 같은 답을 보게."""
+    from anograft.loop.policy import should_start_round
+
+    facts = trigger_state(loop)
+    return should_start_round(facts, loop.config.trigger.policy()), facts
+
+
+def note_tick(
+    loop: ResolvedLoop, *, ran: bool, reason: str, round_no: int = 0, log: Log | None = None
+) -> None:
+    """마지막 tick 을 적고, **안 돈 사유가 바뀔 때만** 원장에 남긴다.
+
+    스케줄러가 5분마다 부르는 것을 원장에 다 적으면 원장이 tick 으로 덮인다. 그래도 "조용히 안 도는 루프가
+    제일 나쁘다"는 규율은 지켜야 하므로, 사유가 이어지는 동안은 `tick.json` 만 갱신한다.
+    """
+    previous = L.read_tick(tick_path(loop))
+    if not ran and (previous is None or previous.ran or previous.reason != reason):
+        log_event(loop, L.EVENT_SKIPPED, log=log, reason=reason)
+    try:
+        L.write_tick(tick_path(loop), L.Tick(ran=ran, reason=reason, round=round_no))
+    except OSError as exc:
+        if log:
+            log(f"경고: tick 기록을 남기지 못했습니다({exc})")
 
 
 # --------------------------------------------------------------------------------------
@@ -971,6 +1171,14 @@ class LoopStatus:
     lock: LockInfo | None = None
     #: 유입 커서에 적힌 처리 이력 건수(T13).
     processed: int = 0
+    #: 최근 라운드 이력 — **원장에서** 온다(T14).
+    history: list[dict[str, Any]] = field(default_factory=list)
+    #: 마지막 tick(돌았나 · 안 돌았으면 왜, T14).
+    tick: Any = None
+    #: 지금 돌 때인가 + 그 사유(T14). `loop tick` 이 보는 것과 같은 답이다.
+    trigger: Any = None
+    #: 최근 실패(원장 `failed`, T14).
+    failures: list[Any] = field(default_factory=list)
 
     @property
     def next(self) -> str | None:
@@ -1001,7 +1209,14 @@ class LoopStatus:
         )
         if phase == "review" and self.total:
             out.append("  " + review_line(self.judged, self.total))
-        for h in self.state.history[-5:]:
+        if self.trigger is not None:
+            head = "지금 돌 때입니다" if self.trigger.start else "지금은 돌지 않습니다"
+            out.append(f"트리거: {head} — {self.trigger.reason}")
+        if self.tick is not None:
+            out.append(self.tick.line())
+        for e in self.failures:
+            out.append(f"  실패(라운드 {e.round} {e.phase}): {e.reason}")
+        for h in self.history:
             metric = h.get("metric")
             metric_s = f"{metric:.4f}" if isinstance(metric, (int, float)) else "-"
             out.append(
@@ -1018,6 +1233,8 @@ def status(loop: ResolvedLoop) -> LoopStatus:
     judged = total = 0
     if record is not None:
         judged, total = _review_progress(out / round_name(record.number))
+    led = L.read(ledger_path(loop))
+    decision, _facts = check_trigger(loop)
     return LoopStatus(
         out=out,
         state=state,
@@ -1026,6 +1243,10 @@ def status(loop: ResolvedLoop) -> LoopStatus:
         total=total,
         lock=read_lock(out / LOCK_FILE),
         processed=len(read_processed(cursor_path(loop))),
+        history=led.history(),
+        tick=L.read_tick(tick_path(loop)),
+        trigger=decision,
+        failures=led.failures(limit=2),
     )
 
 
@@ -1042,15 +1263,21 @@ __all__ = [
     "RoundResult",
     "assemble_dataset",
     "check_label_classes",
+    "check_trigger",
     "cursor_path",
     "dataset_names",
+    "ledger_path",
     "load_record",
     "load_state",
+    "log_event",
     "next_phase",
+    "note_tick",
     "round_name",
     "round_phases",
     "run_round",
     "save_record",
     "save_state",
     "status",
+    "tick_path",
+    "trigger_state",
 ]
