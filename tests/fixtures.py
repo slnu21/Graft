@@ -7,6 +7,7 @@
 - ``blob_image`` · ``fake_yolo_dataset(root)``: 어두운 판 위 밝은 얼룩 + YOLO 박스/폴리곤 라벨 — 임포터·CLI e2e 픽스처.
 - ``blob_mask`` · ``fake_pairs_dataset(root)``: 이미지 + 마스크 PNG 쌍(suffix/동일 stem/CSV 세 매칭) — import-pairs 픽스처.
 - ``fake_mvtec_tree(root)``: MVTec AD 카테고리 폴더 흉내(test/<defect> 2종 + ground_truth + train/good 4장 + test/good).
+- ``loop_workspace(root)``: 루프 한 바퀴용 작업장(은행·레시피·평가셋·현장 이미지·trainers.yaml·loop.yaml) — T10·T13 공용.
 - ``fake_visa_tree(root)``: VisA 카테고리 폴더 흉내(Data/Images/{Normal,Anomaly} JPG + Data/Masks/Anomaly 0/1 라벨맵 + image_anno.csv).
 """
 
@@ -332,3 +333,123 @@ def fake_visa_tree(
         lines = ["image,label,mask"] + [",".join(r) for r in rows]
         (cat / "image_anno.csv").write_text("\n".join(lines) + "\n", encoding="utf-8")
     return cat
+
+
+def loop_workspace(root: Path) -> dict[str, Path]:
+    """루프 한 바퀴를 돌릴 수 있는 최소 작업장 — 은행 + 레시피 + 동결 평가셋 + 현장 이미지 +
+    ``trainers.yaml``(noop) + ``loop.yaml``.
+
+    라운드 테스트(T10)와 유입 커서 테스트(T13)가 **같은 작업장**을 쓴다 — 갈라 두면 둘 중 하나가
+    조용히 다른 전제로 돈다.
+    """
+    from anograft.cli import main
+
+    noop = Path(__file__).resolve().parents[1] / "adapters" / "noop.py"
+    d = fake_yolo_dataset(root / "ds")
+    bank = root / "bank"
+    normals = root / "normals.txt"
+    assert (
+        main(
+            [
+                "bank",
+                "import-yolo",
+                "--images",
+                str(d["images"]),
+                "--labels",
+                str(d["labels"]),
+                "--names",
+                str(d["names"]),
+                "--out",
+                str(bank),
+                "--mask-from",
+                "otsu",
+                "--list-normals",
+                str(normals),
+            ]
+        )
+        == 0
+    )
+    recipe = root / "r.yaml"
+    assert (
+        main(
+            [
+                "recipe",
+                "init",
+                "--preset",
+                "hard-paste",
+                "--bank",
+                str(bank),
+                "--targets",
+                str(normals),
+                "--out",
+                str(root / "unused"),
+                "--count",
+                "2",
+                "--seed",
+                "11",
+                "--write",
+                str(recipe),
+            ]
+        )
+        == 0
+    )
+    data = yaml.safe_load(recipe.read_text(encoding="utf-8"))
+    data["pipeline"]["placement"]["roi"]["erode_px"] = 2
+    data["pipeline"]["placement"]["margin_px"] = 4
+    data["pipeline"]["source"]["min_sources_warn"] = 1
+    recipe.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+    # 동결 평가셋(pairs — noop 은 pairs 를 선언한다)
+    gold = root / "golden"
+    (gold / "images").mkdir(parents=True)
+    (gold / "masks").mkdir(parents=True)
+    for i in range(2):
+        imgio.write_image(gold / "images" / f"g{i}.png", blob_image(64, [(32, 32, 7)]))
+        imgio.write_image(gold / "masks" / f"g{i}.png", blob_mask(64, [(32, 32, 7)]))
+
+    # 현장 이미지 — 정상 목록을 그대로 쓴다(배포 모델이 스코어링할 대상)
+    field = root / "field"
+    field.mkdir()
+    for i, src in enumerate(imgio.read_path_list(normals)):  # 목록에는 주석 줄이 있다
+        imgio.write_image(field / f"f{i}.png", imgio.read_image(src)[0])
+
+    trainers = root / "trainers.yaml"
+    trainers.write_text(
+        yaml.safe_dump(
+            {"trainers": {"noop": {"command": [sys.executable, str(noop)]}}},
+            sort_keys=False,
+            allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
+    classes = Bank.load(bank).classes
+    loop_yaml = root / "loop.yaml"
+    loop_yaml.write_text(
+        yaml.safe_dump(
+            {
+                "trainer": "noop",
+                "bank": str(bank),
+                "recipe": str(recipe),
+                "out": str(root / "loop"),
+                "field": str(field),
+                "eval": {"images": str(gold / "images"), "masks": str(gold / "masks")},
+                "review": {"n": 3, "threshold": 0.5, "accept_class": classes[0]},
+                "promote": {"metric": "mAP50", "noise": 0.001},
+                "trainers_file": str(trainers),
+                "seed": 5,
+            },
+            sort_keys=False,
+            allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
+    return {
+        "root": root,
+        "bank": bank,
+        "loop": loop_yaml,
+        "out": root / "loop",
+        "field": field,
+        "recipe": recipe,
+        "trainers": trainers,
+        "normals": normals,
+    }

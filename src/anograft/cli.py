@@ -1075,8 +1075,29 @@ def _loop_config(args: argparse.Namespace):
         return None
 
 
+def _round_payload(result: Any) -> dict:
+    """`loop run` · `loop tick` 이 같은 JSON 을 낸다 — 도구가 둘을 갈라 읽지 않게."""
+    return {
+        "round": result.record.number,
+        "done": result.record.done,
+        "waitingForHuman": result.waiting_for_human,
+        "message": result.message,
+        "data": result.record.data,
+        "champion": result.state.champion.to_dict() if result.state.champion else None,
+    }
+
+
+def _print_round(result: Any) -> None:
+    print(result.message)
+    if result.waiting_for_human:
+        print(
+            f"  검수 화면: anograft serve → 검수 · 폴더 {(result.round_dir / 'queue').as_posix()}"
+        )
+
+
 def cmd_loop_run(args: argparse.Namespace) -> int:
     """라운드를 **다음 단계부터** 진행한다(멱등) — 사람이 판정할 차례면 멈추고 알려 준다. 루프 T10."""
+    from anograft.loop.lock import LockBusyError
     from anograft.loop.round import LoopError, run_round
 
     loop = _loop_config(args)
@@ -1088,32 +1109,59 @@ def cmd_loop_run(args: argparse.Namespace) -> int:
             on_log=None if args.json else _stderr_line,
             accept_partial=args.accept_partial,
             workers=args.workers,
+            since=args.since,
         )
+    except LockBusyError as exc:
+        # 사람이 직접 부른 경우엔 오류다("내가 시킨 일이 안 됐다"). tick 에서는 정상 상태다.
+        _err(f"오류: {exc}")
+        return EXIT_RECIPE_ERROR
+    except (LoopError, OSError, ValueError) as exc:
+        _err(f"오류: {exc}")
+        return EXIT_RECIPE_ERROR
+
+    if args.json:
+        print(json.dumps(_round_payload(result), ensure_ascii=False))
+        return EXIT_OK
+    _print_round(result)
+    return EXIT_OK
+
+
+def cmd_loop_tick(args: argparse.Namespace) -> int:
+    """**스케줄러가 부르는 진입점**(T13) — 멱등. Graft 는 스케줄러가 되지 않는다(설계 §2b.1).
+
+    `loop run` 과 같은 일을 하지만 **스케줄러의 말로 답한다**: 다른 실행이 돌고 있으면 오류가 아니라
+    "다음에 오라"(종료 코드 0)이고, 새로 들어온 이미지만 스코어링한다(유입 커서).
+    """
+    from anograft.loop.lock import LockBusyError
+    from anograft.loop.round import LoopError, run_round
+
+    loop = _loop_config(args)
+    if loop is None:
+        return EXIT_RECIPE_ERROR
+    try:
+        result = run_round(
+            loop,
+            on_log=None if args.json else _stderr_line,
+            accept_partial=args.accept_partial,
+            workers=args.workers,
+            since=args.since,
+        )
+    except LockBusyError as exc:
+        if args.json:
+            print(json.dumps({"ran": False, "busy": True, "reason": str(exc)}, ensure_ascii=False))
+        else:
+            print(f"돌지 않았습니다 — {exc}")
+        return EXIT_OK  # 스케줄러에게 "지금은 아니다"는 정상이다
     except (LoopError, OSError, ValueError) as exc:
         _err(f"오류: {exc}")
         return EXIT_RECIPE_ERROR
 
     if args.json:
         print(
-            json.dumps(
-                {
-                    "round": result.record.number,
-                    "done": result.record.done,
-                    "waitingForHuman": result.waiting_for_human,
-                    "message": result.message,
-                    "data": result.record.data,
-                    "champion": result.state.champion.to_dict() if result.state.champion else None,
-                },
-                ensure_ascii=False,
-            )
+            json.dumps({"ran": True, "busy": False, **_round_payload(result)}, ensure_ascii=False)
         )
         return EXIT_OK
-
-    print(result.message)
-    if result.waiting_for_human:
-        print(
-            f"  검수 화면: anograft serve → 검수 · 폴더 {(result.round_dir / 'queue').as_posix()}"
-        )
+    _print_round(result)
     return EXIT_OK
 
 
@@ -1140,6 +1188,8 @@ def cmd_loop_status(args: argparse.Namespace) -> int:
                     "judged": st.judged,
                     "total": st.total,
                     "history": st.state.history,
+                    "processed": st.processed,
+                    "lock": st.lock.to_json() if st.lock else None,
                 },
                 ensure_ascii=False,
             )
@@ -1863,8 +1913,37 @@ def build_parser() -> argparse.ArgumentParser:
         help="검토 대기가 다 판정되지 않아도 판정된 것만 가지고 진행",
     )
     lr.add_argument("--workers", type=int, default=0, help="합성 워커 수 (기본 0 = 단일 프로세스)")
+    lr.add_argument(
+        "--since",
+        type=int,
+        metavar="N",
+        help="라운드 N 이후의 유입 이력을 무시하고 그 이미지들을 다시 스코어링 (어댑터 교체·버그 수정)",
+    )
     lr.add_argument("--json", action="store_true", help="결과를 JSON 한 줄로(도구가 읽는다)")
     lr.set_defaults(func=cmd_loop_run)
+
+    lt = lsub.add_parser(
+        "tick",
+        help="스케줄러가 부르는 진입점 — 새로 들어온 이미지만 보고 한 라운드를 멱등하게 진행",
+        description="Windows 작업 스케줄러·cron 이 인자 없이 부르는 명령입니다. Graft 는 상주하지 "
+        "않습니다 — 한 번 돌고 끝납니다. 이미 처리한 이미지는 유입 커서(processed.jsonl)로 걸러지고, "
+        "다른 실행이 돌고 있으면 오류가 아니라 '다음에'(종료 코드 0)입니다.",
+    )
+    lt.add_argument("--config", help="loop.yaml 경로 (기본: ./loop.yaml → ~/.anograft/loop.yaml)")
+    lt.add_argument(
+        "--accept-partial",
+        action="store_true",
+        help="검토 대기가 다 판정되지 않아도 판정된 것만 가지고 진행",
+    )
+    lt.add_argument("--workers", type=int, default=0, help="합성 워커 수 (기본 0 = 단일 프로세스)")
+    lt.add_argument(
+        "--since",
+        type=int,
+        metavar="N",
+        help="라운드 N 이후의 유입 이력을 무시하고 그 이미지들을 다시 스코어링",
+    )
+    lt.add_argument("--json", action="store_true", help="결과를 JSON 한 줄로(스케줄러·상위 도구용)")
+    lt.set_defaults(func=cmd_loop_tick)
 
     ls = lsub.add_parser("status", help="지금 어디인가 — champion · 진행 중인 라운드 · 최근 이력")
     ls.add_argument("--config", help="loop.yaml 경로")

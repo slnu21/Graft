@@ -34,6 +34,15 @@ from pathlib import Path
 from typing import Any
 
 from anograft.loop.config import SUPPORTED_FORMATS, LoopConfigError, ResolvedLoop
+from anograft.loop.ingest import (
+    PROCESSED_FILE,
+    FileStamp,
+    append_processed,
+    plan_ingest,
+    read_processed,
+    stamp_all,
+)
+from anograft.loop.lock import DEFAULT_STALE_S, LOCK_FILE, LockInfo, RoundLock, read_lock
 
 Log = Callable[[str], None]
 #: 확인이 끝난 학습기 — ``(등록 스펙, 실행 폴더, info 선언)``. 라운드당 한 번만 만든다.
@@ -484,35 +493,83 @@ def _trainer_of(loop: ResolvedLoop) -> Trainer:
     return spec, resolve_cwd(spec, path.parent), info
 
 
-def _field_list(loop: ResolvedLoop, round_dir: Path, log: Log) -> tuple[Path, list[Path]]:
-    """현장 이미지 목록 ``.txt`` 를 라운드 폴더에 만든다(어댑터 계약은 목록 파일을 받는다)."""
+def cursor_path(loop: ResolvedLoop) -> Path:
+    """유입 커서 파일 — ``<out>/processed.jsonl`` (`loop.state.json` 과 나란히, T13)."""
+    return loop.out / PROCESSED_FILE
+
+
+def _field_list(
+    loop: ResolvedLoop, round_dir: Path, log: Log, *, since: int | None = None
+) -> tuple[Path, list[Path], list[FileStamp]]:
+    """이 라운드가 볼 현장 이미지 목록 ``field.txt`` — **한 번 정해지면 얼린다**.
+
+    얼리는 이유가 T13 의 핵심이다: 유입 커서는 predict 가 끝나는 순간 움직이므로, 뒤따르는 queue 단계가
+    목록을 **다시 계산하면 방금 스코어링한 것이 전부 "이미 처리"로 빠져 큐가 빈다.** 라운드가 무엇을
+    보는가는 라운드가 열릴 때 정해지고, 그 뒤로는 파일이 답한다.
+
+    돌려주는 세 번째 값은 **커서에 적을 도장**이다(새로 고른 경우에만 채워진다 — 얼린 목록을 다시 읽은
+    경우엔 호출부가 필요할 때 직접 찍는다).
+    """
+    from anograft.io import imgio
     from anograft.io.targets import TargetsError, list_targets
     from anograft.loop.queue import index_images
 
-    field = loop.field
-    if field is None:
+    listing = round_dir / FIELD_LIST
+    if listing.is_file():
+        if since is not None:  # 조용한 무효과를 만들지 않는다
+            log(
+                f"이 라운드는 볼 목록이 이미 정해져 있습니다 — --since {since} 는 다음 라운드부터 듭니다"
+            )
+        return listing, imgio.read_path_list(listing), []
+
+    field_root = loop.field
+    if field_root is None:
         raise LoopError("loop.yaml 에 field(현장 이미지)가 없습니다")
     try:
-        paths = list_targets(field)
+        candidates = list_targets(field_root)
     except TargetsError as exc:
         raise LoopError(str(exc)) from exc
+
+    log_cursor = read_processed(cursor_path(loop))
+    if since is not None:
+        before = len(log_cursor)
+        log_cursor = log_cursor.before_round(since)
+        log(
+            f"--since {since} — 라운드 {since} 이후 이력 {before - len(log_cursor)}건을 다시 봅니다"
+        )
+    for w in log_cursor.warnings:
+        log(f"경고: {w}")
+    plan = plan_ingest(candidates, log_cursor)
+    for w in plan.warnings:
+        log(f"경고: {w}")
+    log(f"유입: {plan.line()}")
+    paths = plan.paths
     _, warns = index_images(paths)
     for w in warns:
         log(f"경고: {w}")
-    listing = round_dir / FIELD_LIST
     listing.parent.mkdir(parents=True, exist_ok=True)
     listing.write_text("\n".join(str(p) for p in paths), encoding="utf-8", newline="\n")
-    return listing, paths
+    return listing, paths, plan.fresh
 
 
 def _phase_predict(
-    loop: ResolvedLoop, state: LoopState, round_dir: Path, log: Log, trainer: Trainer
+    loop: ResolvedLoop,
+    state: LoopState,
+    round_dir: Path,
+    number: int,
+    log: Log,
+    trainer: Trainer,
+    *,
+    since: int | None = None,
 ) -> dict:
     from anograft.loop.contract import DEFAULT_TIMEOUT_S, TrainerError, merge_spec, predict
 
     spec, cwd, _info = trainer
     assert state.champion is not None  # 부트스트랩이면 이 단계에 오지 않는다
-    listing, paths = _field_list(loop, round_dir, log)
+    listing, paths, stamps = _field_list(loop, round_dir, log, since=since)
+    if not paths:
+        log("새로 들어온 이미지가 없습니다 — 이번 라운드는 합성만 돕니다")
+        return {"count": 0, "scored": 0, "note": "새 이미지 없음"}
     log(f"현장 이미지 {len(paths)}장 스코어링 — 모델 {state.champion.model}")
     try:
         result = predict(
@@ -527,7 +584,24 @@ def _phase_predict(
         )
     except TrainerError as exc:
         raise LoopError(f"예측 실패: {exc}") from exc
-    return {"count": result.count, "predictions": str(result.predictions)}
+
+    # 스코어링이 끝난 **뒤에** 커서를 움직인다 — 여기서 움직여야 라운드가 뒤에서 실패해도 같은 이미지를
+    # 두 번 보지 않고, 예측이 실패하면 커서도 그대로다(다음 tick 이 다시 본다).
+    if not stamps:  # 얼린 목록을 이어받은 경우
+        stamps, warns = stamp_all(paths)
+        for w in warns:
+            log(f"경고: {w}")
+    try:
+        written = append_processed(cursor_path(loop), stamps, round_no=number)
+    except OSError as exc:
+        log(f"경고: 유입 커서를 적지 못했습니다({exc}) — 다음 라운드가 같은 이미지를 다시 봅니다")
+        written = 0
+    return {
+        "count": result.count,
+        "scored": len(paths),
+        "predictions": str(result.predictions),
+        "cursor": written,
+    }
 
 
 def _phase_queue(loop: ResolvedLoop, round_dir: Path, number: int, log: Log) -> dict:
@@ -536,13 +610,17 @@ def _phase_queue(loop: ResolvedLoop, round_dir: Path, number: int, log: Log) -> 
     from anograft.loop.queue import QueueError, build_queue, index_images, read_predictions
 
     review = loop.config.review
+    if not (round_dir / "pred").is_dir():
+        # 새로 들어온 이미지가 없어 스코어링을 안 했다(T13) — 고를 것도 없다. 합성만 도는 라운드가 된다.
+        log("예측이 없습니다 — 검토 대기도 비웁니다")
+        return {"count": 0, "reasons": {}, "note": "예측 없음"}
     try:
         preds = read_predictions(round_dir / "pred")
     except QueueError as exc:
         raise LoopError(str(exc)) from exc
     for w in preds.warnings:
         log(f"경고: {w}")
-    _, paths = _field_list(loop, round_dir, log)
+    _, paths, _ = _field_list(loop, round_dir, log)
     images, _ = index_images(paths)
 
     from anograft.loop.queue import select_queue
@@ -756,11 +834,38 @@ def run_round(
     on_log: Log | None = None,
     accept_partial: bool = False,
     workers: int = 0,
+    since: int | None = None,
+    use_lock: bool = True,
+    stale_after_s: float = DEFAULT_STALE_S,
 ) -> RoundResult:
-    """다음 단계부터 라운드를 진행한다. 사람이 판정할 차례면 **멈추고 무엇을 할지 알려 준다**."""
+    """다음 단계부터 라운드를 진행한다. 사람이 판정할 차례면 **멈추고 무엇을 할지 알려 준다**.
+
+    잠금(T13)은 기본으로 잡는다 — 스케줄러가 `loop tick` 을 부르기 시작하면 앞 실행의 학습이 세 시간째
+    도는 중에 다음 실행이 들어올 수 있다. 못 잡으면 `LockBusyError` 가 그대로 올라간다(오류가 아니라 상태다).
+    """
     log: Log = on_log or (lambda _m: None)
     out = loop.out
     out.mkdir(parents=True, exist_ok=True)
+    if not use_lock:
+        return _run_round(
+            loop, log, accept_partial=accept_partial, workers=workers, since=since, lock=None
+        )
+    with RoundLock(out / LOCK_FILE, stale_after_s=stale_after_s, note="시작", on_log=log) as lock:
+        return _run_round(
+            loop, log, accept_partial=accept_partial, workers=workers, since=since, lock=lock
+        )
+
+
+def _run_round(
+    loop: ResolvedLoop,
+    log: Log,
+    *,
+    accept_partial: bool,
+    workers: int,
+    since: int | None,
+    lock: RoundLock | None,
+) -> RoundResult:
+    out = loop.out
     state = load_state(out)
 
     # 진행 중인 라운드가 있으면 이어서, 없으면 다음 라운드를 연다
@@ -790,8 +895,13 @@ def run_round(
         if phase is None:
             break
         log(f"· {phase} ({PHASE_LABEL.get(phase, phase)})")
+        if lock is not None:  # 하트비트 — 긴 학습이 버려진 잠금으로 보이지 않게
+            lock.touch(f"{round_name(record.number)} {PHASE_LABEL.get(phase, phase)}")
         if phase == "predict":
-            record.mark(phase, _phase_predict(loop, state, round_dir, log, trainer))
+            record.mark(
+                phase,
+                _phase_predict(loop, state, round_dir, record.number, log, trainer, since=since),
+            )
         elif phase == "queue":
             record.mark(phase, _phase_queue(loop, round_dir, record.number, log))
         elif phase == "review":
@@ -857,6 +967,10 @@ class LoopStatus:
     record: RoundRecord | None
     judged: int = 0
     total: int = 0
+    #: 지금 다른 실행이 잡고 있는 잠금(T13). 있으면 "돌고 있는 중"이다.
+    lock: LockInfo | None = None
+    #: 유입 커서에 적힌 처리 이력 건수(T13).
+    processed: int = 0
 
     @property
     def next(self) -> str | None:
@@ -872,6 +986,10 @@ class LoopStatus:
             if champ
             else "champion: 없음 (아직 승급한 모델이 없습니다)"
         )
+        if self.lock is not None:
+            out.append(f"지금 돌고 있습니다 — {self.lock.text()}")
+        if self.processed:
+            out.append(f"유입 커서: 이미 처리한 이미지 {self.processed}장")
         if self.record is None:
             out.append("라운드: 아직 없음 — `anograft loop run` 이 첫 라운드를 엽니다")
             return out
@@ -900,7 +1018,15 @@ def status(loop: ResolvedLoop) -> LoopStatus:
     judged = total = 0
     if record is not None:
         judged, total = _review_progress(out / round_name(record.number))
-    return LoopStatus(out=out, state=state, record=record, judged=judged, total=total)
+    return LoopStatus(
+        out=out,
+        state=state,
+        record=record,
+        judged=judged,
+        total=total,
+        lock=read_lock(out / LOCK_FILE),
+        processed=len(read_processed(cursor_path(loop))),
+    )
 
 
 __all__ = [
@@ -916,6 +1042,7 @@ __all__ = [
     "RoundResult",
     "assemble_dataset",
     "check_label_classes",
+    "cursor_path",
     "dataset_names",
     "load_record",
     "load_state",
