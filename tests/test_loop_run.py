@@ -43,7 +43,7 @@ from anograft.loop.round import (
     save_state,
     status,
 )
-from tests.fixtures import blob_image, blob_mask, fake_yolo_dataset
+from tests.fixtures import blob_image, blob_mask, loop_workspace
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 NOOP = REPO_ROOT / "adapters" / "noop.py"
@@ -186,107 +186,10 @@ def test_assemble_dataset_pairs_layout(tmp_path: Path) -> None:
 
 @pytest.fixture
 def loop_ws(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> dict[str, Path]:
-    """은행 + 레시피 + 동결 평가셋 + 현장 이미지 + trainers.yaml + loop.yaml."""
-    d = fake_yolo_dataset(tmp_path / "ds")
-    bank = tmp_path / "bank"
-    normals = tmp_path / "normals.txt"
-    assert (
-        main(
-            [
-                "bank",
-                "import-yolo",
-                "--images",
-                str(d["images"]),
-                "--labels",
-                str(d["labels"]),
-                "--names",
-                str(d["names"]),
-                "--out",
-                str(bank),
-                "--mask-from",
-                "otsu",
-                "--list-normals",
-                str(normals),
-            ]
-        )
-        == EXIT_OK
-    )
-    recipe = tmp_path / "r.yaml"
-    assert (
-        main(
-            [
-                "recipe",
-                "init",
-                "--preset",
-                "hard-paste",
-                "--bank",
-                str(bank),
-                "--targets",
-                str(normals),
-                "--out",
-                str(tmp_path / "unused"),
-                "--count",
-                "2",
-                "--seed",
-                "11",
-                "--write",
-                str(recipe),
-            ]
-        )
-        == EXIT_OK
-    )
-    data = yaml.safe_load(recipe.read_text(encoding="utf-8"))
-    data["pipeline"]["placement"]["roi"]["erode_px"] = 2
-    data["pipeline"]["placement"]["margin_px"] = 4
-    data["pipeline"]["source"]["min_sources_warn"] = 1
-    recipe.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
-
-    # 동결 평가셋(pairs — noop 은 pairs 를 선언한다)
-    gold = tmp_path / "golden"
-    (gold / "images").mkdir(parents=True)
-    (gold / "masks").mkdir(parents=True)
-    for i in range(2):
-        imgio.write_image(gold / "images" / f"g{i}.png", blob_image(64, [(32, 32, 7)]))
-        imgio.write_image(gold / "masks" / f"g{i}.png", blob_mask(64, [(32, 32, 7)]))
-
-    # 현장 이미지 — 정상 목록을 그대로 쓴다(배포 모델이 스코어링할 대상)
-    field = tmp_path / "field"
-    field.mkdir()
-    for i, src in enumerate(imgio.read_path_list(normals)):  # 목록에는 주석 줄이 있다
-        imgio.write_image(field / f"f{i}.png", imgio.read_image(src)[0])
-
-    trainers = tmp_path / "trainers.yaml"
-    trainers.write_text(
-        yaml.safe_dump(
-            {"trainers": {"noop": {"command": [sys.executable, str(NOOP)]}}},
-            sort_keys=False,
-            allow_unicode=True,
-        ),
-        encoding="utf-8",
-    )
-    classes = Bank.load(bank).classes
-    loop_yaml = tmp_path / "loop.yaml"
-    loop_yaml.write_text(
-        yaml.safe_dump(
-            {
-                "trainer": "noop",
-                "bank": str(bank),
-                "recipe": str(recipe),
-                "out": str(tmp_path / "loop"),
-                "field": str(field),
-                "eval": {"images": str(gold / "images"), "masks": str(gold / "masks")},
-                "review": {"n": 3, "threshold": 0.5, "accept_class": classes[0]},
-                "promote": {"metric": "mAP50", "noise": 0.001},
-                "trainers_file": str(trainers),
-                "seed": 5,
-            },
-            sort_keys=False,
-            allow_unicode=True,
-        ),
-        encoding="utf-8",
-    )
+    """은행 + 레시피 + 동결 평가셋 + 현장 이미지 + trainers.yaml + loop.yaml (`fixtures.loop_workspace`)."""
+    ws = loop_workspace(tmp_path)
     capsys.readouterr()
-    return {"root": tmp_path, "bank": bank, "loop": loop_yaml, "out": tmp_path / "loop"}
+    return ws
 
 
 def _judge_all(queue_dir: Path, verdict: str = "accept") -> int:
