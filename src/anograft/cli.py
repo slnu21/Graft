@@ -1058,6 +1058,98 @@ def cmd_loop_accept(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _loop_config(args: argparse.Namespace):
+    """``loop.yaml`` 을 찾아 읽는다. 없으면 안내만 하고 ``None``(fail-soft)."""
+    from anograft.loop.config import LoopConfigError, find_loop_file, load_loop_config
+
+    path = find_loop_file(Path(args.config) if args.config else None)
+    if path is None:
+        _err("loop.yaml 이 없습니다 — 라운드 설정을 만들어야 루프가 돕니다.")
+        _err("  찾은 곳: ./loop.yaml · ~/.anograft/loop.yaml")
+        _err("  예시는 loop.example.yaml 을 복사해서 쓰세요.")
+        return None
+    try:
+        return load_loop_config(path)
+    except LoopConfigError as exc:
+        _err(f"오류: {exc}")
+        return None
+
+
+def cmd_loop_run(args: argparse.Namespace) -> int:
+    """라운드를 **다음 단계부터** 진행한다(멱등) — 사람이 판정할 차례면 멈추고 알려 준다. 루프 T10."""
+    from anograft.loop.round import LoopError, run_round
+
+    loop = _loop_config(args)
+    if loop is None:
+        return EXIT_RECIPE_ERROR
+    try:
+        result = run_round(
+            loop,
+            on_log=None if args.json else _stderr_line,
+            accept_partial=args.accept_partial,
+            workers=args.workers,
+        )
+    except (LoopError, OSError, ValueError) as exc:
+        _err(f"오류: {exc}")
+        return EXIT_RECIPE_ERROR
+
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "round": result.record.number,
+                    "done": result.record.done,
+                    "waitingForHuman": result.waiting_for_human,
+                    "message": result.message,
+                    "data": result.record.data,
+                    "champion": result.state.champion.to_dict() if result.state.champion else None,
+                },
+                ensure_ascii=False,
+            )
+        )
+        return EXIT_OK
+
+    print(result.message)
+    if result.waiting_for_human:
+        print(
+            f"  검수 화면: anograft serve → 검수 · 폴더 {(result.round_dir / 'queue').as_posix()}"
+        )
+    return EXIT_OK
+
+
+def cmd_loop_status(args: argparse.Namespace) -> int:
+    """지금 어디인가 — champion · 진행 중인 라운드 · 최근 이력. 루프 T10."""
+    from anograft.loop.round import LoopError, status
+
+    loop = _loop_config(args)
+    if loop is None:
+        return EXIT_RECIPE_ERROR
+    try:
+        st = status(loop)
+    except (LoopError, OSError, ValueError) as exc:
+        _err(f"오류: {exc}")
+        return EXIT_RECIPE_ERROR
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "out": str(st.out),
+                    "round": st.state.round,
+                    "next": st.next,
+                    "champion": st.state.champion.to_dict() if st.state.champion else None,
+                    "judged": st.judged,
+                    "total": st.total,
+                    "history": st.state.history,
+                },
+                ensure_ascii=False,
+            )
+        )
+        return EXIT_OK
+    for line in st.lines():
+        print(line)
+    return EXIT_OK
+
+
 def cmd_dataset_textures(args: argparse.Namespace) -> int:
     """텍스처셋(DTD)에서 perlin-texture 용 목록 파일을 만든다 — 은행에 넣지 않는다."""
     from anograft.datasets.dtd import DtdAdapter, write_texture_list
@@ -1757,6 +1849,27 @@ def build_parser() -> argparse.ArgumentParser:
     la.add_argument("--json", action="store_true")
     la.add_argument("--verbose", action="store_true")
     la.set_defaults(func=cmd_loop_accept)
+
+    lr = lsub.add_parser(
+        "run",
+        help="라운드를 다음 단계부터 진행 (predict → 큐 → [사람] → accept → 합성 → 학습 → 승급)",
+        description="멱등합니다 — 남은 상태를 읽고 이어서 돕니다. 사람이 판정할 차례면 멈추고 "
+        "무엇을 해야 하는지 알려 줍니다. 설정은 loop.yaml(예시 loop.example.yaml).",
+    )
+    lr.add_argument("--config", help="loop.yaml 경로 (기본: ./loop.yaml → ~/.anograft/loop.yaml)")
+    lr.add_argument(
+        "--accept-partial",
+        action="store_true",
+        help="검토 대기가 다 판정되지 않아도 판정된 것만 가지고 진행",
+    )
+    lr.add_argument("--workers", type=int, default=0, help="합성 워커 수 (기본 0 = 단일 프로세스)")
+    lr.add_argument("--json", action="store_true", help="결과를 JSON 한 줄로(도구가 읽는다)")
+    lr.set_defaults(func=cmd_loop_run)
+
+    ls = lsub.add_parser("status", help="지금 어디인가 — champion · 진행 중인 라운드 · 최근 이력")
+    ls.add_argument("--config", help="loop.yaml 경로")
+    ls.add_argument("--json", action="store_true")
+    ls.set_defaults(func=cmd_loop_status)
 
     p = sub.add_parser(
         "sample",
