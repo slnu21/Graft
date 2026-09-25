@@ -62,6 +62,14 @@ def test_without_rng_is_deterministic() -> None:
     assert [p.item_id for p in a] == [p.item_id for p in b]
 
 
+def test_empty_share_is_backfilled_by_boundary() -> None:
+    """임계값을 넘긴 검출이 하나도 없는 라운드에도 큐는 n 장이어야 한다(루프 첫 라운드에서 겪음)."""
+    cold = [(f"i{k}", 0.01 * k) for k in range(6)]  # 전부 임계값 미만 → '확신' 몫이 비어 있다
+    picks = select_for_review(cold, threshold=0.5, n=4, mix=ReviewMix(0.6, 0.2, 0.2))
+    assert len(picks) == 4 and len({p.item_id for p in picks}) == 4
+    assert all(p.reason in ("경계", "무작위") for p in picks)
+
+
 def test_select_handles_small_pool_and_zero_n() -> None:
     assert select_for_review([], threshold=0.5, n=5) == []
     assert select_for_review(_scored(3), threshold=0.5, n=0) == []

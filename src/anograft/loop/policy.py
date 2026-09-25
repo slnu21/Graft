@@ -61,6 +61,7 @@ def select_for_review(
 
     ``scored`` 는 ``(id, score)``. ``threshold`` 는 운영 임계값이고, 그 **근처**가 경계다.
     ``rng`` 가 없으면 무작위 몫도 결정적으로(앞에서부터) 채운다 — 테스트와 재현을 위해.
+    몫 하나가 비어 남으면(임계값 위 검출이 하나도 없는 초기 라운드 등) **경계 순서로 채워** n 을 맞춘다.
     """
     if n <= 0 or not scored:
         return []
@@ -101,6 +102,11 @@ def select_for_review(
         else:
             rest = sorted(rest, key=lambda s: s[0])
         take(rest, n_random, "무작위")
+
+    # 당이 비었으면(임계값을 넘긴 검출이 없는 라운드 등) **경계 순서로 채운다** —
+    # 사람에게 보낼 자리를 비워 두면 큐가 요청한 n 보다 작아진다(루프 첫 라운드에서 실제로 겪음).
+    if len(picked) < n:
+        take(by_boundary, n - len(picked), "경계")
 
     return picked
 

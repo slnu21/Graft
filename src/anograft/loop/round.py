@@ -1,0 +1,929 @@
+"""라운드 오케스트레이션 (설계 `v1.x-training-loop.md` §2 루프 규약, 작업 단위 T10).
+
+한 라운드는 이렇게 돈다 — 그리고 **사람 앞에서 멈춘다**::
+
+    predict → queue → [사람이 검수 화면에서 판정] → accept → synth → train → judge
+
+`anograft loop run` 은 **멱등**하다: 라운드 폴더에 남은 상태를 읽고 **다음 단계부터** 이어 간다. 사람이
+판정할 차례면 무엇을 해야 하는지 알려 주고 종료한다(데몬을 만들지 않는다 — 설계 §2b.1). 학습이 3시간 뒤
+실패해도 다음 실행이 합성을 다시 하지 않는다("부분 진행 재사용").
+
+**부트스트랩 라운드**(champion 모델이 없거나 현장 이미지가 없을 때)는 수집 넷을 건너뛰고 `synth` 부터 돈다 —
+첫 라운드에는 스코어링할 모델이 없다. 그게 Graft 의 자리다(설계 §2b.5(4)).
+
+평가는 별도 predict 가 아니라 **학습 데이터셋의 `val` = 동결 평가셋**이고, `fit` 이 돌려주는 평평한 지표
+맵에서 `promote.metric` 을 읽는다 — `tools/train_mvtec_map.py` 가 이미 쓰는 그 경로다(계약 §1.1).
+
+상태는 두 파일뿐이다(T14 가 `rounds.jsonl` 로 승격한다):
+
+- ``<out>/loop.state.json`` — 라운드 번호 · champion 포인터 · 이력
+- ``<out>/round-NNN/round.json`` — 이 라운드의 단계·산출 요약
+
+여기는 `core` 위의 얇은 오케스트레이터다 — 합성은 `runner`, 학습은 `loop.contract`, 큐는 `loop.queue`,
+승급 판정은 `loop.policy` 가 하고 이 모듈은 **순서와 상태**만 들고 있다.
+"""
+
+from __future__ import annotations
+
+import json
+import shutil
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from anograft.loop.config import SUPPORTED_FORMATS, LoopConfigError, ResolvedLoop
+
+Log = Callable[[str], None]
+#: 확인이 끝난 학습기 — ``(등록 스펙, 실행 폴더, info 선언)``. 라운드당 한 번만 만든다.
+Trainer = tuple[Any, Path, Any]
+
+#: 한 라운드의 단계. 순서가 곧 계약이다(`round.json` 의 `done` 이 이 이름들을 담는다).
+PHASES: tuple[str, ...] = ("predict", "queue", "review", "accept", "synth", "train", "judge")
+#: 사람에게 보낼 것을 모으는 앞 넷 — 모델이 없으면 통째로 건너뛴다.
+COLLECT_PHASES: tuple[str, ...] = ("predict", "queue", "review", "accept")
+
+STATE_FILE = "loop.state.json"
+ROUND_FILE = "round.json"
+FIELD_LIST = "field.txt"
+
+PHASE_LABEL: dict[str, str] = {
+    "predict": "현장 이미지 스코어링",
+    "queue": "검토 대기 고르기",
+    "review": "사람 판정 대기",
+    "accept": "채택분 보관함 편입",
+    "synth": "합성",
+    "train": "학습·평가",
+    "judge": "승급 판정",
+}
+
+
+class LoopError(RuntimeError):
+    """라운드를 더 진행할 수 없다 — 사유를 그대로 사람에게 보여 준다(fail-soft, 앱을 죽이지 않는다)."""
+
+
+# --------------------------------------------------------------------------------------
+# 1. 순수 — 어떤 단계를 지나고, 지금 어디인가
+# --------------------------------------------------------------------------------------
+
+
+def round_phases(*, has_champion: bool, has_field: bool) -> tuple[str, ...]:
+    """이 라운드가 지날 단계.
+
+    스코어링할 **모델이 없거나**(첫 라운드) 스코어링할 **현장 이미지가 없으면** 수집 넷은 의미가 없다 —
+    합성부터 돈다. 이것이 부트스트랩 라운드다.
+    """
+    rest = tuple(p for p in PHASES if p not in COLLECT_PHASES)
+    return PHASES if (has_champion and has_field) else rest
+
+
+def next_phase(phases: Sequence[str], done: Sequence[str]) -> str | None:
+    """아직 안 끝난 첫 단계. 전부 끝났으면 ``None``(= 라운드 완료)."""
+    finished = set(done)
+    for p in phases:
+        if p not in finished:
+            return p
+    return None
+
+
+def round_name(number: int) -> str:
+    return f"round-{number:03d}"
+
+
+def review_line(judged: int, total: int) -> str:
+    """사람 판정 진행을 한 줄로 — 멈춘 이유는 언제나 숫자와 함께 보여 준다."""
+    return f"검토 대기 {total}장 중 {judged}장 판정됨"
+
+
+# --------------------------------------------------------------------------------------
+# 2. 상태 — 파일 둘
+# --------------------------------------------------------------------------------------
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+
+
+@dataclass
+class Champion:
+    """지금 배포된 것으로 치는 모델. 롤백은 이 포인터를 옛 라운드로 되돌리는 것뿐이다(설계 §2b.4)."""
+
+    round: int
+    model: str
+    metric: float
+    metric_name: str = "mAP50"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "round": self.round,
+            "model": self.model,
+            "metric": self.metric,
+            "metric_name": self.metric_name,
+        }
+
+    @classmethod
+    def from_dict(cls, d: Mapping[str, Any]) -> Champion:
+        return cls(
+            round=int(d.get("round", 0)),
+            model=str(d.get("model", "")),
+            metric=float(d.get("metric", 0.0)),
+            metric_name=str(d.get("metric_name", "mAP50")),
+        )
+
+
+@dataclass
+class RoundRecord:
+    """``round-NNN/round.json`` — 이 라운드가 어디까지 갔고 무엇을 냈는가."""
+
+    number: int
+    phases: tuple[str, ...]
+    done: list[str] = field(default_factory=list)
+    bootstrap: bool = False
+    started: str = field(default_factory=_now)
+    updated: str = field(default_factory=_now)
+    data: dict[str, Any] = field(default_factory=dict)
+    warnings: list[str] = field(default_factory=list)
+
+    @property
+    def finished(self) -> bool:
+        return next_phase(self.phases, self.done) is None
+
+    def mark(self, phase: str, data: Mapping[str, Any] | None = None) -> None:
+        if phase not in self.done:
+            self.done.append(phase)
+        if data:
+            self.data[phase] = dict(data)
+        self.updated = _now()
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "round": self.number,
+            "phases": list(self.phases),
+            "done": list(self.done),
+            "bootstrap": self.bootstrap,
+            "started": self.started,
+            "updated": self.updated,
+            "data": self.data,
+            "warnings": self.warnings,
+        }
+
+    @classmethod
+    def from_dict(cls, d: Mapping[str, Any]) -> RoundRecord:
+        return cls(
+            number=int(d.get("round", 1)),
+            phases=tuple(str(p) for p in d.get("phases", PHASES)),
+            done=[str(p) for p in d.get("done", [])],
+            bootstrap=bool(d.get("bootstrap", False)),
+            started=str(d.get("started", "")),
+            updated=str(d.get("updated", "")),
+            data=dict(d.get("data", {})),
+            warnings=[str(w) for w in d.get("warnings", [])],
+        )
+
+
+@dataclass
+class LoopState:
+    """``loop.state.json`` — 라운드 번호 · champion · 이력(사람이 읽을 수 있게 얕게)."""
+
+    round: int = 0
+    champion: Champion | None = None
+    history: list[dict[str, Any]] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "round": self.round,
+            "champion": self.champion.to_dict() if self.champion else None,
+            "history": self.history,
+        }
+
+    @classmethod
+    def from_dict(cls, d: Mapping[str, Any]) -> LoopState:
+        champ = d.get("champion")
+        return cls(
+            round=int(d.get("round", 0)),
+            champion=Champion.from_dict(champ) if isinstance(champ, Mapping) else None,
+            history=[dict(h) for h in d.get("history", []) if isinstance(h, Mapping)],
+        )
+
+
+def load_state(out: Path) -> LoopState:
+    p = Path(out) / STATE_FILE
+    if not p.is_file():
+        return LoopState()
+    try:
+        return LoopState.from_dict(json.loads(p.read_text(encoding="utf-8")))
+    except (OSError, ValueError) as exc:
+        raise LoopError(f"{p} 를 읽을 수 없습니다: {exc}") from exc
+
+
+def save_state(out: Path, state: LoopState) -> Path:
+    p = Path(out) / STATE_FILE
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(state.to_dict(), ensure_ascii=False, indent=1), encoding="utf-8")
+    return p
+
+
+def load_record(round_dir: Path) -> RoundRecord | None:
+    p = Path(round_dir) / ROUND_FILE
+    if not p.is_file():
+        return None
+    try:
+        return RoundRecord.from_dict(json.loads(p.read_text(encoding="utf-8")))
+    except (OSError, ValueError) as exc:
+        raise LoopError(f"{p} 를 읽을 수 없습니다: {exc}") from exc
+
+
+def save_record(round_dir: Path, record: RoundRecord) -> Path:
+    p = Path(round_dir) / ROUND_FILE
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(record.to_dict(), ensure_ascii=False, indent=1), encoding="utf-8")
+    return p
+
+
+# --------------------------------------------------------------------------------------
+# 3. 학습 데이터셋 조립 — train = 실제 + 합성 · val = 동결 평가셋
+# --------------------------------------------------------------------------------------
+
+
+def _copy_pairs(
+    images: Path,
+    second: Path | None,
+    dst_images: Path,
+    dst_second: Path,
+    *,
+    prefix: str = "",
+    empty_when_missing: bool = False,
+) -> tuple[int, int]:
+    """이미지와 짝(라벨 ``.txt`` 또는 마스크 ``.png``)을 복사한다. ``(복사한 장수, 짝이 없던 수)``.
+
+    YOLO 는 **짝이 없는 이미지 = 배경(정상)** 이므로 빈 라벨을 만들어 준다(``empty_when_missing``).
+    마스크는 만들어 주지 않는다 — 없는 GT 를 지어내면 라벨 노이즈가 된다.
+    """
+    from anograft.io import imgio
+
+    dst_images.mkdir(parents=True, exist_ok=True)
+    dst_second.mkdir(parents=True, exist_ok=True)
+    n = missing = 0
+    for img in imgio.list_images(images):
+        name = f"{prefix}{img.name}"
+        shutil.copyfile(img, dst_images / name)
+        n += 1
+        if second is None:
+            missing += 1
+            continue
+        label = second / f"{img.stem}.txt"
+        mask_candidates = [second / f"{img.stem}{ext}" for ext in sorted(imgio.IMAGE_SUFFIXES)]
+        if empty_when_missing:
+            src = label if label.is_file() else None
+            dst = dst_second / f"{prefix}{img.stem}.txt"
+            if src is None:
+                dst.write_text("", encoding="utf-8")
+                missing += 1
+            else:
+                shutil.copyfile(src, dst)
+        else:
+            src = next((m for m in mask_candidates if m.is_file()), None)
+            if src is None:
+                missing += 1
+                continue
+            shutil.copyfile(src, dst_second / f"{prefix}{img.stem}{src.suffix}")
+    return n, missing
+
+
+def dataset_names(synth: Path | None, fallback: Sequence[str] = ()) -> list[str]:
+    """클래스 이름 순서 — 합성 출력의 ``data.yaml``(= 은행 순서)이 정본. 없으면 ``fallback``."""
+    if synth is not None:
+        p = Path(synth) / "data.yaml"
+        if p.is_file():
+            import yaml
+
+            try:
+                doc = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+            except yaml.YAMLError:
+                doc = {}
+            names = doc.get("names")
+            if isinstance(names, Sequence) and not isinstance(names, str):
+                return [str(x) for x in names]
+    return [str(x) for x in fallback]
+
+
+def check_label_classes(labels: Path | None, n_classes: int) -> list[str]:
+    """평가셋 라벨의 class id 가 은행 클래스 수 안에 드는가 — **어긋나면 평가가 조용히 무의미해진다**."""
+    if labels is None or n_classes <= 0 or not Path(labels).is_dir():
+        return []
+    worst = -1
+    for p in sorted(Path(labels).glob("*.txt")):
+        for line in p.read_text(encoding="utf-8").splitlines():
+            head = line.strip().split(" ")[:1]
+            if not head or not head[0]:
+                continue
+            try:
+                worst = max(worst, int(float(head[0])))
+            except ValueError:
+                continue
+    if worst >= n_classes:
+        return [
+            f"평가셋 라벨의 class id 최대 {worst} 가 클래스 수 {n_classes} 를 넘습니다 — "
+            "평가셋 라벨이 보관함 클래스 순서(data.yaml names)와 같은지 확인하세요"
+        ]
+    return []
+
+
+def assemble_dataset(
+    fmt: str,
+    out: Path,
+    *,
+    synth: Path | None,
+    train_base: Mapping[str, Path | None] | None,
+    eval_split: Mapping[str, Path | None],
+    names: Sequence[str],
+) -> tuple[Path, list[str]]:
+    """학습기에 넘길 데이터셋을 만든다 — **train = 실제 학습분 + 이번 라운드 합성 · val = 동결 평가셋**.
+
+    ``yolo`` 는 표준 레이아웃(``images/{train,val}`` + ``labels/{train,val}`` + ``data.yaml``),
+    ``pairs`` 는 ``{train,val}/{images,masks}``. 합성은 ``syn_`` 접두로 들어가 섞여도 구분된다.
+    """
+    if fmt not in SUPPORTED_FORMATS:
+        raise LoopError(
+            f"학습 데이터셋 형식 {fmt!r} 은 아직 루프가 조립하지 않습니다 (지원: {', '.join(SUPPORTED_FORMATS)})"
+        )
+    out = Path(out)
+    if out.exists():
+        shutil.rmtree(out)  # 조립은 언제나 처음부터 — 옛 라운드 파일이 섞이면 평가가 거짓말을 한다
+    warnings: list[str] = []
+
+    if fmt == "yolo":
+        img_tr, lab_tr = out / "images" / "train", out / "labels" / "train"
+        img_va, lab_va = out / "images" / "val", out / "labels" / "val"
+        n_real = n_syn = 0
+        if train_base is not None:
+            n_real, missing = _copy_pairs(
+                train_base["images"],
+                train_base.get("labels"),
+                img_tr,
+                lab_tr,
+                empty_when_missing=True,
+            )
+            if missing:
+                warnings.append(f"실제 학습분 {missing}장에 라벨이 없어 빈 라벨(배경)로 넣었습니다")
+        if synth is not None:
+            n_syn, _ = _copy_pairs(
+                synth / "images",
+                synth / "labels",
+                img_tr,
+                lab_tr,
+                prefix="syn_",
+                empty_when_missing=True,
+            )
+        n_val, missing_val = _copy_pairs(
+            eval_split["images"],
+            eval_split.get("labels"),
+            img_va,
+            lab_va,
+            empty_when_missing=True,
+        )
+        if missing_val:
+            warnings.append(f"평가셋 {missing_val}장에 라벨이 없어 빈 라벨(배경)로 넣었습니다")
+        if n_val == 0:
+            raise LoopError("평가셋이 0장입니다 — 동결 평가셋 없이는 라운드를 비교할 수 없습니다")
+        warnings += check_label_classes(eval_split.get("labels"), len(names))
+        import yaml
+
+        (out / "data.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "path": out.resolve().as_posix(),
+                    "train": "images/train",
+                    "val": "images/val",
+                    "nc": len(names),
+                    "names": list(names),
+                },
+                allow_unicode=True,
+                sort_keys=False,
+            ),
+            encoding="utf-8",
+        )
+        if n_real + n_syn == 0:
+            raise LoopError("학습 이미지가 0장입니다 (실제 학습분도 합성도 없습니다)")
+        return out, warnings
+
+    # pairs — 정본 레이아웃 그대로 train/val 로 나눠 준다
+    n_train = 0
+    if train_base is not None:
+        n_train, _ = _copy_pairs(
+            train_base["images"],
+            train_base.get("masks"),
+            out / "train" / "images",
+            out / "train" / "masks",
+        )
+    if synth is not None:
+        n_syn, _ = _copy_pairs(
+            synth / "images",
+            synth / "masks",
+            out / "train" / "images",
+            out / "train" / "masks",
+            prefix="syn_",
+        )
+        n_train += n_syn
+    n_val, _ = _copy_pairs(
+        eval_split["images"], eval_split.get("masks"), out / "val" / "images", out / "val" / "masks"
+    )
+    if n_val == 0:
+        raise LoopError("평가셋이 0장입니다 — 동결 평가셋 없이는 라운드를 비교할 수 없습니다")
+    if n_train == 0:
+        raise LoopError("학습 이미지가 0장입니다 (실제 학습분도 합성도 없습니다)")
+    return out, warnings
+
+
+# --------------------------------------------------------------------------------------
+# 4. 한 라운드 돌리기
+# --------------------------------------------------------------------------------------
+
+
+@dataclass
+class RoundResult:
+    record: RoundRecord
+    state: LoopState
+    round_dir: Path
+    waiting_for_human: bool = False
+    message: str = ""
+    warnings: list[str] = field(default_factory=list)
+
+
+def _trainer_of(loop: ResolvedLoop) -> Trainer:
+    """등록부에서 학습기를 찾아 **선언까지 확인**한다 — 못 받을 데이터를 만들기 전에 막는다."""
+    from anograft.loop.registry import find_trainers_file, load_trainers, probe, resolve_cwd
+
+    path = find_trainers_file(loop.trainers_file, cwd=loop.base)
+    if path is None:
+        raise LoopError(
+            "trainers.yaml 이 없습니다 — 학습기를 등록해야 루프가 학습을 시킬 수 있습니다"
+            " (./trainers.yaml · ~/.anograft/trainers.yaml · loop.yaml 의 trainers_file)"
+        )
+    trainers = load_trainers(path)
+    name = loop.config.trainer
+    spec = trainers.get(name)
+    if spec is None:
+        known = ", ".join(sorted(trainers)) or "(없음)"
+        raise LoopError(f"학습기 {name!r} 이 {path} 에 없습니다 — 등록된 이름: {known}")
+    status = probe(name, spec, path.parent)
+    if not status.available or status.info is None:
+        raise LoopError(f"학습기 {name!r} 를 쓸 수 없습니다 — {status.reason}")
+    info = status.info
+    if info.normal_only:
+        raise LoopError(
+            f"학습기 {name!r} 는 정상만 학습합니다(trains_on: normal_only) — 합성 결함을 학습셋에 "
+            "넣으면 오염입니다. 비지도 경로는 아직 루프가 돌리지 않습니다(설계 §5)"
+        )
+    if info.dataset_format not in SUPPORTED_FORMATS:
+        raise LoopError(
+            f"학습기 {name!r} 는 {info.dataset_format} 형식을 받습니다 — 루프의 데이터셋 조립은 "
+            f"아직 {', '.join(SUPPORTED_FORMATS)} 만 합니다"
+        )
+    return spec, resolve_cwd(spec, path.parent), info
+
+
+def _field_list(loop: ResolvedLoop, round_dir: Path, log: Log) -> tuple[Path, list[Path]]:
+    """현장 이미지 목록 ``.txt`` 를 라운드 폴더에 만든다(어댑터 계약은 목록 파일을 받는다)."""
+    from anograft.io.targets import TargetsError, list_targets
+    from anograft.loop.queue import index_images
+
+    field = loop.field
+    if field is None:
+        raise LoopError("loop.yaml 에 field(현장 이미지)가 없습니다")
+    try:
+        paths = list_targets(field)
+    except TargetsError as exc:
+        raise LoopError(str(exc)) from exc
+    _, warns = index_images(paths)
+    for w in warns:
+        log(f"경고: {w}")
+    listing = round_dir / FIELD_LIST
+    listing.parent.mkdir(parents=True, exist_ok=True)
+    listing.write_text("\n".join(str(p) for p in paths), encoding="utf-8", newline="\n")
+    return listing, paths
+
+
+def _phase_predict(
+    loop: ResolvedLoop, state: LoopState, round_dir: Path, log: Log, trainer: Trainer
+) -> dict:
+    from anograft.loop.contract import DEFAULT_TIMEOUT_S, TrainerError, merge_spec, predict
+
+    spec, cwd, _info = trainer
+    assert state.champion is not None  # 부트스트랩이면 이 단계에 오지 않는다
+    listing, paths = _field_list(loop, round_dir, log)
+    log(f"현장 이미지 {len(paths)}장 스코어링 — 모델 {state.champion.model}")
+    try:
+        result = predict(
+            spec.command,
+            model=state.champion.model,
+            images=listing,
+            out=round_dir / "pred",
+            spec=merge_spec(spec.spec, loop.config.spec),
+            cwd=cwd,
+            timeout=spec.timeout or DEFAULT_TIMEOUT_S,
+            on_log=log,
+        )
+    except TrainerError as exc:
+        raise LoopError(f"예측 실패: {exc}") from exc
+    return {"count": result.count, "predictions": str(result.predictions)}
+
+
+def _phase_queue(loop: ResolvedLoop, round_dir: Path, number: int, log: Log) -> dict:
+    from anograft.core.seeds import split_rng
+    from anograft.loop.policy import ReviewMix
+    from anograft.loop.queue import QueueError, build_queue, index_images, read_predictions
+
+    review = loop.config.review
+    try:
+        preds = read_predictions(round_dir / "pred")
+    except QueueError as exc:
+        raise LoopError(str(exc)) from exc
+    for w in preds.warnings:
+        log(f"경고: {w}")
+    _, paths = _field_list(loop, round_dir, log)
+    images, _ = index_images(paths)
+
+    from anograft.loop.queue import select_queue
+
+    items = select_queue(
+        preds,
+        None,
+        threshold=review.threshold,
+        n=review.n,
+        mix=ReviewMix(*review.mix),
+        iou_thresh=review.iou,
+        rng=split_rng(loop.config.seed),
+    )
+    if not items:
+        return {"count": 0, "reasons": {}}
+    queue_dir = round_dir / "queue"
+    if queue_dir.exists():
+        shutil.rmtree(queue_dir)
+    summary = build_queue(
+        items,
+        preds,
+        images,
+        queue_dir,
+        threshold=review.threshold,
+        trainer=loop.config.trainer,
+        round_no=number,
+    )
+    for w in summary.warnings:
+        log(f"경고: {w}")
+    return {
+        "count": len(summary.written),
+        "reasons": summary.reasons(),
+        "queue": str(queue_dir),
+        "without_mask": len(summary.without_mask),
+    }
+
+
+def _review_progress(round_dir: Path) -> tuple[int, int]:
+    """``(판정된 수, 판정 대상 수)``. 큐가 비었으면 ``(0, 0)``."""
+    from anograft.io.manifest import MANIFEST_FILE, read_manifest
+    from anograft.io.prune import REVIEW_FILE, read_review
+
+    queue_dir = round_dir / "queue"
+    if not (queue_dir / MANIFEST_FILE).is_file():
+        return 0, 0
+    rows = [r for r in read_manifest(queue_dir / MANIFEST_FILE) if r.get("status") == "ok"]
+    review = read_review(queue_dir / REVIEW_FILE)
+    judged = sum(1 for r in rows if review.get(str(r.get("index", "")), ("", ""))[0])
+    return judged, len(rows)
+
+
+def _phase_accept(loop: ResolvedLoop, round_dir: Path, number: int, log: Log) -> dict:
+    from anograft.loop.queue import QueueError, accept_to_bank
+
+    queue_dir = round_dir / "queue"
+    from anograft.io.manifest import MANIFEST_FILE
+
+    if not (queue_dir / MANIFEST_FILE).is_file():
+        return {"accepted": 0, "imported": 0}
+    review = loop.config.review
+    try:
+        summary = accept_to_bank(
+            queue_dir,
+            loop.bank,
+            cls=review.accept_class,
+            round_no=number,
+            keep_whole=review.keep_whole,
+            log=log,
+        )
+    except (QueueError, OSError, ValueError) as exc:
+        raise LoopError(f"보관함 편입 실패: {exc}") from exc
+    for w in summary.warnings:
+        log(f"경고: {w}")
+    return {
+        "accepted": summary.accepted,
+        "imported": summary.imported,
+        "per_class": summary.per_class,
+        "held_out": len(summary.held_out),
+    }
+
+
+def _phase_synth(loop: ResolvedLoop, round_dir: Path, fmt: str, log: Log, workers: int) -> dict:
+    """레시피를 이번 라운드용으로 덮어써 돌린다 — 은행·출력·형식·시드는 루프가 정한다."""
+    from anograft import runner
+    from anograft.core import recipe as R
+
+    path = loop.recipe
+    if not path.is_file():
+        raise LoopError(f"레시피가 없습니다: {path}")
+    try:
+        base = R.Recipe.load(path)
+    except (ValueError, OSError) as exc:
+        raise LoopError(f"레시피를 읽을 수 없습니다: {exc}") from exc
+
+    out = round_dir / "synth"
+    if out.exists():
+        shutil.rmtree(out)
+    d: dict[str, Any] = base.to_dict()
+    d.setdefault("inputs", {})["bank"] = loop.bank.as_posix()
+    d.setdefault("output", {})["root"] = out.as_posix()
+    if loop.config.synth_count is not None:
+        d["output"]["count"] = int(loop.config.synth_count)
+    d["output"]["writer"] = {"format": fmt}
+    d["seed"] = int(loop.config.seed)
+    try:
+        recipe = R.Recipe.from_dict(d)
+    except Exception as exc:  # pydantic ValidationError
+        raise LoopError(f"라운드용 레시피 검증 실패: {exc}") from exc
+
+    try:
+        prep = runner.prepare(recipe)
+        summary = runner.run(prep, workers=workers, warn=log)
+    except runner.PrepareError as exc:
+        raise LoopError(f"합성 준비 실패: {exc}") from exc
+    if summary.all_skipped:
+        raise LoopError("합성이 전부 건너뛰어졌습니다 — dry-run 으로 배치 가능성을 확인하세요")
+    return {
+        "root": str(out),
+        "count": summary.count,
+        "ok": summary.writer.n_ok,
+        "pipeline_hash": prep.pipeline_hash,
+        "bank_fingerprint": prep.bank.fingerprint(),
+    }
+
+
+def _phase_train(loop: ResolvedLoop, round_dir: Path, fmt: str, log: Log, trainer: Trainer) -> dict:
+    from anograft.loop.contract import DEFAULT_TIMEOUT_S, TrainerError, fit, merge_spec
+
+    spec, cwd, _info = trainer
+    synth = round_dir / "synth"
+    names = dataset_names(synth if synth.is_dir() else None)
+    if not names:
+        from anograft.bank import Bank
+        from anograft.bank.bank import BankError
+
+        try:
+            names = list(Bank.load(loop.bank).classes)
+        except BankError as exc:
+            raise LoopError(f"클래스 이름을 알 수 없습니다: {exc}") from exc
+
+    dataset, warns = assemble_dataset(
+        fmt,
+        round_dir / "dataset",
+        synth=synth if synth.is_dir() else None,
+        train_base=loop.split(loop.config.train_base) if loop.config.train_base else None,
+        eval_split=loop.split(loop.config.eval),
+        names=names,
+    )
+    for w in warns:
+        log(f"경고: {w}")
+    log(f"데이터셋 조립 완료 → {dataset}")
+    try:
+        result = fit(
+            spec.command,
+            dataset=dataset,
+            out=round_dir / "model",
+            seed=loop.config.seed,
+            spec=merge_spec(spec.spec, loop.config.spec),
+            cwd=cwd,
+            timeout=spec.timeout or DEFAULT_TIMEOUT_S,
+            on_log=log,
+        )
+    except TrainerError as exc:
+        raise LoopError(f"학습 실패: {exc}") from exc
+    metrics = {k: float(v) for k, v in result.metrics.items()}
+    return {
+        "dataset": str(dataset),
+        "model": result.model,
+        "metrics": metrics,
+        "warnings": warns,
+    }
+
+
+def _phase_judge(loop: ResolvedLoop, state: LoopState, record: RoundRecord, log: Log) -> dict:
+    from anograft.loop.policy import should_promote
+
+    train = record.data.get("train") or {}
+    metrics = train.get("metrics") or {}
+    name = loop.config.promote.metric
+    if name not in metrics:
+        raise LoopError(
+            f"학습 지표에 {name!r} 이 없습니다 (받은 것: {', '.join(sorted(metrics)) or '없음'}) — "
+            "loop.yaml 의 promote.metric 을 어댑터가 내는 이름으로 맞추세요"
+        )
+    challenger = float(metrics[name])
+    model = str(train.get("model") or "")
+
+    if state.champion is None:
+        state.champion = Champion(
+            round=record.number, model=model, metric=challenger, metric_name=name
+        )
+        log(f"기준선이 없어 이 모델을 champion 으로 둡니다 ({name} {challenger:.4f})")
+        return {"promote": True, "reason": "기준선 없음 — 첫 모델", "metric": challenger}
+
+    verdict = should_promote(
+        fixed_champion=state.champion.metric,
+        fixed_challenger=challenger,
+        noise=loop.config.promote.noise,
+    )
+    log(f"승급 판정: {'승급' if verdict.promote else '유지'} — {verdict.reason}")
+    if verdict.promote:
+        state.champion = Champion(
+            round=record.number, model=model, metric=challenger, metric_name=name
+        )
+    return {"promote": verdict.promote, "reason": verdict.reason, "metric": challenger}
+
+
+def run_round(
+    loop: ResolvedLoop,
+    *,
+    on_log: Log | None = None,
+    accept_partial: bool = False,
+    workers: int = 0,
+) -> RoundResult:
+    """다음 단계부터 라운드를 진행한다. 사람이 판정할 차례면 **멈추고 무엇을 할지 알려 준다**."""
+    log: Log = on_log or (lambda _m: None)
+    out = loop.out
+    out.mkdir(parents=True, exist_ok=True)
+    state = load_state(out)
+
+    # 진행 중인 라운드가 있으면 이어서, 없으면 다음 라운드를 연다
+    current = state.round if state.round else 0
+    record = load_record(out / round_name(current)) if current else None
+    if record is None or record.finished:
+        current += 1
+        has_champion = state.champion is not None
+        phases = round_phases(has_champion=has_champion, has_field=loop.field is not None)
+        record = RoundRecord(
+            number=current, phases=phases, bootstrap=not has_champion or loop.field is None
+        )
+        state.round = current
+        save_state(out, state)
+    round_dir = out / round_name(record.number)
+    round_dir.mkdir(parents=True, exist_ok=True)
+    save_record(round_dir, record)
+
+    # 학습기 확인은 **라운드당 한 번**이다 — 무거운 어댑터는 `info` 하나가 torch 를 import 한다.
+    # 겸사겸사 fail-fast: 못 쓸 학습기면 현장 이미지를 스코어링하기 전에 선다.
+    trainer = _trainer_of(loop)
+    fmt = trainer[2].dataset_format
+
+    log(f"{round_name(record.number)} — {'부트스트랩 ' if record.bootstrap else ''}시작")
+    while True:
+        phase = next_phase(record.phases, record.done)
+        if phase is None:
+            break
+        log(f"· {phase} ({PHASE_LABEL.get(phase, phase)})")
+        if phase == "predict":
+            record.mark(phase, _phase_predict(loop, state, round_dir, log, trainer))
+        elif phase == "queue":
+            record.mark(phase, _phase_queue(loop, round_dir, record.number, log))
+        elif phase == "review":
+            judged, total = _review_progress(round_dir)
+            if total == 0:
+                record.mark(phase, {"judged": 0, "total": 0, "note": "큐가 비었습니다"})
+            elif judged >= total or (accept_partial and judged > 0):
+                record.mark(phase, {"judged": judged, "total": total})
+            else:
+                save_record(round_dir, record)
+                save_state(out, state)
+                return RoundResult(
+                    record=record,
+                    state=state,
+                    round_dir=round_dir,
+                    waiting_for_human=True,
+                    message=(
+                        f"{review_line(judged, total)} — 검수 화면에서 판정한 뒤 다시 `loop run` 하세요"
+                        f" (폴더 {(round_dir / 'queue').as_posix()})"
+                    ),
+                )
+        elif phase == "accept":
+            record.mark(phase, _phase_accept(loop, round_dir, record.number, log))
+        elif phase == "synth":
+            record.mark(phase, _phase_synth(loop, round_dir, fmt, log, workers))
+        elif phase == "train":
+            record.mark(phase, _phase_train(loop, round_dir, fmt, log, trainer))
+        elif phase == "judge":
+            data = _phase_judge(loop, state, record, log)
+            record.mark(phase, data)
+            state.history.append(
+                {
+                    "round": record.number,
+                    "metric": data.get("metric"),
+                    "promoted": bool(data.get("promote")),
+                    "reason": data.get("reason", ""),
+                    "finished": _now(),
+                }
+            )
+        save_record(round_dir, record)
+        save_state(out, state)
+
+    judge = record.data.get("judge") or {}
+    message = (
+        f"{round_name(record.number)} 완료 — "
+        f"{loop.config.promote.metric} {judge.get('metric', float('nan')):.4f} · "
+        f"{'승급' if judge.get('promote') else '유지'}({judge.get('reason', '')})"
+    )
+    return RoundResult(
+        record=record, state=state, round_dir=round_dir, message=message, warnings=record.warnings
+    )
+
+
+# --------------------------------------------------------------------------------------
+# 5. 지금 어디인가 (`loop status`)
+# --------------------------------------------------------------------------------------
+
+
+@dataclass
+class LoopStatus:
+    out: Path
+    state: LoopState
+    record: RoundRecord | None
+    judged: int = 0
+    total: int = 0
+
+    @property
+    def next(self) -> str | None:
+        if self.record is None:
+            return "predict/synth (첫 라운드)"
+        return next_phase(self.record.phases, self.record.done)
+
+    def lines(self) -> list[str]:
+        out: list[str] = []
+        champ = self.state.champion
+        out.append(
+            f"champion: 라운드 {champ.round} · {champ.metric_name} {champ.metric:.4f} · {champ.model}"
+            if champ
+            else "champion: 없음 (아직 승급한 모델이 없습니다)"
+        )
+        if self.record is None:
+            out.append("라운드: 아직 없음 — `anograft loop run` 이 첫 라운드를 엽니다")
+            return out
+        phase = self.next
+        state = "완료" if phase is None else f"다음 단계 {phase} ({PHASE_LABEL.get(phase, phase)})"
+        out.append(
+            f"{round_name(self.record.number)}: {state}"
+            + (" · 부트스트랩" if self.record.bootstrap else "")
+        )
+        if phase == "review" and self.total:
+            out.append("  " + review_line(self.judged, self.total))
+        for h in self.state.history[-5:]:
+            metric = h.get("metric")
+            metric_s = f"{metric:.4f}" if isinstance(metric, (int, float)) else "-"
+            out.append(
+                f"  라운드 {h.get('round')}: {metric_s} · "
+                f"{'승급' if h.get('promoted') else '유지'} ({h.get('reason', '')})"
+            )
+        return out
+
+
+def status(loop: ResolvedLoop) -> LoopStatus:
+    out = loop.out
+    state = load_state(out) if out.exists() else LoopState()
+    record = load_record(out / round_name(state.round)) if state.round else None
+    judged = total = 0
+    if record is not None:
+        judged, total = _review_progress(out / round_name(record.number))
+    return LoopStatus(out=out, state=state, record=record, judged=judged, total=total)
+
+
+__all__ = [
+    "COLLECT_PHASES",
+    "PHASES",
+    "PHASE_LABEL",
+    "Champion",
+    "LoopConfigError",
+    "LoopError",
+    "LoopState",
+    "LoopStatus",
+    "RoundRecord",
+    "RoundResult",
+    "assemble_dataset",
+    "check_label_classes",
+    "dataset_names",
+    "load_record",
+    "load_state",
+    "next_phase",
+    "round_name",
+    "round_phases",
+    "run_round",
+    "save_record",
+    "save_state",
+    "status",
+]

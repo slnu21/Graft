@@ -35,6 +35,10 @@ Thumbs.db
 # 학습기 등록(사람마다 경로가 다르다 — 예시는 trainers.example.yaml)
 /trainers.yaml
 
+# 라운드 설정·산출물(학습 루프 v1.x — 예시는 loop.example.yaml)
+/loop.yaml
+/loop/
+
 # ultralytics 가 cwd 에 내려받는 가중치(yolov8n.pt 등, tools/train_mvtec_map.py)
 /*.pt
 
