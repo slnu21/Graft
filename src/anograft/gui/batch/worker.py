@@ -11,8 +11,8 @@ import traceback
 
 from PySide6.QtCore import QThread, Signal
 
+from anograft.batch import BatchError, run_batch
 from anograft.core import recipe as R
-from anograft.gui.batch.session import BatchError, run_batch
 
 
 class BatchWorker(QThread):

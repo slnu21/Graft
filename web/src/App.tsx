@@ -10,6 +10,7 @@ import {
 } from './api'
 import { type StageInfo } from './format'
 import { BankScreen } from './screens/BankScreen'
+import { Batch } from './screens/Batch'
 import { Label } from './screens/Label'
 import { Review } from './screens/Review'
 import { Start } from './screens/Start'
@@ -22,7 +23,7 @@ const SCREENS = [
   { id: 'bank', num: '①', label: '결함 보관함', ready: true },
   { id: 'label', num: '②', label: '결함 표시', ready: true },
   { id: 'studio', num: '③', label: '미리보기', ready: true },
-  { id: 'batch', num: '④', label: '일괄 생성', ready: false },
+  { id: 'batch', num: '④', label: '일괄 생성', ready: true },
   { id: 'review', num: '⑤', label: '검수', ready: true },
   { id: 'loop', num: '⑥', label: '학습 루프', ready: false },
 ] as const
@@ -135,6 +136,8 @@ export function App() {
             <Label />
           ) : screen === 'studio' ? (
             <Studio />
+          ) : screen === 'batch' ? (
+            <Batch />
           ) : (
             <Soon label={SCREENS.find((s) => s.id === screen)!.label} />
           )}
