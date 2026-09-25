@@ -66,6 +66,10 @@ jobs:
           # 카드 편집(U5b): 쓰기는 CSRF 없이 거부되고, 카드 읽기는 열기 전이라 500(안내 메시지)
           code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8123/api/studio/field)
           test "$code" = 403
+          # 일괄 생성(U6): 폴링 자리는 열기 전에도 답하고, 시작은 CSRF 없이 거부된다(디스크에 쓴다)
+          curl -sf http://127.0.0.1:8123/api/batch/state | grep -q '"open": false'
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8123/api/batch/start)
+          test "$code" = 403
 
   build:
     strategy:

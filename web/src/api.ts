@@ -503,3 +503,68 @@ export const stageImageUrl = (stage: string, v = 0) =>
 /** 시드 변형 k — 캔버스의 미리보기는 건드리지 않는다. */
 export const variantImageUrl = (k: number, v = 0) =>
   `/api/studio/variant-image?k=${k}${v ? `&v=${v}` : ''}`
+
+// ---------------------------------------------------------------- 일괄 생성(U6)
+
+export type BatchSummary = {
+  root: string
+  nOk: number
+  nSkipped: number
+  nNormals: number
+  nFallback: number
+  perClass: Record<string, number>
+  files: Record<string, string>
+  warnings: string[]
+  /** 중지 요청으로 멈췄나 — 그때까지의 파일·manifest 는 남아 있다. */
+  cancelled: boolean
+  done: number
+  count: number
+  text: string
+}
+
+/** 실행 한 번의 스냅샷. 스트리밍이 아니라 **폴링**으로 받는다(`pollDelay`). */
+export type BatchRun = {
+  running: boolean
+  stopping: boolean
+  done: number
+  total: number
+  log: string[]
+  error: string | null
+  summary: BatchSummary | null
+}
+
+export type BatchSettings = {
+  out: string
+  count: number
+  seed: number
+  workers: number
+  writer: string
+  mvtecCategory: string
+}
+
+export type BatchState =
+  | { open: false; writerFormats: string[]; run?: null }
+  | {
+      open: true
+      recipePath: string
+      writerFormats: string[]
+      settings: BatchSettings
+      runCommand: string
+      run: BatchRun | null
+      recipe: {
+        name: string
+        preset: string
+        bank: string
+        targets: string
+        defectsPerImage: number[]
+        includeNormals: boolean
+      }
+    }
+
+export const fetchBatchState = () => get<BatchState>('/api/batch/state')
+export const openBatch = (recipe: string) => post<BatchState>('/api/batch/open', { recipe })
+export const setBatchSettings = (settings: Partial<BatchSettings>) =>
+  post<BatchState>('/api/batch/settings', { settings })
+/** 시작 — **디스크에 쓴다**. 화면이 먼저 확인을 받는다. */
+export const startBatch = () => post<BatchState>('/api/batch/start', {})
+export const stopBatch = () => post<BatchState>('/api/batch/stop', {})

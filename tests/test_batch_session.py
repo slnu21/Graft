@@ -9,8 +9,8 @@ import pytest
 import yaml
 
 from anograft.bank.importers import yolo as Y
+from anograft.batch import BatchError, BatchSession, run_batch, summary_text
 from anograft.core import recipe as R
-from anograft.gui.batch.session import BatchError, BatchSession, run_batch, summary_text
 from anograft.io.manifest import read_manifest
 from tests.fixtures import fake_yolo_dataset
 

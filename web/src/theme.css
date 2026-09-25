@@ -1137,3 +1137,41 @@ select:focus-visible {
   border-color: var(--teal);
   box-shadow: 0 0 0 1px var(--teal);
 }
+
+/* ---------- ④ 일괄 생성(U6) ---------- */
+.run-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12.5px;
+}
+
+/* 로그는 길어지므로 스스로 스크롤한다 — 페이지가 늘어나면 진행바가 화면 밖으로 밀린다. */
+.runlog {
+  max-height: 46vh;
+  margin: 10px 0 0;
+  padding: 8px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel2);
+  color: var(--tx2);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* 라벨 열은 이 카드에서만 넓힌다 — 전역 `.field span` 을 건드리면 검수·미리보기 패널이 같이 흔들린다
+   ("출력 폴더"·"출력 형식"이 두 줄로 쪼개져 있었다). */
+.batch-settings .field span {
+  flex: 0 0 66px;
+}
+
+.batch-settings .field .text-in,
+.batch-settings .field select {
+  flex: 1;
+  min-width: 0;
+}

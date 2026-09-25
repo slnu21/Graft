@@ -1,5 +1,9 @@
-"""배치 세션 — **Qt 없음**. 레시피(스튜디오에서 넘어오거나 파일에서) + 실행 오버라이드(출력 폴더·장수·시드·워커·writer 형식) →
-``build_recipe()`` → ``run_batch()``(= ``runner.prepare`` + ``runner.run``, 진행/경고/취소 콜백).
+"""일괄 생성 세션 — **Qt 없음**(Qt 탭·웹 화면 공용). 레시피(미리보기에서 넘어오거나 파일에서) + 실행 오버라이드
+(출력 폴더·장수·시드·워커·writer 형식) → ``build_recipe()`` → ``run_batch()``(= ``runner.prepare`` + ``runner.run``,
+진행/경고/취소 콜백).
+
+`gui/batch/session.py` 에서 승격했다(U6) — U3 `review.py`·U4 `labeling.py`·U5 `studio/` 와 같은 이유:
+Qt 가 없는 로직이 `gui/` 안에 있으면 웹이 GUI 에 의존하게 된다.
 
 - 오버라이드는 CLI ``run --out --count --seed`` 와 같은 자리(``Recipe.to_dict`` 위에 덮어 ``from_dict`` — 재검증). writer 형식은
   ``output.writer = {format}`` 으로 갈아 끼운다(형식별 기본값; ``set_method_in_dict`` 와 같은 규칙 — 다른 형식의 키가 남지 않게).
