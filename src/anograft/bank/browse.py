@@ -18,7 +18,7 @@ from pathlib import Path
 import numpy as np
 
 from anograft.bank import Bank
-from anograft.bank.bank import ESTIMATED_PREFIX, BankError, is_low_confidence
+from anograft.bank.bank import BankError, is_estimated, is_low_confidence
 from anograft.bank.importers.common import BankWriter
 from anograft.core.types import DefectSource
 
@@ -55,7 +55,7 @@ def row_of(s: DefectSource) -> SourceRow:
         name=s.id.split("/", 1)[1] if "/" in s.id else s.id,
         area_px=int(np.count_nonzero(s.mask)),
         mask_origin=s.mask_origin,
-        estimated=s.mask_origin.startswith(ESTIMATED_PREFIX),
+        estimated=is_estimated(s.mask_origin),
         confidence=s.confidence,
         low_confidence=is_low_confidence(s),
         flags=tuple(s.flags),

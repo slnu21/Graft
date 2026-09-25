@@ -55,6 +55,15 @@ def test_open_reports_counts_and_classes(output_root: Path):  # noqa: F811
     assert any(f["id"] == "all" and f["label"] == "전체" for f in state["filters"])
 
 
+def test_open_marks_a_loop_queue_folder(output_root: Path):  # noqa: F811
+    """루프의 검토 대기 폴더는 같은 화면이 열지만 **항목이 합성이 아니다** — 라벨은 서버가 준다(사전 §3.6)."""
+    assert _open(output_root)["okLabel"] == "합성"
+    (output_root / "queue.csv").write_text("index,stem" + chr(10), encoding="utf-8")
+    state = _open(output_root)
+    assert state["isQueue"] is True and state["okLabel"] == "검토 대기"
+    assert "검토 대기" in state["summary"]
+
+
 def test_open_rejects_missing_folder(tmp_path: Path):
     res = review_api._open(
         Request("/api/review/open", "POST", json={"root": str(tmp_path / "없음")})

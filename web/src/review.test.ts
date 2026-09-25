@@ -104,6 +104,8 @@ describe('formatEdge', () => {
 describe('countsText', () => {
   it('0 인 항목은 빼고 잇는다', () => {
     expect(countsText({ ok: 4, normal: 2, skipped: 0, accept: 1 })).toBe('합성 4 · 정상 2 · 채택 1')
+    // ok 행의 이름은 서버가 준다(합성 / 검토 대기) — 프론트에 사전 사본을 두지 않는다
+    expect(countsText({ ok: 3, unreviewed: 3 }, '검토 대기')).toBe('검토 대기 3')
     expect(countsText({})).toBe('없음')
   })
 })

@@ -74,13 +74,13 @@ export function formatEdge(value: number, log: boolean): string {
 }
 
 /** 한 줄 요약 — 카드 부제에 쓴다. */
-export function countsText(counts: Record<string, number>): string {
+export function countsText(counts: Record<string, number>, okLabel = '합성'): string {
   const parts: string[] = []
   const add = (key: string, label: string) => {
     const n = counts[key]
     if (n) parts.push(`${label} ${n}`)
   }
-  add('ok', '합성')
+  add('ok', okLabel)
   add('normal', '정상')
   add('skipped', '건너뜀')
   add('accept', '채택')
