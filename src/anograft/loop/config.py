@@ -4,8 +4,8 @@
 학습기 이름 · 출력 루트)이라 공유되는 레시피에 들어가면 안 된다. 레시피는 "어떻게 합성하는가"만 들고 있고,
 루프는 "그 레시피를 어떤 데이터로 몇 번 돌리는가"를 여기서 읽는다.
 
-나중에 `loop tick`(T13·T14)을 **스케줄러가 인자 없이** 부를 수 있어야 하므로 설정이 파일에 있어야 한다 —
-트리거 정책(신규 N개·최소 간격)도 이 파일에 얹힌다.
+`loop tick`(T13)을 **스케줄러가 인자 없이** 부르므로 설정이 파일에 있어야 한다 — 트리거 정책
+(신규 N개·최소 간격, T14 의 `trigger` 블록)도 그래서 여기 얹혀 있다.
 
 찾는 순서는 `trainers.yaml` 과 같다: **명시 경로 → cwd/loop.yaml → ~/.anograft/loop.yaml**.
 
@@ -85,6 +85,36 @@ class PromoteSettings(BaseModel):
     noise: float = Field(default=0.04, ge=0.0)
 
 
+class TriggerSettings(BaseModel):
+    """언제 새 라운드를 여는가 (설계 §2b.3, T14). `loop tick` 만 본다 — 사람이 부른 `loop run` 은 그냥 돈다.
+
+    **기본값은 전부 0 = 제한 없음**이다. 임계값은 현장마다 다르고(설계 §8 확인 게이트) 기본값이 라운드를
+    막으면 "왜 안 도는지" 모르는 사람이 먼저 생긴다. 실무 제안은 `loop.example.yaml` 주석에 있다.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: 지난 라운드 뒤로 보관함에 들어온 조각 수(0 = 안 봄)
+    min_labels: int = Field(default=0, ge=0)
+    #: 아직 스코어링하지 않은 현장 이미지 장수(0 = 안 봄)
+    min_images: int = Field(default=0, ge=0)
+    #: 마지막 라운드로부터 최소 간격(시간)
+    min_interval_hours: float = Field(default=0.0, ge=0.0)
+    #: 이만큼 지나면 양과 무관하게 돈다(드리프트 감시). null = 안 봄
+    max_interval_hours: float | None = Field(default=None, gt=0.0)
+
+    def policy(self) -> Any:
+        """`loop.policy.TriggerPolicy` 로 — 판정은 순수 함수가 한다(여기는 검증·기본값만)."""
+        from anograft.loop.policy import TriggerPolicy
+
+        return TriggerPolicy(
+            min_labels=self.min_labels,
+            min_images=self.min_images,
+            min_interval_hours=self.min_interval_hours,
+            max_interval_hours=self.max_interval_hours,
+        )
+
+
 class LoopConfig(BaseModel):
     """``loop.yaml`` 전체."""
 
@@ -102,6 +132,8 @@ class LoopConfig(BaseModel):
     train_base: DataSplit | None = None
     review: ReviewSettings = Field(default_factory=ReviewSettings)
     promote: PromoteSettings = Field(default_factory=PromoteSettings)
+    #: `loop tick` 이 "지금 돌 때인가"를 판정하는 기준(T14). 기본값은 제한 없음
+    trigger: TriggerSettings = Field(default_factory=TriggerSettings)
     #: 한 라운드에 만들 합성 장수. 없으면 레시피의 `output.count` 그대로
     synth_count: int | None = Field(default=None, ge=1)
     seed: int = 7

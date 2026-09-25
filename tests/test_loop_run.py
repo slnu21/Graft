@@ -23,6 +23,7 @@ from anograft.cli import EXIT_OK, EXIT_RECIPE_ERROR, main
 from anograft.io import imgio
 from anograft.io.manifest import MANIFEST_FILE, read_manifest
 from anograft.io.prune import REVIEW_FILE, write_review
+from anograft.loop import ledger
 from anograft.loop.config import load_loop_config
 from anograft.loop.round import (
     COLLECT_PHASES,
@@ -233,7 +234,8 @@ def test_full_round_trip_with_the_noop_adapter(loop_ws: dict[str, Path]) -> None
     assert third.record.done == list(PHASES)
     assert third.record.data["accept"]["accepted"] == n
     assert third.record.data["train"]["metrics"]["mAP50"] > 0
-    assert len(third.state.history) == 2
+    # 이력은 `loop.state.json` 이 아니라 **원장**에 있다(T14)
+    assert len(ledger.read(loop_ws["out"] / ledger.ROUNDS_FILE).history()) == 2
 
     # 채택분이 보관함에 들어갔다(모델 초안이므로 추정으로 센다)
     sources = Bank.load(loop_ws["bank"]).sources()

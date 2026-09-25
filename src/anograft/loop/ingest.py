@@ -334,6 +334,24 @@ def plan_ingest(candidates: Sequence[str | Path], log: ProcessedLog) -> IngestPl
     return plan
 
 
+def quick_new_count(candidates: Sequence[str | Path], log: ProcessedLog) -> int:
+    """해시를 읽지 않고 **새로 들어온 듯한** 장수만 센다 — 트리거 판정용(T14).
+
+    stat 만 보므로 이름을 바꿔 복사한 사진을 새것으로 셀 수 있다(과다 계수). "N장 모이면 돈다"는 임계에는
+    충분하고, 정확한 선별은 predict 직전의 `plan_ingest` 가 한다 — **트리거가 라운드마다 폴더 전체를
+    해시하면 스케줄러가 부르는 5분마다 디스크를 통째로 읽는다.**
+    """
+    n = 0
+    for candidate in candidates:
+        try:
+            quick = stat_stamp(candidate)
+        except OSError:
+            continue
+        if not log.stat_seen(quick):
+            n += 1
+    return n
+
+
 __all__ = [
     "DIGEST_CHARS",
     "PROCESSED_FILE",
@@ -347,6 +365,7 @@ __all__ = [
     "is_seen",
     "normalize",
     "plan_ingest",
+    "quick_new_count",
     "read_processed",
     "stamp",
     "stamp_all",

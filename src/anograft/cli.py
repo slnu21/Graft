@@ -1133,11 +1133,40 @@ def cmd_loop_tick(args: argparse.Namespace) -> int:
     "다음에 오라"(종료 코드 0)이고, 새로 들어온 이미지만 스코어링한다(유입 커서).
     """
     from anograft.loop.lock import LockBusyError
-    from anograft.loop.round import LoopError, run_round
+    from anograft.loop.round import LoopError, check_trigger, note_tick, run_round
 
     loop = _loop_config(args)
     if loop is None:
         return EXIT_RECIPE_ERROR
+
+    # "지금 돌 때인가" — 안 도는 이유는 **항상** 남긴다(tick.json + 사유가 바뀌면 원장, T14)
+    try:
+        decision, facts = check_trigger(loop)
+    except (LoopError, OSError, ValueError) as exc:
+        _err(f"오류: {exc}")
+        return EXIT_RECIPE_ERROR
+    if not decision.start and not args.force:
+        note_tick(loop, ran=False, reason=decision.reason, log=None if args.json else _stderr_line)
+        if args.json:
+            print(
+                json.dumps(
+                    {
+                        "ran": False,
+                        "busy": False,
+                        "reason": decision.reason,
+                        "newLabels": facts.new_labels,
+                        "newImages": facts.new_images,
+                        "hoursSince": facts.hours_since,
+                    },
+                    ensure_ascii=False,
+                )
+            )
+        else:
+            print(f"돌지 않았습니다 — {decision.reason}")
+        return EXIT_OK
+    if args.force and not decision.start:
+        _err(f"--force — 트리거는 '{decision.reason}' 였지만 그대로 돕니다")
+
     try:
         result = run_round(
             loop,
@@ -1147,6 +1176,7 @@ def cmd_loop_tick(args: argparse.Namespace) -> int:
             since=args.since,
         )
     except LockBusyError as exc:
+        note_tick(loop, ran=False, reason=str(exc))
         if args.json:
             print(json.dumps({"ran": False, "busy": True, "reason": str(exc)}, ensure_ascii=False))
         else:
@@ -1156,6 +1186,7 @@ def cmd_loop_tick(args: argparse.Namespace) -> int:
         _err(f"오류: {exc}")
         return EXIT_RECIPE_ERROR
 
+    note_tick(loop, ran=True, reason=decision.reason, round_no=result.record.number)
     if args.json:
         print(
             json.dumps({"ran": True, "busy": False, **_round_payload(result)}, ensure_ascii=False)
@@ -1187,9 +1218,15 @@ def cmd_loop_status(args: argparse.Namespace) -> int:
                     "champion": st.state.champion.to_dict() if st.state.champion else None,
                     "judged": st.judged,
                     "total": st.total,
-                    "history": st.state.history,
+                    "history": st.history,
                     "processed": st.processed,
                     "lock": st.lock.to_json() if st.lock else None,
+                    "trigger": (
+                        {"start": st.trigger.start, "reason": st.trigger.reason}
+                        if st.trigger
+                        else None
+                    ),
+                    "tick": st.tick.to_json() if st.tick else None,
                 },
                 ensure_ascii=False,
             )
@@ -1927,7 +1964,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="스케줄러가 부르는 진입점 — 새로 들어온 이미지만 보고 한 라운드를 멱등하게 진행",
         description="Windows 작업 스케줄러·cron 이 인자 없이 부르는 명령입니다. Graft 는 상주하지 "
         "않습니다 — 한 번 돌고 끝납니다. 이미 처리한 이미지는 유입 커서(processed.jsonl)로 걸러지고, "
-        "다른 실행이 돌고 있으면 오류가 아니라 '다음에'(종료 코드 0)입니다.",
+        "다른 실행이 돌고 있으면 오류가 아니라 '다음에'(종료 코드 0)입니다. 언제 돌지는 loop.yaml 의 "
+        "trigger(신규 조각·신규 이미지·최소/최대 간격)가 정하고, 안 돈 사유는 tick.json 과 rounds.jsonl 에 "
+        "남습니다.",
     )
     lt.add_argument("--config", help="loop.yaml 경로 (기본: ./loop.yaml → ~/.anograft/loop.yaml)")
     lt.add_argument(
@@ -1941,6 +1980,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         metavar="N",
         help="라운드 N 이후의 유입 이력을 무시하고 그 이미지들을 다시 스코어링",
+    )
+    lt.add_argument(
+        "--force",
+        action="store_true",
+        help="트리거 기준(loop.yaml 의 trigger)을 무시하고 그대로 돈다 — 잠금은 그대로 지킨다",
     )
     lt.add_argument("--json", action="store_true", help="결과를 JSON 한 줄로(스케줄러·상위 도구용)")
     lt.set_defaults(func=cmd_loop_tick)
