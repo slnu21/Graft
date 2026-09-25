@@ -2,6 +2,7 @@
 
 최신순. 1 버전 = 1 파일. GitHub Release 본문은 각 파일을 그대로 쓴다.
 
+- [v0.10.1](v0.10.1.md) — 2026-09-25 · **화면 사이 손잡이**: 미리보기 → `일괄 생성으로 보내기`(레시피 저장까지 한 번에) · 결함 표시 저장이 보관함에 바로 반영 · 보관함 조각 `다듬기` → 같은 조각 덮어쓰기 · 열기 칸 최근 경로(`~/.anograft/recent.json`)
 - [v0.10.0](v0.10.0.md) — 2026-09-25 · **웹 UI**: `anograft serve` 로 브라우저에서 다섯 화면(결함 보관함 · 결함 표시 · 미리보기 A/B 와이프·카드 편집·시드 변형 · 일괄 생성 · 검수) · 기존 창(PySide6)과 **병행** · 평가셋(holdout) 누수 방지 · 보관함 스냅샷 · 학습기 계약(`trainer fit|predict`, yolo·anomalib 어댑터). 런타임 의존성 4개 불변(서버는 stdlib, node 는 빌드 때만)
 - [v0.9.0](v0.9.0.md) — 2026-09-19 · **사용성**: 한국어 단독 라벨(영어·YAML 키는 툴팁) · 7단계 동사형 · 카드 한글 라벨+설명 툴팁 · `anograft explain`/`PARAMS.md` · 바뀜 ↺·고급 접기·슬라이더 · 프리셋 갤러리 · 탭 흐름 배지·다음 →·체크리스트 · 경고/힌트 한 컴포넌트·대비 힌트 · 라이트 테마·글자 크기
 - [v0.8.2](v0.8.2.md) — 2026-09-19 · 결함 성격별 프리셋: `harmonize.relative`(노출 보정) + `relative-paste` · `recipe init --classes` → `run` × n → `dataset merge` · `BENCHMARKS.md` §2(Magnetic Tile blowhole 만 갈라 mAP50 0.46 → 0.61, +0.15 3/3)
