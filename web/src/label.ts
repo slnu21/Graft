@@ -55,3 +55,23 @@ export function statsText(stats: LabelStats): string {
   if (stats.lightingWord) parts.push(`밝은 쪽 ${stats.lightingWord}`)
   return parts.join(' · ')
 }
+
+/** 보관함 조각을 다듬는 중이면 그 대상 — 저장의 뜻이 "새 조각"에서 "갱신"으로 바뀐다(U7). */
+export type EditTarget = { root: string; id: string } | null
+
+/** 저장 카드 제목. 무엇이 저장되는지가 화면에서 흐려지면 안 된다. */
+export function saveTitle(edit: EditTarget): string {
+  return edit ? '보관함 조각 갱신' : '보관함에 저장'
+}
+
+/** 저장 단추 문구. */
+export function saveAction(edit: EditTarget): string {
+  return edit ? '조각 갱신' : '보관함에 저장'
+}
+
+/** 저장하면 무슨 일이 생기는지 한 줄. 되돌릴 수 없는 쪽(덮어쓰기)을 먼저 말한다. */
+export function saveHint(edit: EditTarget): string {
+  return edit
+    ? `${edit.id} 의 마스크를 덮어씁니다 — 새 조각이 생기지 않고, 추정 신뢰도 점수는 지워집니다.`
+    : '칠한 영역이 결함 조각 하나로 들어갑니다.'
+}

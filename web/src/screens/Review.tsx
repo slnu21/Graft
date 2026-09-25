@@ -17,6 +17,7 @@ import {
   writeReport,
 } from '../api'
 import { Histogram } from '../components/Histogram'
+import { PathField } from '../components/PathField'
 import { VERDICT_LABEL, VERDICT_MARK, countsText, judgeable, nextIndexAfter, progress } from '../review'
 
 /**
@@ -36,6 +37,7 @@ export function Review() {
   const [hist, setHist] = useState<HistogramData | null>(null)
   const [histKey, setHistKey] = useState('area')
   const [busy, setBusy] = useState(false)
+  const [recentKey, setRecentKey] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const gridRef = useRef<HTMLDivElement>(null)
@@ -95,6 +97,7 @@ export function Review() {
       const s = await openReview(root.trim())
       setState(s)
       setMessage(null)
+      setRecentKey((k) => k + 1)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err))
     } finally {
@@ -157,13 +160,14 @@ export function Review() {
 
       <div className="openbar">
         <label htmlFor="review-root">출력 폴더</label>
-        <input
+        <PathField
           id="review-root"
+          kind="output"
           value={root}
-          spellCheck={false}
+          onChange={setRoot}
+          onEnter={() => void doOpen()}
           placeholder="예: out/set-A"
-          onChange={(e) => setRoot(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && void doOpen()}
+          reloadKey={recentKey}
         />
         <button className="btn primary" onClick={() => void doOpen()} disabled={busy || !root.trim()}>
           {busy ? '여는 중…' : '열기'}

@@ -6,6 +6,11 @@
 
 로컬 서버라 왕복이 수 ms 다 — 획 단위 전송이면 체감이 없다. 점 단위로 보내면 요청이 폭주하므로
 **획이 끝날 때 한 번**이 규칙이다.
+
+U7 인계 — 이 화면은 보관함(①)과 양쪽으로 손을 잡는다. ``edit-source`` 가 보관함 조각을 열고
+(``_EDIT`` 에 대상 id 를 기억), ``update-source`` 가 다듬은 마스크를 **같은 id 에 덮어쓴다**.
+새 조각을 더하는 ``save`` 와 라우트를 나눈 이유: 한 라우트가 상황에 따라 다른 일을 하면
+"지금 무엇이 저장되는가"가 화면에서도 서버에서도 흐려진다(Qt 도 메서드를 나눠 두었다).
 """
 
 from __future__ import annotations
@@ -13,20 +18,28 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
+from anograft import recent
+from anograft.bank.browse import BankSessionError
+from anograft.core.channels import is_gray
 from anograft.labeling import LabelError, LabelSession, lighting_word
 from anograft.web.api import ApiResult, Handler, Request, register
 
 VIEW_LONG_SIDE = 1400
 
-_LOCK = threading.Lock()
+#: 세션 락. **재진입 가능(RLock)** — 인계 핸들러가 보관함 쪽을 부르는 동안에도 자기 락을 들고 있다.
+#: 락 순서는 언제나 **label → bank** 한 방향이라(보관함은 라벨을 부르지 않는다) 교착이 없다.
+_LOCK = threading.RLock()
 _SESSION: LabelSession | None = None
+#: 보관함 조각을 다듬는 중이면 ``(보관함 경로, 조각 id)`` — Qt ``LabelTab.edit_target`` 에 해당.
+_EDIT: tuple[str, str] | None = None
 _REGISTERED = False
 
 
 def reset() -> None:
-    global _SESSION
+    global _SESSION, _EDIT
     with _LOCK:
         _SESSION = None
+        _EDIT = None
 
 
 def _session() -> LabelSession:
@@ -55,6 +68,8 @@ def _state_payload(session: LabelSession) -> dict:
     return {
         "open": True,
         "path": str(session.path) if session.path else "",
+        # 보관함 조각을 다듬는 중인가 — 화면이 저장 카드를 "갱신"으로 바꾼다(Qt 는 버튼 문구를 바꾼다).
+        "editTarget": {"root": _EDIT[0], "id": _EDIT[1]} if _EDIT else None,
         "width": w,
         "height": h,
         "canUndo": session.can_undo,
@@ -123,7 +138,7 @@ def _image(req: Request) -> ApiResult:
 
 
 def _open(req: Request) -> ApiResult:
-    global _SESSION
+    global _SESSION, _EDIT
     path = str(req.json.get("path", "")).strip()
     if not path:
         return ApiResult(400, {"error": "이미지 경로가 필요합니다."})
@@ -137,6 +152,8 @@ def _open(req: Request) -> ApiResult:
         return ApiResult(400, {"error": str(exc)})
     with _LOCK:
         _SESSION = session
+        _EDIT = None  # 파일을 새로 열면 보관함 조각 편집은 끝난다
+    recent.remember("image", path)
     return ApiResult(200, _state_payload(session))
 
 
@@ -193,11 +210,15 @@ def _undo(req: Request) -> ApiResult:
 
 
 def _clear(_req: Request) -> ApiResult:
-    import numpy as np
+    """전부 지우기 — Qt 와 **같은 메서드**(``LabelSession.clear``)를 쓴다.
 
+    예전엔 ``set_mask(zeros, tool="clear")`` 였는데, 그러면 ``tools_used`` 에 웹에만 있는 도구 이름이
+    남아 ``mask_origin``·``edit_tool`` 이 Qt 와 갈린다(U7 에서 맞췄다). ``set_mask`` 가 안에서
+    되돌리기 지점을 또 찍던 중복도 함께 사라진다.
+    """
     session = _session()
     session.push_undo()
-    session.set_mask(np.zeros(session.shape, np.uint8), tool="clear")
+    session.clear()
     return ApiResult(200, _state_payload(session))
 
 
@@ -219,12 +240,83 @@ def _save(req: Request) -> ApiResult:
         )
     except (LabelError, OSError, ValueError) as exc:
         return ApiResult(400, {"error": str(exc)})
+    recent.remember("bank", root)
+    # ② → ① 인계: 보관함 화면이 새 조각을 보게 한다(Qt ``bank_saved`` 신호).
+    from anograft.web import bank_api
+
+    shown = bank_api.bank_changed(root)
     return ApiResult(
         200,
         {
             "added": [{"id": a.source_id, "cls": a.cls, "areaPx": a.area_px} for a in added],
             "warnings": list(warnings),
             "bank": str(Path(root).as_posix()),
+            # ① 이 지금 이 보관함을 보고 있는가 — 화면이 "보러 가기"를 권할지 정한다.
+            "bankShown": shown,
+        },
+    )
+
+
+# ---------------------------------------------------------------- 보관함 조각 다듬기 (U7)
+
+
+def _edit_source(req: Request) -> ApiResult:
+    """① 조각 "다듬기" → 그 크롭과 현재 마스크를 연다 (Qt ``LabelTab.begin_bank_edit``).
+
+    ``gray`` 는 메타에 없어서 그림에서 되살린다(``core.channels.is_gray`` — Qt 도 같은 판정).
+    """
+    global _SESSION, _EDIT
+    from anograft.web import bank_api
+
+    source_id = str(req.json.get("id", "")).strip()
+    root = str(req.json.get("root", "")).strip()
+    if not source_id:
+        return ApiResult(400, {"error": "다듬을 조각 id 가 필요합니다."})
+    try:
+        source, bank_root = bank_api.source_for_edit(root, source_id)
+    except BankSessionError as exc:
+        return ApiResult(400, {"error": str(exc)})
+    session = LabelSession()
+    try:
+        session.set_image(source.image, is_gray(source.image), path=None)
+        session.set_mask(source.mask)
+    except LabelError as exc:
+        return ApiResult(400, {"error": str(exc)})
+    with _LOCK:
+        _SESSION = session
+        _EDIT = (bank_root, source_id)
+    payload = _state_payload(session)
+    payload["cls"] = source.cls
+    return ApiResult(200, payload)
+
+
+def _update_source(_req: Request) -> ApiResult:
+    """다듬은 마스크를 같은 id 에 덮어쓴다 (Qt ``source_updated`` → ``BankTab.apply_mask``).
+
+    새 조각을 더하지 않는다 — ``BankWriter.replace_mask`` 한 지점을 지나므로 ``mask_origin`` 은
+    ``manual:<도구>`` 가 되고 추정 ``confidence`` 는 지워진다(사람이 손봤으므로).
+    """
+    from anograft.web import bank_api
+
+    session = _session()
+    if _EDIT is None:
+        return ApiResult(400, {"error": "보관함 조각을 다듬는 중이 아닙니다."})
+    root, source_id = _EDIT
+    tool = session.edit_tool()
+    assert session.mask is not None
+    try:
+        bank_state = bank_api.replace_mask(root, source_id, session.mask, tool=tool)
+    except BankSessionError as exc:
+        return ApiResult(400, {"error": str(exc)})
+    session.dirty = False
+    return ApiResult(
+        200,
+        {
+            "id": source_id,
+            "bank": root,
+            "tool": tool,
+            "state": _state_payload(session),
+            "bankState": bank_state,
         },
     )
 
@@ -252,4 +344,6 @@ def ensure_registered() -> None:
     register("/api/label/undo", _serialized(_undo), write=True)
     register("/api/label/clear", _serialized(_clear), write=True)
     register("/api/label/save", _serialized(_save), write=True)
+    register("/api/label/edit-source", _serialized(_edit_source), write=True)
+    register("/api/label/update-source", _serialized(_update_source), write=True)
     _REGISTERED = True

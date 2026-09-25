@@ -523,6 +523,20 @@ class LabelSession:
             return f"manual:{next(iter(used))}"
         return "manual:mixed"
 
+    def edit_tool(self) -> str:
+        """이미 있는 조각을 **다듬었을 때** ``mask_origin: manual:<tool>`` 에 들어갈 도구 이름 (U7).
+
+        불러온 마스크(``png``)와 모양 다듬기(``morph``)·전부 지우기(``clear``)는 "무엇으로 그렸나"가
+        아니므로 뺀다. 아무 도구도 안 썼으면(눈으로 확인만 했으면) ``brush``.
+
+        ``mask_origin()`` 과 달리 ``manual:`` 접두는 붙이지 않는다 — 붙이는 곳은
+        ``BankWriter.replace_mask`` 한 곳이다. Qt 라벨 탭과 웹이 같은 값을 쓰라고 여기로 올렸다.
+        """
+        used = self.tools_used - {"morph", "png", "clear"}
+        if len(used) == 1:
+            return next(iter(used))
+        return "mixed" if used else "brush"
+
     def save_to_bank(
         self,
         root: str | Path,

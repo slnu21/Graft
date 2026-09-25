@@ -264,3 +264,34 @@ def test_stats_lighting_direction() -> None:
         and lighting_word(-180) == "왼"
         and lighting_word(44) == "오른아래"
     )
+
+
+def test_edit_tool_names_the_tool_used_to_touch_up_a_source() -> None:
+    """보관함 조각을 다듬을 때 쓰이는 이름 — Qt 라벨 탭과 웹이 같은 값을 쓴다(U7).
+
+    불러온 마스크(``png``)·모양 다듬기(``morph``)·전부 지우기(``clear``)는 "무엇으로 그렸나"가 아니다.
+    """
+    import numpy as np
+
+    from anograft.labeling import LabelSession
+
+    s = LabelSession()
+    s.set_image(np.full((40, 40, 3), 100, dtype=np.uint8))
+    m = np.zeros((40, 40), dtype=np.uint8)
+    m[10:20, 10:20] = 255
+    s.set_mask(m)  # 불러오기(png) — 아직 사람이 그린 것은 없다
+    assert s.edit_tool() == "brush"
+
+    s.dilate(1)  # morph 도 도구 이름이 아니다
+    assert s.edit_tool() == "brush"
+
+    s.stroke([(5, 5), (8, 8)], 2)
+    assert s.edit_tool() == "brush"
+
+    s.fill_polygon([(30, 30), (36, 30), (33, 36)])
+    assert s.edit_tool() == "mixed"
+
+    s2 = LabelSession()
+    s2.set_image(np.full((40, 40, 3), 100, dtype=np.uint8))
+    s2.fill_polygon([(5, 5), (20, 5), (12, 20)])
+    assert s2.edit_tool() == "polygon"

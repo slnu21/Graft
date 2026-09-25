@@ -14,6 +14,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from anograft import recent
 from anograft.review import FILTER_LABELS, FILTERS, ReviewError, ReviewSession
 from anograft.web.api import ApiResult, Handler, Request, register
 
@@ -78,6 +79,7 @@ def _open(req: Request) -> ApiResult:
     with _LOCK:
         _SESSION = session
         _ROOT = Path(root)
+    recent.remember("output", root)
     return ApiResult(200, _state_payload(session))
 
 

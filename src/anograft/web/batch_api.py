@@ -20,7 +20,7 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-from anograft import batch, runner
+from anograft import batch, recent, runner
 from anograft.core import recipe as R
 from anograft.web.api import ApiResult, Handler, Request, register
 
@@ -217,6 +217,7 @@ def _open(req: Request) -> ApiResult:
         return ApiResult(400, {"error": str(exc)})
     with _LOCK:
         _SESSION = session
+    recent.remember("recipe", path)
     return ApiResult(200, _state_payload(session))
 
 
@@ -262,6 +263,8 @@ def _start(req: Request) -> ApiResult:
     )
     _RUN = run  # 이 핸들러는 이미 `_serialized` 안이다 — 여기서 또 잠그지 않는다
     run.thread.start()
+    # 출력 폴더는 곧 ⑤ 검수에서 열 곳이다 — 그때 다시 치지 않게 기억해 둔다(U7).
+    recent.remember("output", recipe.output.root.as_posix())
     return ApiResult(200, _state_payload(session))
 
 
@@ -272,6 +275,28 @@ def _stop(_req: Request) -> ApiResult:
         return ApiResult(400, {"error": "돌고 있는 일괄 생성이 없습니다."})
     _RUN.stop()
     return ApiResult(200, _state_payload(session))
+
+
+# ---------------------------------------------------------------- 인계 (U7)
+
+
+def adopt(recipe: R.Recipe, path: Path | None) -> dict:
+    """③ 미리보기에서 넘어온 레시피를 받는다 — Qt ``BatchTab.set_recipe`` 와 같은 자리.
+
+    세션을 새로 만들지 않고 **지금 것에 얹는다**: 출력·장수·시드·형식은 레시피 값으로 되돌아가지만
+    워커 수처럼 레시피 밖 설정은 사람이 맞춰 둔 대로 남는다(Qt 와 같다).
+
+    **돌고 있는 중이면 거절한다** — 설정이 발밑에서 바뀌면 진행 중인 실행을 설명하는 화면이
+    거짓말을 하게 된다(취소·재시작은 사람이 정한다).
+    """
+    global _SESSION
+    with _LOCK:
+        if _RUN is not None and not _RUN.finished:
+            raise batch.BatchError("일괄 생성이 돌고 있습니다 — 끝난 뒤에 보내세요.")
+        session = _SESSION or batch.BatchSession()
+        session.set_recipe(recipe, path)
+        _SESSION = session
+        return _state_payload(session)
 
 
 def _serialized(handler: Handler) -> Handler:

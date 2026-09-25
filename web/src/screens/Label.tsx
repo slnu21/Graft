@@ -6,13 +6,24 @@ import {
   clearMask,
   fetchLabelState,
   labelImageUrl,
+  openBank,
   openLabel,
   saveToBank,
   sendPolygon,
   sendStroke,
   undoLabel,
+  updateBankSource,
 } from '../api'
-import { TOOL_LABELS, type Tool, canvasToImage, statsText } from '../label'
+import { PathField } from '../components/PathField'
+import {
+  TOOL_LABELS,
+  type Tool,
+  canvasToImage,
+  saveAction,
+  saveHint,
+  saveTitle,
+  statsText,
+} from '../label'
 
 /**
  * 결함 표시 — 결함 사진에 마스크를 그려 보관함에 넣는다.
@@ -20,6 +31,9 @@ import { TOOL_LABELS, type Tool, canvasToImage, statsText } from '../label'
  * **그리기 연산은 전부 서버(파이썬)가 한다**(규약: 프론트는 API 호출만). 화면은 포인터를 따라
  * 미리보기 선만 긋고, 획이 끝날 때 점 목록을 한 번 보낸다 — 점마다 보내면 요청이 폭주한다.
  * 그래서 브러시 결과가 Qt 라벨 탭과 **정확히 같다**.
+ *
+ * 보관함(①)과는 양쪽으로 손을 잡는다(U7): ① 에서 "다듬기"로 들어오면 `editTarget` 이 붙어 저장이
+ * **덮어쓰기**가 되고, 새 조각을 저장하면 서버가 ① 세션을 이미 갱신해 둔다(`bankShown`).
  */
 export function Label() {
   const [state, setState] = useState<LabelState | null>(null)
@@ -29,6 +43,9 @@ export function Label() {
   const [cls, setCls] = useState('')
   const [bank, setBank] = useState('')
   const [version, setVersion] = useState(0)
+  const [recentKey, setRecentKey] = useState(0)
+  /** 저장 직후 "보관함에서 보기" 를 걸어 줄 보관함 경로 — 방금 무엇을 어디에 넣었는지 잇는다. */
+  const [savedBank, setSavedBank] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
@@ -39,12 +56,17 @@ export function Label() {
   const drawing = useRef(false)
 
   const open = state?.open === true
+  /** 보관함 조각을 다듬는 중인가 — 저장의 뜻이 통째로 바뀐다. */
+  const edit = state?.open ? state.editTarget : null
 
   useEffect(() => {
     fetchLabelState()
       .then((s) => {
         setState(s)
-        if (s.open) setPath(s.path)
+        if (s.open) {
+          setPath(s.path)
+          if (s.editTarget) setBank(s.editTarget.root)
+        }
       })
       .catch((err: Error) => setError(err.message))
   }, [])
@@ -60,10 +82,50 @@ export function Label() {
     try {
       apply(await openLabel(path.trim()))
       setMessage(null)
+      setSavedBank('')
+      setRecentKey((k) => k + 1)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err))
     } finally {
       setBusy(false)
+    }
+  }
+
+  /**
+   * 저장 — 보관함 조각을 다듬는 중이면 **같은 id 를 덮어쓰고**, 아니면 새 조각을 더한다.
+   * 어느 쪽인지는 서버가 들고 있는 `editTarget` 이 정한다(화면이 판단하지 않는다).
+   */
+  const doSave = async () => {
+    if (!state?.open) return
+    setBusy(true)
+    setError(null)
+    try {
+      if (edit) {
+        const r = await updateBankSource()
+        apply(r.state)
+        setSavedBank(r.bank)
+        setMessage(`${r.id} 의 마스크를 덮어썼습니다 (manual:${r.tool}).`)
+      } else {
+        const r = await saveToBank(bank.trim(), cls.trim())
+        setSavedBank(r.bank)
+        const ids = r.added.map((a) => a.id).join(', ') || '(없음)'
+        setMessage(`보관함에 넣었습니다 — ${ids}${r.warnings.length ? ` · ${r.warnings[0]}` : ''}`)
+        setRecentKey((k) => k + 1)
+      }
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** ② → ①: 방금 손댄 보관함을 열고 그 화면으로. 서버는 이미 갱신해 두었으므로 열기만 하면 된다. */
+  const goBank = async (root: string) => {
+    try {
+      await openBank(root)
+      location.hash = '#/bank'
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err))
     }
   }
 
@@ -191,13 +253,14 @@ export function Label() {
 
       <div className="openbar">
         <label htmlFor="label-path">결함 사진</label>
-        <input
+        <PathField
           id="label-path"
+          kind="image"
           value={path}
-          spellCheck={false}
+          onChange={setPath}
+          onEnter={() => void doOpen()}
           placeholder="예: defects/img_0007.png"
-          onChange={(e) => setPath(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && void doOpen()}
+          reloadKey={recentKey}
         />
         <button className="btn primary" onClick={() => void doOpen()} disabled={busy || !path.trim()}>
           {busy ? '여는 중…' : '열기'}
@@ -269,47 +332,57 @@ export function Label() {
             </section>
 
             <section className="card">
-              <h2>보관함에 저장</h2>
-              <p className="sub">칠한 영역이 결함 조각 하나로 들어갑니다.</p>
-              <label className="field">
-                <span>보관함</span>
-                <input
-                  className="text-in"
-                  value={bank}
-                  spellCheck={false}
-                  placeholder="bank/mine"
-                  onChange={(e) => setBank(e.target.value)}
-                />
-              </label>
-              <label className="field">
-                <span>클래스</span>
-                <input
-                  className="text-in"
-                  value={cls}
-                  spellCheck={false}
-                  placeholder="scratch"
-                  onChange={(e) => setCls(e.target.value)}
-                />
-              </label>
+              <h2>{saveTitle(edit)}</h2>
+              <p className="sub">{saveHint(edit)}</p>
+              {edit ? (
+                <dl className="kv">
+                  <dt>조각</dt>
+                  <dd>{edit.id}</dd>
+                  <dt>보관함</dt>
+                  <dd>{edit.root}</dd>
+                </dl>
+              ) : (
+                <>
+                  <label className="field">
+                    <span>보관함</span>
+                    <PathField
+                      id="label-bank"
+                      kind="bank"
+                      className="text-in"
+                      value={bank}
+                      onChange={setBank}
+                      placeholder="bank/mine"
+                      reloadKey={recentKey}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>클래스</span>
+                    <input
+                      className="text-in"
+                      value={cls}
+                      spellCheck={false}
+                      placeholder="scratch"
+                      onChange={(e) => setCls(e.target.value)}
+                    />
+                  </label>
+                </>
+              )}
               <button
                 className="btn primary"
-                disabled={busy || !bank.trim() || !cls.trim() || !state.stats.areaPx}
-                onClick={() => {
-                  setBusy(true)
-                  saveToBank(bank.trim(), cls.trim())
-                    .then((r) =>
-                      setMessage(
-                        `보관함에 넣었습니다 — ${r.added.map((a) => a.id).join(', ') || '(없음)'}${
-                          r.warnings.length ? ` · ${r.warnings[0]}` : ''
-                        }`,
-                      ),
-                    )
-                    .catch((err: Error) => setError(err.message))
-                    .finally(() => setBusy(false))
-                }}
+                disabled={busy || !state.stats.areaPx || (!edit && (!bank.trim() || !cls.trim()))}
+                onClick={() => void doSave()}
               >
-                보관함에 저장
+                {saveAction(edit)}
               </button>
+              {savedBank && (
+                <button
+                  className="btn"
+                  style={{ marginTop: 6 }}
+                  onClick={() => void goBank(savedBank)}
+                >
+                  결함 보관함에서 보기 →
+                </button>
+              )}
             </section>
           </aside>
 

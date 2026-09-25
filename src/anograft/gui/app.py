@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
 )
 
 from anograft import __version__
+from anograft.core.channels import is_gray
 from anograft.gui.bank.tab import BankTab
 from anograft.gui.batch.tab import BatchTab
 from anograft.gui.label.tab import LabelTab
@@ -401,12 +402,7 @@ class MainWindow(QMainWindow):
         except Exception as e:  # BankSessionError — 상태바에만
             self.status_bar.showMessage(str(e))
             return
-        gray = bool(
-            s.image.ndim == 3
-            and (s.image[..., 0] == s.image[..., 1]).all()
-            and (s.image[..., 1] == s.image[..., 2]).all()
-        )
-        if self.label.begin_bank_edit(root, source_id, s.image, gray, s.mask):
+        if self.label.begin_bank_edit(root, source_id, s.image, is_gray(s.image), s.mask):
             self.tabs.setCurrentWidget(self.label)
 
     def _on_next_edit_requested(self, root: str, after: str) -> None:

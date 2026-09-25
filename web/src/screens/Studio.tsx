@@ -16,6 +16,7 @@ import {
   resetStage,
   runPreview,
   saveRecipe,
+  sendToBatch,
   setField,
   setMethod,
   setPerClass,
@@ -25,6 +26,7 @@ import {
   studioThumbUrl,
   variantImageUrl,
 } from '../api'
+import { PathField } from '../components/PathField'
 import { StageCards } from '../components/StageCards'
 import { variantKeys } from '../params'
 import {
@@ -66,6 +68,7 @@ export function Studio() {
   const [showGt, setShowGt] = useState(true)
   const [showRoi, setShowRoi] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [recentKey, setRecentKey] = useState(0)
   const [rendering, setRendering] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
@@ -158,9 +161,31 @@ export function Studio() {
         setSavePath(s.recipePath || 'recipes/studio.yaml')
       }
       setMessage(null)
+      setRecentKey((k) => k + 1)
       setPipe(await fetchCards())
       setEditError(null)
       await preview({ targetIndex: 0 })
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /**
+   * ③ → ④ 인계: **저장하고** 일괄 생성으로 보낸다(U7).
+   *
+   * 저장까지 하는 이유는 화면 밖에 있다 — 일괄 생성 화면이 보여 주는 CLI 한 줄을 사람이 나중에
+   * 그대로 돌리기 때문이다. 저장하지 않으면 그 한 줄이 없는 파일을 가리킨다.
+   */
+  const doSendToBatch = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      const r = await sendToBatch(savePath.trim())
+      setRecentKey((k) => k + 1)
+      setMessage(`${r.path} 에 저장하고 일괄 생성으로 보냈습니다 — ${r.runCommand}`)
+      location.hash = '#/batch'
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err))
     } finally {
@@ -238,13 +263,14 @@ export function Studio() {
 
       <div className="openbar">
         <label htmlFor="studio-recipe">레시피</label>
-        <input
+        <PathField
           id="studio-recipe"
+          kind="recipe"
           value={recipePath}
-          spellCheck={false}
+          onChange={setRecipePath}
+          onEnter={() => void doOpen()}
           placeholder="예: recipes/sample-poisson.yaml"
-          onChange={(e) => setRecipePath(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && void doOpen()}
+          reloadKey={recentKey}
         />
         <button
           className="btn primary"
@@ -543,26 +569,42 @@ export function Studio() {
 
             <section className="card">
               <h2>일괄 생성으로</h2>
-              <p className="sub">레시피를 저장하면 그대로 명령줄에서 돌릴 수 있습니다.</p>
+              <p className="sub">
+                아래 경로에 레시피를 저장합니다. 보내기는 <b>저장까지 한 번에</b> 하고 일괄 생성
+                화면이 그대로 이어받습니다.
+              </p>
               <label className="field">
                 <span>경로</span>
-                <input
+                <PathField
+                  id="studio-save"
+                  kind="recipe"
                   className="text-in"
                   value={savePath}
-                  spellCheck={false}
-                  onChange={(e) => setSavePath(e.target.value)}
+                  onChange={setSavePath}
+                  reloadKey={recentKey}
                 />
               </label>
               <button
                 className="btn primary"
+                disabled={!savePath.trim() || busy}
+                onClick={() => void doSendToBatch()}
+              >
+                일괄 생성으로 보내기 →
+              </button>
+              <button
+                className="btn"
+                style={{ marginTop: 6 }}
                 disabled={!savePath.trim()}
                 onClick={() => {
                   saveRecipe(savePath.trim())
-                    .then((r) => setMessage(`저장했습니다 — ${r.runCommand}`))
+                    .then((r) => {
+                      setMessage(`저장했습니다 — ${r.runCommand}`)
+                      setRecentKey((k) => k + 1)
+                    })
                     .catch((err: Error) => setError(err.message))
                 }}
               >
-                레시피 저장
+                레시피만 저장
               </button>
               <p className="sub mono" style={{ marginTop: 6 }}>
                 {state.runCommand}

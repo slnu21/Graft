@@ -29,3 +29,16 @@ def demote_from_bgr(image: np.ndarray, gray: bool) -> np.ndarray:
 def binarize(mask: np.ndarray) -> np.ndarray:
     """``>127 → 255``, 나머지 0. dtype uint8 보장."""
     return np.where(mask > 127, 255, 0).astype(np.uint8)
+
+
+def is_gray(image: np.ndarray) -> bool:
+    """3ch 로 승격된 그림이 사실은 흑백인가 — 세 채널이 모두 같으면 그렇다.
+
+    은행 소스(``DefectSource``)는 ``gray`` 를 메타로 들고 다니지 않는다(크롭 PNG 는 늘 3ch 로 읽힌다).
+    조각을 다시 라벨로 열 때는 이 판정으로 되살린다 — 판정이 화면마다 흩어지면 Qt 와 웹이 조용히 갈린다.
+    """
+    if image.ndim == 2:
+        return True
+    if image.ndim != 3 or image.shape[2] != 3:
+        return False
+    return bool((image[..., 0] == image[..., 1]).all() and (image[..., 1] == image[..., 2]).all())

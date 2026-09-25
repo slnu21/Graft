@@ -550,8 +550,7 @@ class LabelTab(QWidget):
         if not np.any(self.session.mask):
             self._on_error("마스크가 비어 있습니다 — 조각을 지우려면 보관함 탭에서 삭제하세요")
             return False
-        used = self.session.tools_used - {"morph", "png"}
-        tool = next(iter(used)) if len(used) == 1 else ("mixed" if used else "brush")
+        tool = self.session.edit_tool()  # 판정은 `labeling.py` 하나 — 웹 화면과 같은 값을 쓴다(U7)
         self.source_updated.emit(root, sid, self.session.mask.copy(), tool)
         self.session.dirty = False
         msg = f"보관함 조각 갱신 요청: {sid} (manual:{tool})"
