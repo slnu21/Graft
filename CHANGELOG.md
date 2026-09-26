@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-09-27
+
+**루프가 보인다** — v0.11.0 이 루프를 돌게 했다면 이번 버전은 그것을 **화면 하나**로 만든다. `anograft serve` 의 여섯 번째 화면 ⑥ 학습 루프: 현재 모델 · 이 라운드의 단계 · 왜 도는지/안 도는지 · 라운드 기록, 그리고 사람이 판정할 차례면 **검수 화면을 그 폴더로 열어 주는 버튼**. 라운드는 여전히 `loop run`·`loop tick` 이 돌린다(Graft 는 상주하지 않는다). 합성 알고리즘·레시피 스키마·출력 형식 불변, 런타임 의존성 4개 불변.
+
 ### Added
 - **⑥ 학습 루프 화면(`anograft serve`)** — 루프가 **지금 어디인지**를 브라우저에서 봅니다: 현재 모델(champion)과 지난 라운드 대비 증감 · 이 라운드의 단계(끝난 것·지금 것·남은 것) · 라운드별 점수 추이(기준선 재설정·자동 정지 해제 지점에서는 **선을 잇지 않습니다** — 그 앞뒤는 견주지 않기로 한 구간입니다) · **다음 라운드 조건**(트리거 · 자동 정지 · 마지막 tick · 처리 이력 · 지금 도는 실행) · 보관함 분포(마지막 라운드 이후 늘어난 조각) · 라운드 기록(`rounds.jsonl` 한 줄이 한 행). 사람이 판정할 차례면 **검토 대기로 가기** 버튼이 ⑤ 검수 화면을 그 폴더로 열어 줍니다. **라운드는 이 화면에서 돌리지 않습니다** — 한 바퀴는 `anograft loop run`(또는 스케줄러가 부르는 `loop tick`)의 일이고, 화면은 칠 명령을 그대로 보여 줍니다.
 
@@ -317,7 +321,8 @@ v0.4 — CPU 알고리즘 확장. **여전히 샘플 데이터로만 검증**(�
 - GUI는 스튜디오 탭만. 재현은 같은 OS·OpenCV 부버전 범위(`seamlessClone` 솔버).
 - `release.yml`의 Windows zip 잡은 첫 push 전이라 CI에서 미검증(로컬 `tools/build_zip.ps1`와 같은 절차).
 
-[Unreleased]: https://github.com/slnu21/Graft/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/slnu21/Graft/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/slnu21/Graft/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/slnu21/Graft/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/slnu21/Graft/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/slnu21/Graft/compare/v0.9.0...v0.10.0
