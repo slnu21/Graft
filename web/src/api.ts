@@ -599,10 +599,123 @@ export const stopBatch = () => post<BatchState>('/api/batch/stop', {})
 // ---------------------------------------------------------------- 최근 경로(U7)
 
 /** 칸의 뜻으로 나눈 종류 — ③ 에서 저장한 레시피가 ④ 목록에 그대로 뜨는 게 이 나눔의 목적. */
-export type RecentKind = 'bank' | 'image' | 'recipe' | 'output'
+export type RecentKind = 'bank' | 'image' | 'recipe' | 'output' | 'loop'
 
 /**
  * 읽기뿐이다. "기억해 줘" 쓰기 API 는 **일부러 없다** — 무언가를 연 행위가 곧 기록이고,
  * 그 판단은 서버가 한다(프론트가 무엇을 기억할지 정하면 그게 화면이 상태를 드는 것이다).
  */
 export const fetchRecent = () => get<{ recent: Record<string, string[]> }>('/api/recent')
+
+// ---------------------------------------------------------------- 학습 루프(U8)
+
+export type LoopChampion = { round: number; model: string; metric: number; metricName: string }
+
+export type LoopPhaseStep = { phase: string; label: string; state: 'done' | 'current' | 'todo' }
+
+export type LoopRoundView = {
+  number: number
+  bootstrap: boolean
+  started: string
+  updated: string
+  finished: boolean
+  next: string | null
+  nextLabel: string
+  steps: LoopPhaseStep[]
+  warnings: string[]
+}
+
+export type LoopReview = { judged: number; total: number; waiting: boolean; queueDir: string }
+
+/** 다음에 할 일 한 줄 — 무엇을 강조할지는 `kind`, 칠 명령은 `command`(서버가 만든다). */
+export type LoopAction = { kind: string; text: string; command: string }
+
+export type LoopClassRow = {
+  name: string
+  count: number
+  delta: number | null
+  share: number
+  unsorted: boolean
+}
+
+export type LoopRoundRow = {
+  round: number
+  at: string
+  metric: number | null
+  metricName: string
+  promoted: boolean
+  reason: string
+  intake: number
+  sources: number
+  snapshot: string
+  pipelineHash: string
+  bootstrap: boolean
+  classes: number
+  perClass: Record<string, number>
+  /** 이 라운드와 **그 앞 라운드 사이**의 사람 수정률. 견줄 앞이 없으면 null(0 이 아니다). */
+  correctionRate: number | null
+  drafted: number
+  corrected: number
+  marker: string
+  markerLabel: string
+  markerNote: string
+}
+
+export type LoopPoint = {
+  round: number
+  metric: number
+  promoted: boolean
+  /** 값이 달라지면 **선을 잇지 않는다** — 기준선 재설정·자동 정지 해제 앞뒤는 견주지 않는다. */
+  segment: number
+  marker: string
+}
+
+export type LoopState =
+  | { open: false; suggest: string; example: string }
+  | {
+      open: true
+      configPath: string
+      out: string
+      bankPath: string
+      recipePath: string
+      fieldPath: string
+      trainer: string
+      metricName: string
+      /** 용어 사전 §3.5 — `mAP50` 은 남기되 **풀이가 필수**라 서버가 라벨·풀이를 함께 준다. */
+      metricLabel: string
+      metricHint: string
+      champion: LoopChampion | null
+      round: LoopRoundView | null
+      review: LoopReview
+      trigger: { start: boolean; reason: string } | null
+      breaker: { tripped: boolean; reason: string; kinds: string[] } | null
+      tick: { at: string; ran: boolean; reason: string; round: number } | null
+      lock: Record<string, unknown> | null
+      lockText: string
+      processed: number
+      action: LoopAction
+      corrections: { rate: number | null; drafted: number; corrected: number; text: string }
+      bank: {
+        sources: number
+        classes: string[]
+        perClass: Record<string, number>
+        rows: LoopClassRow[]
+      }
+      failures: { round: number; phase: string; reason: string }[]
+      warnings: string[]
+    }
+
+export type LoopRounds = {
+  rounds: LoopRoundRow[]
+  points: LoopPoint[]
+  metricName: string
+  metricLabel: string
+  metricHint: string
+  ledger: string
+  warnings: string[]
+}
+
+export const fetchLoopState = () => get<LoopState>('/api/loop/state')
+export const fetchLoopRounds = (limit = 12) => get<LoopRounds>(`/api/loop/rounds?limit=${limit}`)
+/** 라운드는 여기서 돌리지 않는다 — 쓰기는 "어느 loop.yaml 을 보고 있나" 하나뿐이다. */
+export const openLoop = (config: string) => post<LoopState>('/api/loop/open', { config })

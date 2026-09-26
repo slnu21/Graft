@@ -75,6 +75,10 @@ jobs:
           # 인계(U7): 조각 다듬기 저장도 쓰기라 CSRF 없이는 거부된다(은행 파일을 덮어쓴다)
           code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8123/api/label/update-source)
           test "$code" = 403
+          # 학습 루프(U8): 열기 전에도 답하고(안내), 쓰기는 `open` 하나뿐이다 — 라운드는 웹에서 돌리지 않는다
+          curl -sf http://127.0.0.1:8123/api/loop/state | grep -q '"open": false'
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8123/api/loop/open)
+          test "$code" = 403
 
   build:
     strategy:

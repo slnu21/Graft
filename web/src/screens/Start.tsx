@@ -108,7 +108,10 @@ export function Start({
               데이터셋 생성 — <code>anograft run recipes/x.yaml</code>
             </li>
             <li>
-              검수 — <code>anograft dataset report out</code> (곧 이 화면에서)
+              검수 — ⑤ 검수 화면, 또는 <code>anograft dataset report out</code>
+            </li>
+            <li>
+              (선택) 학습 루프 — <code>anograft loop run</code> 으로 한 바퀴, 현황은 ⑥ 학습 루프
             </li>
           </ol>
         </section>

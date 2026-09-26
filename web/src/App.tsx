@@ -12,6 +12,7 @@ import { type StageInfo } from './format'
 import { BankScreen } from './screens/BankScreen'
 import { Batch } from './screens/Batch'
 import { Label } from './screens/Label'
+import { Loop } from './screens/Loop'
 import { Review } from './screens/Review'
 import { Start } from './screens/Start'
 import { Studio } from './screens/Studio'
@@ -25,7 +26,7 @@ const SCREENS = [
   { id: 'studio', num: '③', label: '미리보기', ready: true },
   { id: 'batch', num: '④', label: '일괄 생성', ready: true },
   { id: 'review', num: '⑤', label: '검수', ready: true },
-  { id: 'loop', num: '⑥', label: '학습 루프', ready: false },
+  { id: 'loop', num: '⑥', label: '학습 루프', ready: true },
 ] as const
 
 type ScreenId = (typeof SCREENS)[number]['id']
@@ -138,6 +139,8 @@ export function App() {
             <Studio />
           ) : screen === 'batch' ? (
             <Batch />
+          ) : screen === 'loop' ? (
+            <Loop />
           ) : (
             <Soon label={SCREENS.find((s) => s.id === screen)!.label} />
           )}

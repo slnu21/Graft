@@ -1175,3 +1175,212 @@ select:focus-visible {
   flex: 1;
   min-width: 0;
 }
+
+/* ---------- ⑥ 학습 루프(U8) ----------
+   전부 `.loop`·`.loop-*` 안으로 스코프한다 — `.num`·`.pill` 같은 짧은 이름을 전역에 풀면 레일의
+   화면 번호(`.rail .num`)와 카드 폼(`.card.stage .num`)이 같이 흔들린다(U5b 에서 겪은 것). */
+.loop {
+  display: grid;
+  gap: 12px;
+}
+
+.loop-action {
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* 경로·해시는 공백이 없어 **줄바꿈 자리가 없다** — 그대로 두면 min-content 폭이 카드를 밀어
+   페이지가 가로로 넘치고 오른쪽 카드가 잘린다(실제로 그랬다). 이 화면은 경로를 많이 보여 주므로
+   `.loop` 안에서는 어디서든 끊는다. */
+.loop-action .tx,
+.loop .card .sub,
+.loop .kv dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.loop .card,
+.loop-stats .card,
+.loop-cols .card {
+  min-width: 0;
+}
+
+.loop-action.ok {
+  border-color: var(--teal);
+  background: transparent;
+  color: var(--tx);
+}
+
+.loop-action.muted {
+  border-color: var(--line);
+  background: var(--panel2);
+  color: var(--tx2);
+}
+
+/* 사람이 그대로 칠 수 있는 줄 — 화면이 라운드를 돌리지 않으므로 명령이 곧 버튼이다. */
+.card .cmd {
+  min-width: 0;
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel2);
+  color: var(--tx2);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.loop-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+}
+
+.loop-stats .stat {
+  margin: 6px 0 2px;
+  font-size: 26px;
+  line-height: 1.2;
+  color: var(--tx);
+}
+
+.loop-stats .stat .u {
+  font-size: 12px;
+  color: var(--tx3);
+}
+
+.loop-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+/* 단계 줄 — 끝난 것·지금 것·남은 것. 판정은 서버(`board.phase_steps`)가 한다. */
+.loop-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 10px 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.loop-steps li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--tx3);
+  font-size: 12px;
+}
+
+.loop-steps li i {
+  width: 9px;
+  height: 9px;
+  border: 1px solid var(--line2);
+  border-radius: 50%;
+}
+
+.loop-steps li em {
+  font-style: normal;
+  font-size: 10.5px;
+  color: var(--tx3);
+  opacity: 0.7;
+}
+
+.loop-steps li.done i {
+  border-color: var(--teal);
+  background: var(--teal);
+}
+
+.loop-steps li.done {
+  color: var(--tx2);
+}
+
+.loop-steps li.current i {
+  border-color: var(--amber);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--amber) 25%, transparent);
+}
+
+.loop-steps li.current {
+  color: var(--tx);
+  font-weight: 600;
+}
+
+/* viewBox 보다 크게 늘리지 않는다 — 넓은 창에서 100% 로 두면 높이가 400px 넘게 부풀어
+   화면 한 장을 그래프가 다 먹는다(실물에서 그랬다). */
+.loop-chart {
+  width: 100%;
+  max-width: 640px;
+  height: auto;
+  display: block;
+  margin-top: 8px;
+}
+
+.loop-table {
+  width: 100%;
+  margin-top: 8px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.loop-table th,
+.loop-table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.loop-table th {
+  color: var(--tx3);
+  font-weight: 600;
+}
+
+.loop-table .num {
+  text-align: right;
+}
+
+/* 표는 숫자 열만 붙여 두고 사유 같은 긴 글은 접는다. */
+.loop-table td.wrap {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.loop-table .muted-row td {
+  color: var(--tx3);
+}
+
+.loop-table .mark-row td {
+  border-bottom-color: var(--warn-line);
+}
+
+.loop-table .why {
+  color: var(--tx3);
+  font-style: normal;
+  font-size: 11px;
+}
+
+.loop .pill {
+  display: inline-block;
+  padding: 1px 7px;
+  border: 1px solid var(--line2);
+  border-radius: 999px;
+  color: var(--tx2);
+  font-size: 11px;
+}
+
+.loop .pill.ok {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+
+.loop .pill.mark {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.loop .kv dd.bad {
+  color: var(--bad);
+}
