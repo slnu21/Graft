@@ -28,7 +28,7 @@ import csv
 import json
 import shutil
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -174,13 +174,15 @@ def read_predictions(root: str | Path) -> PredictionSet:
 
 @dataclass(frozen=True)
 class QueueItem:
-    """큐 한 줄. ``index`` 순서가 곧 **검토 우선순위**다(불일치 → 경계 → 확신 → 무작위)."""
+    """큐 한 줄. ``index`` 순서가 곧 **검토 우선순위**다(처음 보는 형상 → 불일치 → 경계 → 확신 → 무작위)."""
 
     stem: str
     score: float
     reason: str
     detail: str  # 사람이 읽는 한 줄 — 사이드카 warnings 로 들어가 검수 화면 상세에 뜬다
     disagreement: int = 0  # 두 모델이 어긋난 검출 수(0 이면 일치 또는 비교 안 함)
+    #: 처음 보는 형상 점수 0~1 (T15). 0 = 재지 않았거나 보관함 조각과 닮았다
+    novelty: float = 0.0
 
 
 def disagreement_counts(
@@ -278,6 +280,61 @@ def _detail_for(reason: str, score: float, threshold: float) -> str:
     return f"무작위로 뽑았습니다 — 점수 {score:.3f} (드리프트 감지용)"
 
 
+def novelty_scores(
+    items: Sequence[QueueItem],
+    preds: PredictionSet,
+    images: Mapping[str, Path],
+    refs: Sequence[Any],
+    *,
+    scale: Sequence[float] | None = None,
+) -> dict[str, float]:
+    """고른 항목들의 **처음 보는 형상** 점수 (설계 §2b.5(1), T15).
+
+    **고른 것만 잰다.** 후보 전체를 재려면 현장 이미지를 모두 읽어야 하고(4K 수천 장) 그건 tick 마다
+    디스크를 통째로 읽는 일이다. 대신 이미 뽑힌 n 장(기본 30)만 읽어 **사람에게 보여 줄 순서**를 정한다 —
+    진짜 새 유형은 대개 경계(낮은 확신)나 무작위 몫으로 이미 뽑혀 있다. 한계는 그대로 남으므로 문서에 남긴다.
+
+    마스크가 없으면(검출만 하는 학습기) 0.0 — 모양을 못 재면 판정하지 않는다.
+    """
+    from anograft.core.novelty import Feature, novelty_score, scales
+    from anograft.io import imgio
+
+    if not refs:
+        return {}
+    unit = tuple(scale) if scale is not None else scales(refs)
+    out: dict[str, float] = {}
+    for item in items:
+        src = images.get(item.stem)
+        pred = preds.items.get(item.stem)
+        if src is None or pred is None or pred.mask is None:
+            continue
+        try:
+            image, _gray = imgio.read_image(src)
+            mask = imgio.read_mask(pred.mask)
+        except (imgio.ImageReadError, OSError):
+            continue
+        if mask.shape[:2] != image.shape[:2]:
+            continue  # 크기가 다른 이상맵 — 마스크 없이 큐에 들어간다(T2 함정의 하류)
+        out[item.stem] = novelty_score(Feature.of(image, mask), refs, scale=unit)
+    return out
+
+
+def order_by_novelty(
+    items: Sequence[QueueItem], scores: Mapping[str, float], *, threshold: float
+) -> list[QueueItem]:
+    """처음 보는 형상을 **맨 앞으로** — 순수. 나머지 순서는 그대로 둔다(안정 정렬).
+
+    `reason` 은 바꾸지 않는다(몫 회계·태그가 그것을 쓴다) — 점수만 항목에 붙고 순서가 바뀐다.
+    """
+    from anograft.core.novelty import is_novel
+
+    scored = [replace(it, novelty=float(scores.get(it.stem, it.novelty))) for it in items]
+    novel = [it for it in scored if is_novel(it.novelty, threshold)]
+    rest = [it for it in scored if not is_novel(it.novelty, threshold)]
+    novel.sort(key=lambda it: -it.novelty)
+    return novel + rest
+
+
 def reason_counts(items: Sequence[QueueItem]) -> dict[str, int]:
     out: dict[str, int] = {}
     for it in items:
@@ -296,6 +353,7 @@ class QueueSummary:
     written: list[QueueItem] = field(default_factory=list)
     missing_image: list[str] = field(default_factory=list)
     without_mask: list[str] = field(default_factory=list)
+    novel: list[str] = field(default_factory=list)  # 처음 보는 형상으로 표시된 stem (T15)
     warnings: list[str] = field(default_factory=list)
 
     def reasons(self) -> dict[str, int]:
@@ -326,6 +384,7 @@ def build_queue(
     trainer: str = "",
     round_no: int | None = None,
     pred_b: Path | None = None,
+    novelty_threshold: float = 0.0,
 ) -> QueueSummary:
     """검토 대기 폴더를 만든다 — 이미지·마스크 사본 + 사이드카 + ``manifest.csv`` + 빈 ``review.csv``.
 
@@ -387,6 +446,7 @@ def build_queue(
                     pred_root=preds.root,
                     pred_b=pred_b,
                     has_mask=bool(rel_mask),
+                    novelty_threshold=novelty_threshold,
                 ),
                 ensure_ascii=False,
                 indent=1,
@@ -418,17 +478,26 @@ def build_queue(
                 "reason": item.reason,
                 "score": f"{item.score:.4f}",
                 "disagreement": item.disagreement,
+                "novelty": f"{item.novelty:.4f}",
                 "classes": ";".join(pred.classes()),
                 "image": src.as_posix(),
             }
         )
         summary.written.append(item)
+        if _novel(item, novelty_threshold):
+            summary.novel.append(item.stem)
 
     write_manifest(root / MANIFEST_FILE, rows)
     # 빈 판정 — 검수 화면이 "미검수" 로 세고, 사람이 A/R 을 찍으면 그대로 덮어쓴다
     write_review(root / REVIEW_FILE, {r["index"]: ("", "") for r in rows})
     _write_queue_csv(root / QUEUE_FILE, queue_rows)
     return summary
+
+
+def _novel(item: QueueItem, threshold: float) -> bool:
+    from anograft.core.novelty import is_novel
+
+    return is_novel(item.novelty, threshold)
 
 
 def _copy_mask(
@@ -469,12 +538,20 @@ def _sidecar(
     pred_root: Path,
     pred_b: Path | None,
     has_mask: bool,
+    novelty_threshold: float = 0.0,
 ) -> dict[str, Any]:
     """큐 사이드카 — 합성 사이드카(§8.3)와 **같은 자리**에 ``gtmask.instances`` 를 둔다(검수 화면이 그걸 읽는다).
 
     합성이 아니므로 ``defects``·``blend`` 는 없고, 대신 ``queue`` 블록이 **왜 이게 왔는지**를 들고 있다.
     """
     warnings = [f"검토 대기 사유: {item.reason} — {item.detail}"]
+    if _novel(item, novelty_threshold):
+        # 이게 맨 앞에 온 이유이므로 **첫 줄**에 둔다(검수 화면이 첫 줄을 사유로 보여 준다)
+        warnings.insert(
+            0,
+            f"처음 보는 형상입니다({item.novelty:.2f}) — 보관함 어느 조각과도 닮지 않았습니다. "
+            "채택하면 이름 없이 미분류로 들어갑니다(나중에 bank promote 로 이름을 주세요)",
+        )
     if not has_mask:
         warnings.append(
             "이 예측에는 마스크가 없습니다 — 채택해도 은행에 넣으려면 결함 표시 화면에서 그려야 합니다"
@@ -486,6 +563,8 @@ def _sidecar(
             "score": round(item.score, 6),
             "threshold": threshold,
             "disagreement": item.disagreement,
+            "novelty": round(item.novelty, 4),
+            "novelty_threshold": novelty_threshold,
             "trainer": trainer,
             "round": round_no,
             "predictions": pred_root.as_posix(),
@@ -511,7 +590,7 @@ def _sidecar(
 
 
 def _write_queue_csv(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
-    cols = ("index", "stem", "reason", "score", "disagreement", "classes", "image")
+    cols = ("index", "stem", "reason", "score", "disagreement", "novelty", "classes", "image")
     with path.open("w", encoding="utf-8", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(cols), extrasaction="ignore")
         w.writeheader()
@@ -538,6 +617,7 @@ class AcceptSummary:
     accepted: int = 0  # review.csv 가 채택한 항목 수
     imported: int = 0  # 실제로 은행에 들어간 쌍 수
     no_mask: list[str] = field(default_factory=list)
+    unsorted: list[str] = field(default_factory=list)  # 처음 보는 형상이라 미분류로 들어간 것 (T15)
     classes: list[str] = field(default_factory=list)
     per_class: dict[str, int] = field(default_factory=dict)
     held_out: list[str] = field(default_factory=list)
@@ -555,6 +635,7 @@ def accept_to_bank(
     min_area: int | None = None,
     margin: int | None = None,
     um_per_px: float | None = None,
+    novelty_threshold: float = 0.0,
     log: Any = None,
 ) -> AcceptSummary:
     """``review.csv`` 가 **채택**한 것만 은행에 넣는다 — 임포터 공통 처리를 그대로 탄다.
@@ -563,9 +644,14 @@ def accept_to_bank(
       사람이 결함 표시 화면에서 다듬으면 ``manual:*`` 가 된다 — 그 비율이 설계 §2 규약 4 의 **사람 수정률**이다.
     - ``origin`` 은 큐 사본이 아니라 **원본 경로**다(감사 + `holdout.txt` 대조가 원본 stem 으로 걸리게).
     - 평가셋 거부·중복 id·작은 성분 버리기는 전부 `BankWriter.add` 한 지점에서 일어난다(T4).
+    - **처음 보는 형상**(사이드카 `queue.novelty` ≥ `novelty_threshold`)은 **미분류**로 들어간다(T15).
+      점수는 큐를 만들 때 이미 재어 사이드카에 적혀 있으므로 여기서 이미지를 다시 읽지 않는다.
+      틀린 이름을 붙이는 것은 되돌릴 수 없고(그 클래스가 오염된다) 미분류는 `bank promote` 한 줄로 되돌린다.
     """
     from anograft.bank.importers.common import DEFAULT_MARGIN, DEFAULT_MIN_AREA
     from anograft.bank.importers.pairs import PairRecord, import_pair_records
+    from anograft.core.classes import UNSORTED
+    from anograft.core.novelty import is_novel
     from anograft.io.manifest import MANIFEST_FILE, read_manifest
     from anograft.io.prune import REVIEW_FILE, read_review
 
@@ -592,14 +678,25 @@ def accept_to_bank(
             continue
         trainers.add(str((meta.get("queue") or {}).get("trainer") or ""))
         origin = str((meta.get("target") or {}).get("file") or row.get("target") or stem)
+        item_cls = cls or _class_of(meta, row)
+        item_tags = _item_tags(meta, round_no)
+        novelty = float((meta.get("queue") or {}).get("novelty") or 0.0)
+        if is_novel(novelty, novelty_threshold):
+            item_cls = UNSORTED
+            item_tags.append("novel")
+            summary.unsorted.append(stem)
+            summary.warnings.append(
+                f"{stem}: 처음 보는 형상({novelty:.2f})이라 미분류로 넣습니다 — "
+                "`bank promote` 로 이름을 주면 합성·출력에 쓰입니다"
+            )
         records.append(
             PairRecord(
                 image=root / row["image"],
                 mask=root / row["mask"],
-                cls=cls or _class_of(meta, row),
+                cls=item_cls,
                 origin=origin,
                 id_hint=stem,
-                tags=tuple(_item_tags(meta, round_no)),
+                tags=tuple(item_tags),
             )
         )
 

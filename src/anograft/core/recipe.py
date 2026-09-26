@@ -30,6 +30,8 @@ from pydantic import (
     model_validator,
 )
 
+from anograft.core.classes import named_classes
+
 # ---------------------------------------------------------------------------
 # 공용 타입
 # ---------------------------------------------------------------------------
@@ -817,14 +819,19 @@ class Recipe(_Strict):
     # --- 은행 대조 (런타임 검증) ---
 
     def effective_classes(self, bank: BankLike) -> list[str]:
-        """실제로 뽑을 클래스 목록: (비-bank 소스면 ``[cls]``) → source.classes → class_ratio 키 → 은행 전체."""
+        """실제로 뽑을 클래스 목록: (비-bank 소스면 ``[cls]``) → source.classes → class_ratio 키 → 은행 전체.
+
+        **미분류(`__unsorted__`)는 어느 경로로도 들어오지 않는다**(T15) — 이름이 없는 조각으로 합성하면
+        출력 라벨에 뜻 없는 클래스가 생기고 학습이 그것을 배운다. 사람이 이름을 주면(`bank promote`)
+        그때부터 보통 클래스가 된다.
+        """
         if self.bankless:
             return [self.pipeline.source.cls]
         if self.pipeline.source.classes is not None:
-            return list(self.pipeline.source.classes)
+            return named_classes(self.pipeline.source.classes)
         if self.output.class_ratio is not None:
-            return list(self.output.class_ratio)
-        return list(bank.classes)
+            return named_classes(list(self.output.class_ratio))
+        return named_classes(bank.classes)
 
     def class_probabilities(self, bank: BankLike) -> dict[str, float]:
         classes = self.effective_classes(bank)

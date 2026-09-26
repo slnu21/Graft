@@ -662,6 +662,7 @@ def _phase_queue(loop: ResolvedLoop, round_dir: Path, number: int, log: Log) -> 
     )
     if not items:
         return {"count": 0, "reasons": {}}
+    items = _with_novelty(loop, items, preds, images, log)
     queue_dir = round_dir / "queue"
     if queue_dir.exists():
         shutil.rmtree(queue_dir)
@@ -673,15 +674,49 @@ def _phase_queue(loop: ResolvedLoop, round_dir: Path, number: int, log: Log) -> 
         threshold=review.threshold,
         trainer=loop.config.trainer,
         round_no=number,
+        novelty_threshold=review.novelty_threshold,
     )
     for w in summary.warnings:
         log(f"경고: {w}")
+    if summary.novel:
+        log(
+            f"처음 보는 형상 {len(summary.novel)}장을 맨 앞에 두었습니다 — "
+            "채택하면 이름 없이 미분류로 들어갑니다"
+        )
     return {
         "count": len(summary.written),
         "reasons": summary.reasons(),
         "queue": str(queue_dir),
         "without_mask": len(summary.without_mask),
+        "novel": len(summary.novel),
     }
+
+
+def _with_novelty(
+    loop: ResolvedLoop,
+    items: Sequence[Any],
+    preds: Any,
+    images: Mapping[str, Path],
+    log: Log,
+) -> list[Any]:
+    """**처음 보는 형상**을 재서 맨 앞으로(T15). 보관함을 못 읽거나 임계가 0 이면 그대로 둔다(fail-soft)."""
+    from anograft.loop.queue import novelty_scores, order_by_novelty
+
+    threshold = loop.config.review.novelty_threshold
+    if threshold <= 0:
+        return list(items)
+    from anograft.bank import Bank
+    from anograft.bank.bank import BankError
+
+    try:
+        refs = Bank.load(loop.bank).novelty_refs()
+    except (BankError, OSError, ValueError) as exc:
+        log(f"경고: 보관함을 읽지 못해 처음 보는 형상을 재지 않습니다 — {exc}")
+        return list(items)
+    scores = novelty_scores(items, preds, images, refs)
+    if not scores:
+        return list(items)
+    return order_by_novelty(items, scores, threshold=threshold)
 
 
 def _review_progress(round_dir: Path) -> tuple[int, int]:
@@ -714,6 +749,7 @@ def _phase_accept(loop: ResolvedLoop, round_dir: Path, number: int, log: Log) ->
             cls=review.accept_class,
             round_no=number,
             keep_whole=review.keep_whole,
+            novelty_threshold=review.novelty_threshold,
             log=log,
         )
     except (QueueError, OSError, ValueError) as exc:
@@ -725,6 +761,7 @@ def _phase_accept(loop: ResolvedLoop, round_dir: Path, number: int, log: Log) ->
         "imported": summary.imported,
         "per_class": summary.per_class,
         "held_out": len(summary.held_out),
+        "unsorted": len(summary.unsorted),
     }
 
 
@@ -856,6 +893,20 @@ def _phase_judge(loop: ResolvedLoop, state: LoopState, record: RoundRecord, log:
         log(f"기준선이 없어 이 모델을 champion 으로 둡니다 ({name} {challenger:.4f})")
         return {"promote": True, "reason": "기준선 없음 — 첫 모델", "metric": challenger}
 
+    if baseline_reset_after(loop, state.champion.round):
+        state.champion = Champion(
+            round=record.number, model=model, metric=challenger, metric_name=name
+        )
+        log(
+            f"기준선 재설정 뒤 첫 라운드 — 점수를 견주지 않고 champion 을 세웁니다 ({name} {challenger:.4f})"
+        )
+        return {
+            "promote": True,
+            "reason": "기준선 재설정 뒤 첫 라운드 — 점수를 견주지 않습니다",
+            "metric": challenger,
+            "baseline_reset": True,
+        }
+
     verdict = should_promote(
         fixed_champion=state.champion.metric,
         fixed_challenger=challenger,
@@ -907,6 +958,8 @@ def _run_round(
     lock: RoundLock | None,
 ) -> RoundResult:
     out = loop.out
+    # 새 클래스가 생겼으면 **라운드를 열기도 전에** 선다(T15) — 빈 라운드 폴더·원장 줄을 남기지 않는다
+    check_new_classes(loop)
     state = load_state(out)
 
     # 진행 중인 라운드가 있으면 이어서, 없으면 다음 라운드를 연다
@@ -999,6 +1052,7 @@ def _run_round(
         bank_fingerprint=synth.get("bank_fingerprint", ""),
         bank_snapshot=synth.get("bank_snapshot", ""),
         bank_sources=int(synth.get("bank_sources", 0) or 0),
+        bank_classes=bank_classes(loop),
         bootstrap=record.bootstrap,
     )
     message = (
@@ -1063,6 +1117,90 @@ def _run_phase(
     elif phase == "judge":
         record.mark(phase, _phase_judge(loop, state, record, log))
     return None
+
+
+# --------------------------------------------------------------------------------------
+# 4a. 클래스 신설 — 자동화 금지, 사람 결정 이벤트 (설계 §2b.5(3)·§6.7, T15)
+# --------------------------------------------------------------------------------------
+
+
+def bank_classes(loop: ResolvedLoop) -> list[str]:
+    """보관함의 **이름 있는** 클래스(미분류 제외). 읽을 수 없으면 빈 목록(fail-soft)."""
+    from anograft.bank import Bank
+    from anograft.bank.bank import BankError
+
+    try:
+        return list(Bank.load(loop.bank).usable_classes)
+    except (BankError, OSError, ValueError):
+        return []
+
+
+def new_classes(loop: ResolvedLoop, led: Any | None = None) -> list[str]:
+    """마지막으로 끝난 라운드가 쓴 목록에 없는 **새 클래스 이름**.
+
+    사람이 `baseline_reset` 을 찍어 두었으면(그 라운드 이후로) 빈 목록 — 이미 결정이 내려진 것이다.
+    옛 원장처럼 `bank_classes` 가 적혀 있지 않으면 판정하지 않는다(모르면 막지 않는다).
+    """
+    led = led if led is not None else L.read(ledger_path(loop))
+    end = led.last_end
+    if end is None:
+        return []
+    known = [str(c) for c in (end.get("bank_classes") or [])]
+    if not known:
+        return []
+    reset = led.last(L.EVENT_BASELINE_RESET)
+    if reset is not None and int(reset.get("after_round", 0) or 0) >= end.round:
+        return []
+    return [c for c in bank_classes(loop) if c not in known]
+
+
+def check_new_classes(loop: ResolvedLoop) -> None:
+    """새 클래스가 생겼으면 **라운드를 멈춘다** — 회로 차단기가 아니라 사람 결정 이벤트다(설계 §2b.5(3)).
+
+    왜 멈춰야 하나: `classes` 순서 = class id = 출력 `data.yaml` 순서라 새 클래스는 **기존 모델과 비호환**
+    이고, 무엇보다 **평가셋에 그 클래스의 정답이 없으면 잘 잡을수록 헛검출로 집계되어 점수가 떨어진다**
+    — 라운드 Δ 비교가 그 지점에서 끊긴다. 자동으로 넘기면 루프가 조용히 거짓말을 하기 시작한다.
+    """
+    added = new_classes(loop)
+    if not added:
+        return
+    names = ", ".join(added)
+    raise LoopError(
+        f"새 클래스가 생겼습니다: {names} — 라운드를 멈춥니다(사람 결정이 필요합니다).\n"
+        "  평가셋에 이 클래스의 정답이 없으면 모델이 잘 잡을수록 헛검출로 집계되어 점수가 떨어집니다"
+        " — 라운드 비교가 끊깁니다.\n"
+        "  ① 평가셋에 이 클래스를 넣어 다시 만들고"
+        " ② `anograft loop baseline-reset --note ...` 로 기준선을 재설정하세요.\n"
+        "  그 지점 앞뒤로는 점수를 견주지 않습니다(원장에 남습니다)."
+    )
+
+
+def baseline_reset(loop: ResolvedLoop, *, note: str = "", log: Log | None = None) -> dict[str, Any]:
+    """**기준선 재설정** — 원장에 "이 지점 앞뒤로 점수를 견주지 않는다"를 남긴다.
+
+    자동으로 부르지 않는다. 사람이 평가셋을 다시 만든 뒤 한 번 찍는 것이고, 그 다음 라운드는 Δ 비교 없이
+    champion 을 새로 세운다(`_phase_judge`).
+    """
+    led = L.read(ledger_path(loop))
+    end = led.last_end
+    after = end.round if end is not None else load_state(loop.out).round
+    classes = bank_classes(loop)
+    log_event(
+        loop,
+        L.EVENT_BASELINE_RESET,
+        log=log,
+        round_no=after,
+        after_round=after,
+        classes=classes,
+        note=note,
+    )
+    return {"after_round": after, "classes": classes, "note": note}
+
+
+def baseline_reset_after(loop: ResolvedLoop, round_no: int) -> bool:
+    """``round_no`` 라운드 뒤에 기준선 재설정이 있었나 — 있으면 그 이전 점수와 견주지 않는다."""
+    reset = L.read(ledger_path(loop)).last(L.EVENT_BASELINE_RESET)
+    return reset is not None and int(reset.get("after_round", 0) or 0) >= round_no
 
 
 # --------------------------------------------------------------------------------------
@@ -1262,7 +1400,11 @@ __all__ = [
     "RoundRecord",
     "RoundResult",
     "assemble_dataset",
+    "bank_classes",
+    "baseline_reset",
+    "baseline_reset_after",
     "check_label_classes",
+    "check_new_classes",
     "check_trigger",
     "cursor_path",
     "dataset_names",
@@ -1270,6 +1412,7 @@ __all__ = [
     "load_record",
     "load_state",
     "log_event",
+    "new_classes",
     "next_phase",
     "note_tick",
     "round_name",
