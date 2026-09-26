@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from itertools import pairwise
 
 import numpy as np
 
@@ -418,3 +419,182 @@ def should_start_round(state: TriggerState, policy: TriggerPolicy) -> TriggerDec
     if policy.min_images > 0:
         parts.append(f"새 이미지 {state.new_images}/{policy.min_images}장")
     return TriggerDecision(False, " · ".join(parts) + " — 아직 양이 안 찼습니다")
+
+
+# --------------------------------------------------------------------------------------
+# 7. 자동 정지 — 망가진 루프는 망가진 채로 계속 돈다 (설계 §6.5, T12)
+# --------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RoundOutcome:
+    """한 라운드가 남긴 사실. 원장 ``round_end`` 한 줄에서 읽어 오고, **파일은 호출부가 읽는다**.
+
+    ``drafted``·``corrected`` 는 그 라운드가 끝난 **시점의 누계**다(사람은 라운드가 끝난 뒤에 마스크를
+    다듬으므로 라운드 안에서는 잴 수 없다). 그래서 판정은 **라운드 사이의 차이**로 한다 — `circuit_break`.
+    """
+
+    round: int
+    promoted: bool = False
+    metric: float | None = None
+    #: 이 라운드에 보관함으로 편입된 조각 수(`accept` 단계의 결과)
+    intake: int = 0
+    #: 모델 초안(`mask_origin: pred:*`)으로 들어온 조각 **누계** — 사람 수정률의 분모
+    drafted: int = 0
+    #: 그중 사람이 다듬은 것(`manual:*`) **누계** — 분자
+    corrected: int = 0
+    #: 보관함 클래스별 조각 수(분포 변화 감시)
+    per_class: Mapping[str, int] = field(default_factory=dict)
+    bootstrap: bool = False
+
+
+@dataclass(frozen=True)
+class CorrectionStats:
+    """사람 수정률 (설계 §2 규약 4) — **0 으로 수렴하면 모델이 좋아진 게 아니라 아무도 안 보는 중**이다."""
+
+    drafted: int = 0
+    corrected: int = 0
+
+    @property
+    def rate(self) -> float | None:
+        """분모가 0 이면 ``None`` — **모르는 것과 0 은 다르다**(들어온 초안이 없으면 판정하지 않는다)."""
+        return (self.corrected / self.drafted) if self.drafted > 0 else None
+
+    def text(self) -> str:
+        rate = self.rate
+        if rate is None:
+            return "사람 수정률: 모델 초안이 들어온 적이 없습니다"
+        return f"사람 수정률 {rate:.0%} (모델 초안 {self.drafted}개 중 {self.corrected}개를 다듬음)"
+
+
+def correction_window(history: Sequence[RoundOutcome], rounds: int = 0) -> CorrectionStats:
+    """최근 ``rounds`` 라운드 **사이에** 들어온 초안과 그중 다듬어진 수. ``rounds`` ≤ 0 이면 전 구간.
+
+    누계의 차이를 쓰는 이유: 사람은 라운드가 끝난 **뒤에** 보관함에서 마스크를 다듬는다. 누계 비율만 보면
+    초기에 열심히 고친 이력이 "지금 아무도 안 본다"를 영원히 가려 주고, 반대로 자동 정지를 한 번 해제한
+    직후에 옛 누계가 그대로 다시 정지를 부른다(해제가 아무것도 사 주지 않는다).
+    차이가 음수면(조각을 지웠다) 0 으로 본다 — 삭제는 이 지표의 관심사가 아니다.
+
+    **견줄 앞 라운드가 없으면 빈 것**(``rate`` = ``None``)이다 — 모르는 것과 0 은 다르다.
+    """
+    window = list(history) if rounds <= 0 else list(history[-(rounds + 1) :])
+    if len(window) < 2:
+        return CorrectionStats()
+    drafted = corrected = 0
+    for previous, current in pairwise(window):
+        drafted += max(0, current.drafted - previous.drafted)
+        corrected += max(0, current.corrected - previous.corrected)
+    return CorrectionStats(drafted=drafted, corrected=corrected)
+
+
+def class_shift(before: Mapping[str, int], after: Mapping[str, int]) -> float | None:
+    """두 클래스 분포의 거리(0~1, total variation). 한쪽이 비면 ``None``(모르면 막지 않는다).
+
+    **수가 아니라 비율**을 본다 — 보관함은 라운드마다 커지므로 개수 차이는 언제나 크다. 여기서 보고 싶은
+    것은 "무엇이 들어오는 비중이 달라졌는가"(로트·공정 변화)다.
+    """
+    total_b = sum(max(0, int(v)) for v in before.values())
+    total_a = sum(max(0, int(v)) for v in after.values())
+    if total_b <= 0 or total_a <= 0:
+        return None
+    keys = set(before) | set(after)
+    return 0.5 * sum(
+        abs(max(0, int(before.get(k, 0))) / total_b - max(0, int(after.get(k, 0))) / total_a)
+        for k in keys
+    )
+
+
+@dataclass(frozen=True)
+class BreakerPolicy:
+    """자동 정지 기준 (설계 §6.5). **기본값은 전부 0 = 제한 없음**이다.
+
+    T14 트리거와 같은 규율이다 — 실무 임계값은 현장마다 다르고(설계 §8 확인 게이트) 코드가 정한 숫자가
+    루프를 세우면 "왜 멈췄는지" 모르는 사람이 먼저 생긴다. 숫자는 `loop.yaml` 의 `breaker` 에서 정한다.
+    """
+
+    #: 이만큼 연속으로 승급이 없으면 정지(0 = 안 봄)
+    stale_rounds: int = 0
+    #: 사람 수정률 하한 — 최근 구간이 이보다 낮으면 정지(0 = 안 봄)
+    min_correction_rate: float = 0.0
+    #: 수정률을 몇 라운드 구간으로 볼지
+    correction_rounds: int = 2
+    #: 보관함 클래스 분포가 이보다 많이 바뀌면 정지(0~1, 0 = 안 봄)
+    max_class_shift: float = 0.0
+
+    @property
+    def enabled(self) -> bool:
+        return self.stale_rounds > 0 or self.min_correction_rate > 0 or self.max_class_shift > 0
+
+
+@dataclass(frozen=True)
+class BreakerVerdict:
+    """``(멈출까?, 왜)`` — 트리거와 같이 **이유를 항상 돌려준다**."""
+
+    tripped: bool
+    reason: str
+    kinds: tuple[str, ...] = ()
+
+
+def circuit_break(
+    history: Sequence[RoundOutcome], policy: BreakerPolicy | None = None
+) -> BreakerVerdict:
+    """루프를 멈춰야 하나 (설계 §6.5).
+
+    **멈추는 건 실패가 아니라 "데이터 말고 다른 걸 바꿀 때"(조명·해상도·모델)라는 신호다.** 자동 루프는
+    망가져도 계속 돌기 때문에 이 판정이 필요하다.
+
+    ``history`` 는 **견줄 수 있는 구간**만 들어와야 한다 — 기준선 재설정(T15) 앞의 라운드는 호출부가
+    걸러 낸다(그 지점 앞뒤로는 점수를 비교하지 않는다는 규약).
+    """
+    policy = policy or BreakerPolicy()
+    if not policy.enabled:
+        return BreakerVerdict(False, "자동 정지 기준이 없습니다")
+    if not history:
+        return BreakerVerdict(False, "견줄 라운드가 없습니다")
+
+    reasons: list[str] = []
+    kinds: list[str] = []
+    notes: list[str] = []
+
+    if policy.stale_rounds > 0:
+        stale = 0
+        for outcome in reversed(history):
+            if outcome.promoted:
+                break
+            stale += 1
+        if stale >= policy.stale_rounds:
+            reasons.append(
+                f"{stale}라운드 연속 승급 없음 (기준 {policy.stale_rounds}회) — "
+                "데이터를 더 넣는 것으로는 나아지지 않습니다(조명·해상도·모델을 보세요)"
+            )
+            kinds.append("stale")
+        else:
+            notes.append(f"연속 유지 {stale}/{policy.stale_rounds}회")
+
+    if policy.min_correction_rate > 0:
+        stats = correction_window(history, policy.correction_rounds)
+        rate = stats.rate
+        if rate is not None and rate <= policy.min_correction_rate:
+            reasons.append(
+                f"사람 수정률 {rate:.0%} ≤ 기준 {policy.min_correction_rate:.0%} "
+                f"(최근 {policy.correction_rounds}라운드 · 모델 초안 {stats.drafted}개 중 "
+                f"{stats.corrected}개만 다듬음) — 모델이 좋아진 게 아니라 아무도 안 보고 있을 수 있습니다"
+            )
+            kinds.append("correction")
+        else:
+            notes.append(stats.text())
+
+    if policy.max_class_shift > 0 and len(history) >= 2:
+        shift = class_shift(history[-2].per_class, history[-1].per_class)
+        if shift is not None and shift > policy.max_class_shift:
+            reasons.append(
+                f"보관함 클래스 분포가 {shift:.2f} 만큼 바뀌었습니다 "
+                f"(기준 {policy.max_class_shift:.2f}) — 로트·공정이 바뀌었는지 확인하세요"
+            )
+            kinds.append("class_shift")
+        elif shift is not None:
+            notes.append(f"클래스 분포 변화 {shift:.2f}/{policy.max_class_shift:.2f}")
+
+    if reasons:
+        return BreakerVerdict(True, " · ".join(reasons), tuple(kinds))
+    return BreakerVerdict(False, " · ".join(notes) or "자동 정지 기준에 걸린 것이 없습니다")

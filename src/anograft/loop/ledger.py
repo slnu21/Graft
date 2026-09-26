@@ -37,6 +37,9 @@ EVENT_FAILED = "failed"
 EVENT_SKIPPED = "skipped"
 #: 기준선 리셋(클래스 신설 등) — **T15 가 쓴다**. 이 지점 앞뒤로 Δ 를 비교하지 않는다(설계 §2b.5(3)).
 EVENT_BASELINE_RESET = "baseline_reset"
+#: **자동 정지 해제**(T12) — 사람이 "무엇을 바꿨는지" 적고 다시 돌린 지점. 이 앞의 라운드는 자동 정지
+#: 판정에서 빠진다(기준선 재설정과 같은 규율 — 조건이 바뀌었으면 그 앞과 견주지 않는다).
+EVENT_BREAKER_RESET = "breaker_reset"
 
 
 def _now() -> str:
@@ -47,8 +50,10 @@ def _now() -> str:
 class Event:
     """원장 한 줄. 정해진 자리는 `event`·`at`·`round` 뿐이고 나머지는 `data` 에 그대로 담는다.
 
-    스키마를 좁게 못 박지 않는 이유: T12(차단기 상태) · T15(`baseline_reset`) · T16(롤링 골든)이 각자
-    필드를 더할 것이고, **읽는 쪽이 모르는 키를 만나도 깨지지 않아야** 원장이 오래 산다.
+    스키마를 좁게 못 박지 않는 이유: T12(자동 정지 지표) · T15(`baseline_reset`) · T16(롤링 골든)이 각자
+    필드를 더할 것이고, **읽는 쪽이 모르는 키를 만나도 깨지지 않아야** 원장이 오래 산다. T12 가 실제로
+    `round_end` 에 `intake`·`drafted`·`corrected`·`bank_per_class` 를 더했고, 옛 줄에 그 키가 없으면
+    판정하지 않는다(모르면 막지 않는다).
     """
 
     event: str
@@ -239,6 +244,7 @@ def write_tick(path: str | Path, tick: Tick) -> Path:
 
 __all__ = [
     "EVENT_BASELINE_RESET",
+    "EVENT_BREAKER_RESET",
     "EVENT_FAILED",
     "EVENT_PHASE",
     "EVENT_ROUND_END",

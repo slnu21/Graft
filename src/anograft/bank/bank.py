@@ -50,6 +50,18 @@ def is_estimated(mask_origin: str) -> bool:
     return mask_origin.startswith(ESTIMATED_PREFIXES)
 
 
+#: 사람이 결함 표시 화면에서 **다듬은** 마스크의 ``mask_origin`` 접두사(`browse.replace_mask`).
+MANUAL_PREFIX = "manual:"
+
+
+def is_manual(mask_origin: str) -> bool:
+    """사람이 다듬은 마스크인가 — **사람 수정률**(설계 §2 규약 4 · 자동 정지 T12)의 분자가 이 판정이다.
+
+    ``png``(쌍으로 들어온 마스크)는 여기 들지 않는다 — 수정률이 재려는 것은 "모델 초안을 사람이 고쳤나"다.
+    """
+    return mask_origin.startswith(MANUAL_PREFIX)
+
+
 #: **미분류**(`core.classes.UNSORTED`) 대기 공간의 정의는 `core` 에 있다 — 보관함·레시피·writer 가 같은
 #: 판정을 봐야 하고 `core` 는 `bank` 를 import 할 수 없기 때문이다(방향은 언제나 bank → core).
 #: 보관함 **안**에 두는 이유: 포맷이 이미 클래스 폴더라 임포터·보관함 화면·`bank ls`·스냅샷이 **그대로**
