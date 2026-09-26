@@ -18,8 +18,10 @@ import os
 from pathlib import Path
 
 #: 칸의 뜻. ``bank`` = 결함 보관함 폴더(① 열기 · ② 저장 대상) · ``image`` = 결함 사진(② 열기) ·
-#: ``recipe`` = 레시피 YAML(③ 열기·저장 · ④ 열기) · ``output`` = 출력 폴더(④ 출력 · ⑤ 열기).
-KINDS: tuple[str, ...] = ("bank", "image", "recipe", "output")
+#: ``recipe`` = 레시피 YAML(③ 열기·저장 · ④ 열기) · ``output`` = 출력 폴더(④ 출력 · ⑤ 열기) ·
+#: ``loop`` = 루프 설정 `loop.yaml`(⑥ 열기 — 레시피와 뜻이 다르다: 현장 경로·평가셋이 든 개인 설정이라
+#: 레시피 밖에 있는 파일이고, ③·④ 의 레시피 목록에 섞이면 안 된다).
+KINDS: tuple[str, ...] = ("bank", "image", "recipe", "output", "loop")
 
 #: 종류마다 기억하는 최대 개수 — 목록이 길면 고르는 데 더 오래 걸린다.
 LIMIT = 10
