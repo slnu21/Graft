@@ -1,24 +1,23 @@
 name: Release
-# 태그 push(v*) 시 (1) PyPI publish — Trusted Publishing(OIDC), API 토큰 불필요 (2) Windows zip 빌드 → GitHub Release 자산.
-# (2)는 2026-09-14 추가, 첫 push 전이라 CI에서 미검증 — 로컬 tools/build_zip.ps1 과 같은 절차.
+# 태그 push(v*) 시 (1) wheel/sdist 빌드 검증 (2) Windows zip 빌드 → GitHub Release 자산.
+# **PyPI 게시는 하지 않는다**(사용자 결정 2026-09-26 — 배포 여부를 더 검토한다). 그래서 이 워크플로에는
+# Trusted Publishing(OIDC)도, `environment: pypi` 도, 업로드 단계도 없다. 게시를 켜는 날 되돌릴 것은
+# `pypa/gh-action-pypi-publish` 한 단계 + `id-token: write` + PyPI 쪽 pending publisher 등록이다.
+# 배포용 산출물은 지금은 Windows zip 하나 — 아래 wheel 잡은 "wheel 이 만들어지고 번들이 실렸는가"만 본다.
 on:
   push:
     tags: ["v*"]
 permissions:
   contents: read
 jobs:
-  publish:
+  wheel:
     runs-on: ubuntu-latest
-    environment: pypi
-    permissions:
-      id-token: write   # Trusted Publishing (OIDC)
-      contents: read    # checkout 용 — job-level permissions 는 기본값을 대체하므로 명시
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       # 웹 번들은 저장소에 없다(결정 6 ①) — 여기서 만들어야 wheel 에 실린다.
-      # 빠뜨리면 `pip install anograft` 사용자가 `serve` 에서 안내 페이지만 보게 된다.
+      # 빠뜨리면 git+https 로 설치한 사용자가 `serve` 에서 안내 페이지만 보게 된다.
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
@@ -39,10 +38,6 @@ jobs:
           python -m pip install --no-deps dist/*.whl
           python -c "import anograft; print('import OK', anograft.__version__)"
           python -c "import anograft.web.static as _; from anograft.web.static import bundle_status; s = bundle_status(); assert s.present, '릴리스 wheel 에 웹 번들이 없다'; print('bundle OK')"
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          skip-existing: true   # 이미 올라간 버전이면 실패 대신 건너뜀(재실행 안전)
 
   windows-zip:
     # 파이썬 없는 PC용 단일 폴더 zip (PyInstaller onedir, CLI+GUI exe). 릴리스가 없으면 draft 로 만들고 자산을 올린다.
