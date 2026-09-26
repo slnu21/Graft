@@ -93,8 +93,12 @@ def load_textures(folder: Path | None, warnings: list[str]) -> list[np.ndarray]:
 
 
 def prepared_classes(recipe: Recipe, bank: Bank) -> list[str]:
-    """writer·class_ids 가 쓰는 클래스 순서 — bank 소스면 은행 전체, 비-bank 면 ``[cls]``."""
-    return recipe.effective_classes(bank) if recipe.bankless else list(bank.classes)
+    """writer·class_ids 가 쓰는 클래스 순서 — bank 소스면 은행 전체(**미분류 제외**), 비-bank 면 ``[cls]``.
+
+    미분류는 `bank.classes` 의 **맨 끝**이라(불변식, `core.classes.order_classes`) 빼도 다른 클래스의
+    id 가 움직이지 않는다 — 출력 `data.yaml` 에 뜻 없는 이름이 나가지 않으면서 기존 모델과도 호환된다.
+    """
+    return recipe.effective_classes(bank) if recipe.bankless else list(bank.usable_classes)
 
 
 def build_deps(recipe: Recipe, bank: Bank, warnings: list[str] | None = None) -> dict[str, Any]:
@@ -113,6 +117,22 @@ def build_deps(recipe: Recipe, bank: Bank, warnings: list[str] | None = None) ->
     if src.method == "perlin-texture" and src.texture == "dir":
         deps["textures"] = load_textures(src.texture_dir, warnings if warnings is not None else [])
     return deps
+
+
+def unsorted_warning(recipe: Recipe, bank: Bank) -> str | None:
+    """미분류 조각이 있으면 한 줄 — **왜 내 조각이 안 쓰이는지** 알려 준다(T15).
+
+    조용히 빼면 "보관함에 20개 넣었는데 합성에 5개만 쓰인다"가 되어 사람이 원인을 못 찾는다.
+    """
+    if recipe.bankless:
+        return None
+    n = len(bank.unsorted())
+    if not n:
+        return None
+    return (
+        f"미분류 조각 {n}개는 합성·출력에서 빠집니다 — 처음 보는 형상이라 이름이 없습니다. "
+        f"`anograft bank promote <보관함> --to <클래스>` 로 이름을 주면 그때부터 쓰입니다"
+    )
 
 
 def scale_warning(recipe: Recipe, bank: Bank) -> str | None:
@@ -213,6 +233,7 @@ def prepare_warnings(recipe: Recipe, bank: Bank) -> list[str]:
     except ValueError as e:
         raise PrepareError(f"레시피가 은행과 맞지 않습니다: {e}") from e
     for w in (
+        unsorted_warning(recipe, bank),
         scale_warning(recipe, bank),
         confidence_warning(recipe, bank),
         lighting_warning(recipe, bank),

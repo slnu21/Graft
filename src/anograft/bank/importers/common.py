@@ -30,6 +30,7 @@ from anograft.bank.bank import (
     IMAGE_SUFFIX,
     MASK_SUFFIX,
     META_SUFFIX,
+    order_classes,
     read_bank_meta,
 )
 from anograft.bank.holdout import is_held_out, read_holdout
@@ -154,12 +155,13 @@ class BankWriter:
         return [str(c) for c in self.meta["classes"]]
 
     def ensure_classes(self, names: Sequence[str]) -> list[str]:
-        """이름 기준 병합. 새 이름은 끝에. 들어온 순서가 은행 순서와 다르면 경고 문자열을 돌려준다(그리고 stats에도)."""
+        """이름 기준 병합. 새 이름은 끝에(**미분류보다는 앞**). 들어온 순서가 은행 순서와 다르면 경고 문자열을 돌려준다(그리고 stats에도)."""
         warnings: list[str] = []
         existing = self.classes
         for n in names:
             if n not in existing:
                 existing.append(n)
+        existing = order_classes(existing)
         shared = [n for n in names if n in self.meta["classes"]]
         bank_order = [n for n in self.meta["classes"] if n in shared]
         if shared and bank_order != shared:
@@ -198,7 +200,8 @@ class BankWriter:
             self._warn(f"{rec.origin}: 평가셋(holdout.txt)이라 은행에 넣지 않습니다")
             return []
         if rec.cls not in self.meta["classes"]:
-            self.meta["classes"].append(rec.cls)
+            # 미분류는 언제나 끝 — 가운데 끼면 뒤 클래스 id 가 밀린다(= 기존 모델과 비호환, T15)
+            self.meta["classes"] = order_classes([*self.classes, rec.cls])
         parts = components(binarize(rec.mask), opts.keep_whole)
         multi = len(parts) > 1
         added: list[AddedSource] = []
@@ -237,6 +240,42 @@ class BankWriter:
             added.append(a)
             self.stats.added.append(a)
         return added
+
+    def move(
+        self, cls: str, source_id: str, to_cls: str, *, tags: Sequence[str] = ()
+    ) -> str | None:
+        """소스 하나를 다른 클래스로 옮긴다 — **미분류에 이름을 주는 길**(`bank promote`, T15).
+
+        세 파일을 옮기고 메타 ``class`` 를 고치고 태그를 더한다(어디서 왔는지 남는다). 대상 클래스에 같은
+        id 가 있으면 ``-dup<n>``. 새 클래스는 `classes` 끝에 붙는다(미분류보다 앞). 돌려주는 값은 새 id.
+
+        마스크·크롭·`mask_origin`·`confidence` 는 **건드리지 않는다** — 이름을 준 것이지 다듬은 것이 아니다.
+        """
+        src_dir = self.root / cls
+        meta_path = src_dir / f"{source_id}{META_SUFFIX}"
+        if not meta_path.is_file():
+            return None
+        if to_cls == cls:
+            return source_id
+        if to_cls not in self.classes:
+            self.meta["classes"] = order_classes([*self.classes, to_cls])
+        new_id = self._unique_id(to_cls, source_id)
+        dst_dir = self.root / to_cls
+        dst_dir.mkdir(parents=True, exist_ok=True)
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        meta["class"] = to_cls
+        merged = list(dict.fromkeys([*(str(x) for x in meta.get("tags") or ()), *tags]))
+        meta["tags"] = merged
+        for suffix in (IMAGE_SUFFIX, MASK_SUFFIX):
+            source = src_dir / f"{source_id}{suffix}"
+            if source.is_file():
+                source.replace(dst_dir / f"{new_id}{suffix}")
+        (dst_dir / f"{new_id}{META_SUFFIX}").write_text(
+            json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8"
+        )
+        meta_path.unlink()
+        self.log(f"{cls}/{source_id} → {to_cls}/{new_id}")
+        return new_id
 
     def delete(self, cls: str, source_id: str) -> int:
         """소스 세 파일(png·mask.png·json)을 지운다. ``classes`` 는 유지(id 순서 = class id). 반환 1/0(없으면 0)."""

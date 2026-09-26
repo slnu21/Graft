@@ -29,6 +29,7 @@ import yaml
 
 from anograft.bank.mask_from_box import LOW_CONFIDENCE
 from anograft.core.appearance import is_directional, lighting_stats
+from anograft.core.classes import UNSORTED, is_unsorted, named_classes, order_classes
 from anograft.core.seeds import bank_fingerprint
 from anograft.core.types import DefectSource
 from anograft.io import imgio
@@ -47,6 +48,12 @@ ESTIMATED_PREFIXES: tuple[str, ...] = (ESTIMATED_PREFIX, "pred:")
 def is_estimated(mask_origin: str) -> bool:
     """추정 마스크인가 — 판정을 한 곳에 둔다(`bank ls` · `bank preview` · 보관함 타일이 같은 답을 내야 한다)."""
     return mask_origin.startswith(ESTIMATED_PREFIXES)
+
+
+#: **미분류**(`core.classes.UNSORTED`) 대기 공간의 정의는 `core` 에 있다 — 보관함·레시피·writer 가 같은
+#: 판정을 봐야 하고 `core` 는 `bank` 를 import 할 수 없기 때문이다(방향은 언제나 bank → core).
+#: 보관함 **안**에 두는 이유: 포맷이 이미 클래스 폴더라 임포터·보관함 화면·`bank ls`·스냅샷이 **그대로**
+#: 동작한다(밖에 두면 새 포맷 + 새 화면이 필요하고 "새 포맷을 만들지 않는다"는 규약이 깨진다).
 
 
 class BankError(RuntimeError):
@@ -91,17 +98,19 @@ class Bank:
         imports: Sequence[Mapping[str, Any]] = (),
     ) -> None:
         self.name = name
-        self._classes = list(dict.fromkeys(classes))  # 중복 제거, 순서 유지
+        # 중복 제거·순서 유지 + **미분류는 언제나 끝**(class id 를 지키는 불변식, T15)
+        self._classes = order_classes(list(dict.fromkeys(classes)))
         self.um_per_px = um_per_px
         self.root = root
         self.imports = [dict(i) for i in imports]
         self.warnings: list[str] = []  # 로드 중 경고 (깨진 소스 등)
         self._summary: list[ClassSummary] | None = None  # 소스는 불변 → 요약(조명 R 포함)은 한 번만
+        self._novelty_refs: list[Any] | None = None  # 외형 벡터도 한 번만(T15)
         self._by_class: dict[str, list[DefectSource]] = {c: [] for c in self._classes}
         for s in sorted(sources, key=lambda s: s.id):
             if s.cls not in self._by_class:
                 # classes에 없는 클래스의 소스 — 끝에 붙인다(fail-soft, 로더가 경고를 남긴다)
-                self._classes.append(s.cls)
+                self._classes = order_classes([*self._classes, s.cls])
                 self._by_class[s.cls] = []
             self._by_class[s.cls].append(s)
 
@@ -114,6 +123,31 @@ class Bank:
     @property
     def class_ids(self) -> dict[str, int]:
         return {c: i for i, c in enumerate(self._classes)}
+
+    @property
+    def usable_classes(self) -> list[str]:
+        """합성·writer 가 쓰는 클래스 — **미분류를 뺀 것**. 미분류가 끝에 있으므로 id 는 그대로다."""
+        return named_classes(self._classes)
+
+    def unsorted(self) -> list[DefectSource]:
+        """미분류 조각들 — 사람이 이름을 줄 차례인 것들(`bank promote`)."""
+        return list(self._by_class.get(UNSORTED, []))
+
+    def novelty_refs(self) -> list[Any]:
+        """**처음 보는 형상** 판정의 비교 기준 — 이름이 있는 조각들의 외형 벡터(`core.novelty.Feature`).
+
+        미분류는 기준에서 **뺀다**: 넣으면 같은 새 유형의 두 번째 장이 "이미 아는 것"이 되어 조용히 기존
+        클래스로 흘러간다. 사람이 이름을 줄 때까지 계속 표시되는 게 맞다.
+
+        소스는 로드 뒤 바뀌지 않으므로 한 번만 계산한다(라운드마다 은행을 다시 로드한다).
+        """
+        if self._novelty_refs is None:
+            from anograft.core.novelty import features_of
+
+            self._novelty_refs = features_of(
+                (s.image, s.mask) for s in self.sources() if not is_unsorted(s.cls)
+            )
+        return list(self._novelty_refs)
 
     def counts(self) -> dict[str, int]:
         return {c: len(v) for c, v in self._by_class.items()}

@@ -22,6 +22,8 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from anograft.core.novelty import DEFAULT_THRESHOLD as NOVELTY_THRESHOLD
+
 LOOP_FILENAME = "loop.yaml"
 
 #: 라운드가 만드는 학습 데이터셋 형식 — 학습기가 `info` 로 선언한 것과 맞춰야 한다(계약 §1.2).
@@ -61,6 +63,9 @@ class ReviewSettings(BaseModel):
     mix: tuple[float, float, float] = (0.6, 0.2, 0.2)
     #: 채택분을 은행에 넣을 때 클래스 이름을 고정할지(비지도 예측처럼 클래스를 모를 때)
     accept_class: str | None = None
+    #: **처음 보는 형상** 임계(T15) — 이 이상이면 큐에서 맨 앞으로 오고, 채택하면 **미분류**로 들어간다.
+    #: 0 = 끔. 기본값은 보수적이고 실무 값은 확인 게이트(설계 §8).
+    novelty_threshold: float = Field(default=NOVELTY_THRESHOLD, ge=0.0, le=1.0)
     #: 마스크를 성분으로 쪼개지 않고 통째로 한 조각으로 넣을지
     keep_whole: bool = False
 

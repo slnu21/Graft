@@ -18,7 +18,7 @@ from pydantic import ValidationError
 
 from anograft import __version__, runner
 from anograft.bank import Bank
-from anograft.bank.bank import BankError, is_estimated
+from anograft.bank.bank import UNSORTED, BankError, is_estimated
 from anograft.bank.importers import dataset as dataset_importer
 from anograft.bank.importers import pairs as pairs_importer
 from anograft.bank.importers import yolo as yolo_importer
@@ -29,6 +29,7 @@ from anograft.core import recipe as R
 from anograft.core import registry
 from anograft.core.appearance import LIGHT_REAL_MIN, gray_of, mask_lighting
 from anograft.core.help import method_help
+from anograft.core.novelty import DEFAULT_THRESHOLD as NOVELTY_THRESHOLD
 from anograft.datasets import DatasetError, adapter_names, get_adapter, info_lines
 from anograft.io import imgio
 from anograft.io.targets import load_target
@@ -959,6 +960,25 @@ def cmd_loop_queue(args: argparse.Namespace) -> int:
     if not items:
         _err("검토 대기로 고를 예측이 없습니다.")
         return EXIT_RECIPE_ERROR
+
+    # 처음 보는 형상(T15) — 보관함을 줬을 때만. 고른 것만 재고 맨 앞으로 올린다
+    novelty_threshold = NOVELTY_THRESHOLD if args.novelty is None else float(args.novelty)
+    if args.bank and novelty_threshold > 0:
+        from anograft.loop.queue import novelty_scores, order_by_novelty
+
+        try:
+            refs = Bank.load(args.bank).novelty_refs()
+        except (BankError, OSError, ValueError) as exc:
+            _err(f"  경고: 보관함을 읽지 못해 처음 보는 형상을 재지 않습니다 — {exc}")
+            refs = []
+        if refs:
+            items = order_by_novelty(
+                items,
+                novelty_scores(items, preds, images, refs),
+                threshold=novelty_threshold,
+            )
+    elif not args.bank:
+        novelty_threshold = 0.0  # 비교 기준이 없으면 판정하지 않는다
     try:
         summary = build_queue(
             items,
@@ -969,6 +989,7 @@ def cmd_loop_queue(args: argparse.Namespace) -> int:
             trainer=args.trainer or "",
             round_no=args.round,
             pred_b=Path(args.pred_b) if args.pred_b else None,
+            novelty_threshold=novelty_threshold,
         )
     except (QueueError, OSError) as exc:
         _err(f"오류: {exc}")
@@ -986,6 +1007,7 @@ def cmd_loop_queue(args: argparse.Namespace) -> int:
                     "reasons": reasons,
                     "withoutMask": summary.without_mask,
                     "missingImage": summary.missing_image,
+                    "novel": summary.novel,
                 },
                 ensure_ascii=False,
             )
@@ -996,6 +1018,10 @@ def cmd_loop_queue(args: argparse.Namespace) -> int:
     print(f"검토 대기 {len(summary.written)}장 → {out.as_posix()}")
     if reasons:
         print("  사유: " + " · ".join(f"{k} {v}" for k, v in reasons.items()))
+    if summary.novel:
+        print(
+            f"  처음 보는 형상 {len(summary.novel)}장을 맨 앞에 두었습니다 — 채택하면 미분류로 들어갑니다"
+        )
     if summary.without_mask:
         print(
             f"  마스크 없음 {len(summary.without_mask)}장 — 채택해도 결함 표시 화면에서 그려야 은행에 들어갑니다"
@@ -1020,6 +1046,7 @@ def cmd_loop_accept(args: argparse.Namespace) -> int:
             min_area=args.min_area,
             margin=args.margin,
             um_per_px=args.um_per_px,
+            novelty_threshold=(NOVELTY_THRESHOLD if args.novelty is None else float(args.novelty)),
             log=(lambda m: _err(f"  {m}")) if args.verbose else None,
         )
     except (QueueError, BankError, OSError, ValueError) as exc:
@@ -1035,6 +1062,7 @@ def cmd_loop_accept(args: argparse.Namespace) -> int:
                     "imported": summary.imported,
                     "perClass": summary.per_class,
                     "noMask": summary.no_mask,
+                    "unsorted": summary.unsorted,
                     "heldOut": summary.held_out,
                 },
                 ensure_ascii=False,
@@ -1051,6 +1079,11 @@ def cmd_loop_accept(args: argparse.Namespace) -> int:
         _err(f"  경고: {w}")
     if summary.held_out:
         _err(f"  평가셋이라 뺀 것 {len(summary.held_out)}장 (holdout.txt)")
+    if summary.unsorted:
+        print(
+            f"  처음 보는 형상 {len(summary.unsorted)}개는 **미분류**로 넣었습니다 — "
+            "`anograft bank promote <보관함> --to <클래스>` 로 이름을 주면 합성·출력에 쓰입니다"
+        )
     if summary.imported:
         print(
             "  마스크는 모델 초안입니다(mask_origin pred:*) — 결함 표시 화면에서 다듬으면 manual:* 이 됩니다"
@@ -1193,6 +1226,34 @@ def cmd_loop_tick(args: argparse.Namespace) -> int:
         )
         return EXIT_OK
     _print_round(result)
+    return EXIT_OK
+
+
+def cmd_loop_baseline_reset(args: argparse.Namespace) -> int:
+    """**기준선 재설정**(T15) — 사람 결정 이벤트. 자동으로 부르는 곳은 없다."""
+    from anograft.loop.round import LoopError, baseline_reset, new_classes
+
+    loop = _loop_config(args)
+    if loop is None:
+        return EXIT_RECIPE_ERROR
+    try:
+        added = new_classes(loop)
+        result = baseline_reset(loop, note=args.note, log=None if args.json else _stderr_line)
+    except (LoopError, OSError, ValueError) as exc:
+        _err(f"오류: {exc}")
+        return EXIT_RECIPE_ERROR
+    if args.json:
+        print(json.dumps({**result, "newClasses": added}, ensure_ascii=False))
+        return EXIT_OK
+    print(
+        f"기준선을 재설정했습니다 — 라운드 {result['after_round']} 뒤로 점수를 견주지 않습니다"
+        f" (클래스 {len(result['classes'])}개)"
+    )
+    if added:
+        print("  새 클래스: " + ", ".join(added))
+    print(
+        "  다음 라운드는 점수 비교 없이 현재 모델을 새로 세웁니다 — 평가셋을 이미 손봤는지 확인하세요"
+    )
     return EXIT_OK
 
 
@@ -1447,6 +1508,63 @@ def cmd_bank_verify(args: argparse.Namespace) -> int:
     return EXIT_RECIPE_ERROR if bad else EXIT_OK
 
 
+def cmd_bank_promote(args: argparse.Namespace) -> int:
+    """**미분류에 이름을 준다**(T15) — 조각을 미분류에서 실제 클래스로 옮긴다.
+
+    자동으로 하지 않는 일이다: 클래스 이름은 공학·계약 문제이고(설계 §4 자동화 금지 목록) 새 클래스는
+    평가 기준선을 끊는다(§2b.5(3)) — 그래서 옮기고 나면 루프가 한 번 **멈추고** 사람에게 묻는다.
+    """
+    from anograft.bank.bank import UNSORTED, BankError
+    from anograft.bank.importers.common import BankWriter
+
+    try:
+        bank = Bank.load(args.bank)
+    except BankError as e:
+        _err(str(e))
+        return EXIT_RECIPE_ERROR
+    pool = bank.unsorted() if args.from_cls == UNSORTED else bank.by_class(args.from_cls)
+    if not pool:
+        _err(f"{args.from_cls} 에 옮길 조각이 없습니다")
+        return EXIT_RECIPE_ERROR
+    wanted = [s.strip() for s in (args.ids or "").split(",") if s.strip()]
+    if wanted:
+        names = {s.id.split("/", 1)[1] for s in pool}
+        missing = [w for w in wanted if w not in names]
+        if missing:
+            _err(f"{args.from_cls} 에 없는 id: {', '.join(missing)}")
+            return EXIT_RECIPE_ERROR
+        chosen = wanted
+    elif args.all:
+        chosen = [s.id.split("/", 1)[1] for s in pool]
+    else:
+        _err(
+            f"{args.from_cls} 에 {len(pool)}개가 있습니다 — --ids 또는 --all 로 무엇을 옮길지 정하세요"
+        )
+        return EXIT_RECIPE_ERROR
+
+    tags = tuple(x.strip() for x in (args.tags or "").split(",") if x.strip())
+    writer = BankWriter(args.bank, log=None if args.json else print)
+    moved: list[str] = []
+    for source_id in chosen:
+        new_id = writer.move(
+            args.from_cls, source_id, args.to, tags=(f"promoted-from:{args.from_cls}", *tags)
+        )
+        if new_id:
+            moved.append(f"{args.to}/{new_id}")
+    writer.finish(entry={"importer": "bank-promote", "from": args.from_cls, "to": args.to})
+
+    if args.json:
+        print(json.dumps({"moved": moved, "to": args.to}, ensure_ascii=False))
+        return EXIT_OK
+    print(f"{len(moved)}개를 {args.to} 로 옮겼습니다 (마스크·크롭은 그대로 — 이름만 준 것입니다)")
+    if moved:
+        print(
+            "  루프를 쓰고 있으면 다음 라운드가 **새 클래스**를 보고 멈춥니다 — 평가셋을 손본 뒤 "
+            "`anograft loop baseline-reset` 으로 기준선을 재설정하세요"
+        )
+    return EXIT_OK
+
+
 def cmd_bank_ls(args: argparse.Namespace) -> int:
     try:
         bank = Bank.load(args.bank)
@@ -1510,6 +1628,12 @@ def cmd_bank_ls(args: argparse.Namespace) -> int:
             f"참고: 저신뢰(confidence < {LOW_CONFIDENCE}) 추정 마스크 {len(low)}/{est}개 — "
             f"bank preview 로 확인하고 라벨 탭 YOLO 초안으로 다듬거나 --mask-from otsu 로 다시 임포트. "
             f"예: {', '.join(s.id + ' ' + ('/'.join(s.flags) or '-') for s in low[:3])}"
+        )
+    unsorted = bank.unsorted()
+    if unsorted:
+        print(
+            f"  미분류 {len(unsorted)}개 — 처음 보는 형상이라 이름이 없습니다. 합성·출력에서 빠집니다. "
+            f"`anograft bank promote {Path(args.bank).as_posix()} --to <클래스>` 로 이름을 주세요"
         )
     if no_pitch:
         _err(
@@ -1726,6 +1850,27 @@ def build_parser() -> argparse.ArgumentParser:
     )
     bm.add_argument("--verbose", action="store_true")
     bm.set_defaults(func=cmd_bank_merge)
+    bp = bsub.add_parser(
+        "promote",
+        help="미분류 조각에 이름 주기 — 다른 클래스로 옮긴다",
+        description="처음 보는 형상이라 미분류(__unsorted__)로 들어간 조각에 이름을 줍니다. 마스크·크롭은 "
+        "그대로 두고 클래스만 바꿉니다(이름을 준 것이지 다듬은 것이 아닙니다). 새 클래스를 만들면 "
+        "다음 라운드가 멈추고 기준선 재설정을 묻습니다 — 평가셋에 그 클래스 정답이 없으면 점수가 끊깁니다.",
+    )
+    bp.add_argument("bank")
+    bp.add_argument("--to", required=True, help="옮길 클래스 이름(없으면 만든다)")
+    bp.add_argument(
+        "--from",
+        dest="from_cls",
+        default=UNSORTED,
+        help=f"옮겨 올 클래스 (기본 {UNSORTED} = 미분류)",
+    )
+    bp.add_argument("--ids", help="옮길 조각 id 들(쉼표 구분) — 생략하면 --all 이 필요")
+    bp.add_argument("--all", action="store_true", help="그 클래스의 조각 전부")
+    bp.add_argument("--tags", help="추가 태그(쉼표 구분)")
+    bp.add_argument("--json", action="store_true")
+    bp.set_defaults(func=cmd_bank_promote)
+
     bl = bsub.add_parser("ls", help="클래스 | 소스 수 | 면적 중앙값 | 마스크 출처(정확/추정)")
     bl.add_argument("--json", action="store_true", help="JSON 으로(스크립트용)")
     bl.add_argument("bank")
@@ -1909,6 +2054,16 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"두 예측을 같은 검출로 볼 IoU (기본 {DEFAULT_IOU})",
     )
     lq.add_argument("--seed", type=int, default=0, help="무작위 몫의 시드")
+    lq.add_argument(
+        "--bank",
+        help="결함 보관함 — 주면 **처음 보는 형상**(보관함 어느 조각과도 닮지 않은 것)을 맨 앞에 둔다",
+    )
+    lq.add_argument(
+        "--novelty",
+        type=float,
+        metavar="T",
+        help=f"처음 보는 형상 임계 0~1 (기본 {NOVELTY_THRESHOLD} · 0 = 끔) — --bank 와 함께 씁니다",
+    )
     lq.add_argument("--trainer", help="예측을 만든 학습기 이름(사이드카·mask_origin 에 남는다)")
     lq.add_argument("--round", type=int, help="라운드 번호(태그 round-n 으로 붙는다)")
     lq.add_argument("--json", action="store_true", help="결과를 JSON 한 줄로")
@@ -1931,6 +2086,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--keep-whole",
         action="store_true",
         help="마스크를 성분으로 쪼개지 않고 통째로 하나의 조각으로",
+    )
+    la.add_argument(
+        "--novelty",
+        type=float,
+        metavar="T",
+        help=f"처음 보는 형상 임계 0~1 (기본 {NOVELTY_THRESHOLD} · 0 = 끔) — 이 이상이면 **미분류**로 넣습니다",
     )
     la.add_argument("--um-per-px", type=float, help="픽셀 피치(µm/px)")
     la.add_argument("--json", action="store_true")
@@ -1988,6 +2149,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     lt.add_argument("--json", action="store_true", help="결과를 JSON 한 줄로(스케줄러·상위 도구용)")
     lt.set_defaults(func=cmd_loop_tick)
+
+    lb = lsub.add_parser(
+        "baseline-reset",
+        help="기준선 재설정 — 이 지점 앞뒤로 점수를 견주지 않는다(클래스 신설 뒤)",
+        description="클래스를 새로 만들면 평가셋에 그 클래스 정답이 없어 라운드 점수 비교가 끊깁니다. "
+        "평가셋을 다시 만든 뒤 이 명령으로 지점을 남기면, 다음 라운드는 점수를 견주지 않고 현재 모델을 "
+        "새로 세웁니다. 원장(rounds.jsonl)에 남으므로 나중에 '왜 여기서 점수가 튀었나'에 답할 수 있습니다.",
+    )
+    lb.add_argument("--config", help="loop.yaml 경로")
+    lb.add_argument("--note", default="", help="왜 재설정하는지 한 줄(원장에 남습니다)")
+    lb.add_argument("--json", action="store_true")
+    lb.set_defaults(func=cmd_loop_baseline_reset)
 
     ls = lsub.add_parser("status", help="지금 어디인가 — champion · 진행 중인 라운드 · 최근 이력")
     ls.add_argument("--config", help="loop.yaml 경로")
