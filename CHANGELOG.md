@@ -4,6 +4,9 @@
 
 ## [Unreleased]
 
+### Changed
+- **릴리스 워크플로에서 PyPI 게시를 뺐습니다**(사용자 결정 2026-09-26 — 배포 여부를 더 검토합니다). 태그를 밀면 이제 ① wheel/sdist 빌드·번들 검증 ② Windows zip → GitHub Release 자산, 둘만 돕니다. 설치 경로는 그대로 **Windows zip** 또는 `pip install "anograft[gui] @ git+https://github.com/slnu21/Graft.git"` 입니다.
+
 ## [0.11.0] - 2026-09-26
 
 **루프가 닫힌다** — 데이터를 만드는 도구 위에 **한 바퀴**(스코어링 → 검토 대기 → 사람 판정 → 보관함 편입 → 합성 → 재학습·평가 → 승급)가 올라갔다. 스케줄러가 `anograft loop tick` 을 부르고 Graft 는 상주하지 않는다. 합성 알고리즘·레시피 스키마·출력 형식 불변, 런타임 의존성 4개 불변(학습기는 별도 환경의 프로세스).

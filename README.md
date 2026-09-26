@@ -31,7 +31,7 @@ Graft는 알고리즘을 새로 만드는 도구가 아니라 그 사이를 메�
 | 방법 | 언제 | 명령 |
 |---|---|---|
 | **Windows zip** (권장) | 파이썬 없는 PC, 현장 | [Releases](https://github.com/slnu21/Graft/releases)에서 `anograft-<ver>-win64.zip` → 풀기 → 그 폴더에서 `.\anograft.exe`(CLI) · `.\anograft-gui.exe`(GUI). 설치·관리자 권한 없음 |
-| **pip / uv** | 파이썬 3.10+ 이 있는 PC, Linux/macOS | `pip install "anograft[gui] @ git+https://github.com/slnu21/Graft.git"` 또는 `uv tool install "anograft[gui] @ git+https://github.com/slnu21/Graft.git"`(uv가 파이썬까지 받아 줌). `[gui]`를 빼면 CLI만(순수 wheel 4개). PyPI 등록은 예정 |
+| **pip / uv** | 파이썬 3.10+ 이 있는 PC, Linux/macOS | `pip install "anograft[gui] @ git+https://github.com/slnu21/Graft.git"` 또는 `uv tool install "anograft[gui] @ git+https://github.com/slnu21/Graft.git"`(uv가 파이썬까지 받아 줌). `[gui]`를 빼면 CLI만(순수 wheel 4개). PyPI 등록은 미정 |
 | **소스** | 개발 | 아래 [개발](#개발) |
 
 의존성은 numpy · opencv-python-headless · pydantic · pyyaml(전부 순수 wheel — 컴파일러·GPU 불필요) + GUI는 PySide6(LGPL, 동적 링크).
@@ -183,7 +183,7 @@ Synthetic-defect methods (CutPaste, DRAEM, NSA, diffusion inpainting) exist, but
 | Method | When | Command |
 |---|---|---|
 | **Windows zip** (recommended) | No Python, shop-floor PCs | Grab `anograft-<ver>-win64.zip` from [Releases](https://github.com/slnu21/Graft/releases), unzip, run `.\anograft.exe` (CLI) / `.\anograft-gui.exe` (GUI) from that folder. No installer, no admin rights |
-| **pip / uv** | Python ≥ 3.10, Linux/macOS | `pip install "anograft[gui] @ git+https://github.com/slnu21/Graft.git"` or `uv tool install "anograft[gui] @ git+https://github.com/slnu21/Graft.git"` (uv fetches Python for you). Drop `[gui]` for CLI-only (four pure wheels). PyPI listing planned |
+| **pip / uv** | Python ≥ 3.10, Linux/macOS | `pip install "anograft[gui] @ git+https://github.com/slnu21/Graft.git"` or `uv tool install "anograft[gui] @ git+https://github.com/slnu21/Graft.git"` (uv fetches Python for you). Drop `[gui]` for CLI-only (four pure wheels). PyPI listing undecided |
 | **Source** | Development | see [Development](#development) |
 
 Dependencies: numpy · opencv-python-headless · pydantic · pyyaml (all pure wheels — no compiler, no GPU); the GUI adds PySide6 (LGPL, dynamically linked).
