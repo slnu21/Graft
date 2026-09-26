@@ -44,6 +44,10 @@ IMAGES_DIR = "images"
 MASKS_DIR = "masks"
 META_DIR = "meta"
 
+#: 현장에서 들어온 조각에 붙는 태그 — **사람 수정률의 분모를 고르는 것이 이 태그다**(자동 정지 T12).
+#: 이 경로로 들어온 조각은 전부 ``mask_origin: pred:*`` 였으므로, 지금 ``manual:*`` 인 것이 다듬어진 것이다.
+FIELD_TAG = "origin:field"
+
 DEFAULT_THRESHOLD = 0.5
 DEFAULT_N = 30  # 설계 §4 — 하루 20~30장이 사람이 감당하는 크기
 DEFAULT_IOU = 0.3
@@ -756,7 +760,7 @@ def _item_tags(meta: Mapping[str, Any], round_no: int | None) -> list[str]:
     """설계 §2 4단계 — ``round-n`` · ``origin:field``. 드리프트가 오면 태그로 옛것을 감쇠·배제한다."""
     queue = meta.get("queue") or {}
     r = round_no if round_no is not None else queue.get("round")
-    tags = ["origin:field"]
+    tags = [FIELD_TAG]
     if r is not None:
         tags.insert(0, f"round-{r}")
     reason = str(queue.get("reason") or "")

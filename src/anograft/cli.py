@@ -1166,11 +1166,40 @@ def cmd_loop_tick(args: argparse.Namespace) -> int:
     "다음에 오라"(종료 코드 0)이고, 새로 들어온 이미지만 스코어링한다(유입 커서).
     """
     from anograft.loop.lock import LockBusyError
-    from anograft.loop.round import LoopError, check_trigger, note_tick, run_round
+    from anograft.loop.round import LoopError, breaker_verdict, check_trigger, note_tick, run_round
 
     loop = _loop_config(args)
     if loop is None:
         return EXIT_RECIPE_ERROR
+
+    # 자동 정지가 걸려 있으면 트리거를 보지 않는다(T12) — **오류가 아니라 상태**다(busy 와 같은 규율:
+    # 5분마다 실패 알림이 오는 운영은 아무도 안 본다). 그리고 `--force` 로도 넘기지 않는다 —
+    # 다시 돌리는 길은 `loop breaker-reset --note …` 하나여야 무엇을 바꿨는지가 원장에 남는다.
+    try:
+        breaker = breaker_verdict(loop)
+    except (LoopError, OSError, ValueError) as exc:
+        _err(f"오류: {exc}")
+        return EXIT_RECIPE_ERROR
+    if breaker.tripped:
+        reason = f"자동 정지: {breaker.reason}"
+        note_tick(loop, ran=False, reason=reason, log=None if args.json else _stderr_line)
+        if args.json:
+            print(
+                json.dumps(
+                    {
+                        "ran": False,
+                        "busy": False,
+                        "breaker": True,
+                        "kinds": list(breaker.kinds),
+                        "reason": reason,
+                    },
+                    ensure_ascii=False,
+                )
+            )
+        else:
+            print(f"돌지 않았습니다 — {reason}")
+            _err('  풀려면: anograft loop breaker-reset --note "무엇을 바꿨는지"')
+        return EXIT_OK
 
     # "지금 돌 때인가" — 안 도는 이유는 **항상** 남긴다(tick.json + 사유가 바뀌면 원장, T14)
     try:
@@ -1257,6 +1286,34 @@ def cmd_loop_baseline_reset(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_loop_breaker_reset(args: argparse.Namespace) -> int:
+    """**자동 정지 해제**(T12) — 사람 결정 이벤트. 자동으로 부르는 곳은 없다."""
+    from anograft.loop.round import LoopError, breaker_reset
+
+    loop = _loop_config(args)
+    if loop is None:
+        return EXIT_RECIPE_ERROR
+    try:
+        result = breaker_reset(loop, note=args.note, log=None if args.json else _stderr_line)
+    except (LoopError, OSError, ValueError) as exc:
+        _err(f"오류: {exc}")
+        return EXIT_RECIPE_ERROR
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False))
+        return EXIT_OK
+    if result["tripped"]:
+        print(f"자동 정지를 해제했습니다 — 걸려 있던 사유: {result['reason']}")
+    else:
+        print("자동 정지는 걸려 있지 않았습니다 — 지점만 남깁니다")
+    print(
+        f"  라운드 {result['after_round']} 까지는 다음 판정에서 빠집니다"
+        " (원장 rounds.jsonl 에 남습니다)"
+    )
+    if not args.note:
+        _err("  --note 로 무엇을 바꿨는지 적어 두세요 — 다음 사람이 읽을 유일한 단서입니다")
+    return EXIT_OK
+
+
 def cmd_loop_status(args: argparse.Namespace) -> int:
     """지금 어디인가 — champion · 진행 중인 라운드 · 최근 이력. 루프 T10."""
     from anograft.loop.round import LoopError, status
@@ -1285,6 +1342,15 @@ def cmd_loop_status(args: argparse.Namespace) -> int:
                     "trigger": (
                         {"start": st.trigger.start, "reason": st.trigger.reason}
                         if st.trigger
+                        else None
+                    ),
+                    "breaker": (
+                        {
+                            "tripped": st.breaker.tripped,
+                            "reason": st.breaker.reason,
+                            "kinds": list(st.breaker.kinds),
+                        }
+                        if st.breaker
                         else None
                     ),
                     "tick": st.tick.to_json() if st.tick else None,
@@ -2102,7 +2168,8 @@ def build_parser() -> argparse.ArgumentParser:
         "run",
         help="라운드를 다음 단계부터 진행 (predict → 큐 → [사람] → accept → 합성 → 학습 → 승급)",
         description="멱등합니다 — 남은 상태를 읽고 이어서 돕니다. 사람이 판정할 차례면 멈추고 "
-        "무엇을 해야 하는지 알려 줍니다. 설정은 loop.yaml(예시 loop.example.yaml).",
+        "무엇을 해야 하는지 알려 줍니다. 자동 정지(loop.yaml 의 breaker)가 걸려 있으면 새 라운드를 "
+        "열지 않습니다 — 진행 중인 라운드는 그대로 이어 갑니다. 설정은 loop.yaml(예시 loop.example.yaml).",
     )
     lr.add_argument("--config", help="loop.yaml 경로 (기본: ./loop.yaml → ~/.anograft/loop.yaml)")
     lr.add_argument(
@@ -2127,7 +2194,8 @@ def build_parser() -> argparse.ArgumentParser:
         "않습니다 — 한 번 돌고 끝납니다. 이미 처리한 이미지는 유입 커서(processed.jsonl)로 걸러지고, "
         "다른 실행이 돌고 있으면 오류가 아니라 '다음에'(종료 코드 0)입니다. 언제 돌지는 loop.yaml 의 "
         "trigger(신규 조각·신규 이미지·최소/최대 간격)가 정하고, 안 돈 사유는 tick.json 과 rounds.jsonl 에 "
-        "남습니다.",
+        "남습니다. 자동 정지(breaker)가 걸리면 --force 로도 돌지 않습니다 — loop breaker-reset 으로 "
+        "무엇을 바꿨는지 적어야 다시 돕니다.",
     )
     lt.add_argument("--config", help="loop.yaml 경로 (기본: ./loop.yaml → ~/.anograft/loop.yaml)")
     lt.add_argument(
@@ -2161,6 +2229,20 @@ def build_parser() -> argparse.ArgumentParser:
     lb.add_argument("--note", default="", help="왜 재설정하는지 한 줄(원장에 남습니다)")
     lb.add_argument("--json", action="store_true")
     lb.set_defaults(func=cmd_loop_baseline_reset)
+
+    lk = lsub.add_parser(
+        "breaker-reset",
+        help="자동 정지 해제 — 무엇을 바꿨는지 적고 다시 돌린다",
+        description="자동 루프는 망가져도 계속 돕니다. 그래서 몇 라운드째 나아지지 않거나, 모델 초안을 "
+        "아무도 다듬지 않거나(사람 수정률 0 수렴), 보관함 클래스 분포가 급히 바뀌면 라운드를 열지 "
+        "않습니다. 멈춘 것은 실패가 아니라 데이터 말고 다른 것을 바꿀 때라는 신호입니다(조명·해상도·"
+        "모델·평가셋). 무엇을 바꿨는지 --note 로 적으면 그 지점이 원장에 남고, 그 앞 라운드는 다음 "
+        "판정에서 빠집니다. 기준은 loop.yaml 의 breaker(기본값은 전부 0 = 제한 없음).",
+    )
+    lk.add_argument("--config", help="loop.yaml 경로")
+    lk.add_argument("--note", default="", help="무엇을 바꿨는지 한 줄(원장에 남습니다)")
+    lk.add_argument("--json", action="store_true")
+    lk.set_defaults(func=cmd_loop_breaker_reset)
 
     ls = lsub.add_parser("status", help="지금 어디인가 — champion · 진행 중인 라운드 · 최근 이력")
     ls.add_argument("--config", help="loop.yaml 경로")

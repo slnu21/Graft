@@ -120,6 +120,37 @@ class TriggerSettings(BaseModel):
         )
 
 
+class BreakerSettings(BaseModel):
+    """**자동 정지** — 자동 루프는 망가져도 계속 돈다 (설계 §6.5, T12).
+
+    `trigger` 와 같은 규율이다: **기본값은 전부 0 = 제한 없음**이고 숫자는 사람이 정한다(설계 §8 확인
+    게이트). 멈추는 것은 실패가 아니라 "데이터 말고 다른 걸 바꿀 때"라는 신호이고, 다시 돌리는 길은
+    `anograft loop breaker-reset --note "무엇을 바꿨는지"` 하나다(원장에 남는다).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: 이만큼 연속으로 승급이 없으면 정지(0 = 안 봄). 실무 제안: 3
+    stale_rounds: int = Field(default=0, ge=0)
+    #: 사람 수정률 하한 — 최근 구간이 이보다 낮으면 정지(0 = 안 봄). 실무 제안: 0.05
+    min_correction_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    #: 수정률을 몇 라운드 구간으로 볼지
+    correction_rounds: int = Field(default=2, ge=1)
+    #: 보관함 클래스 분포가 이보다 많이 바뀌면 정지(0~1, 0 = 안 봄). 실무 제안: 0.35
+    max_class_shift: float = Field(default=0.0, ge=0.0, le=1.0)
+
+    def policy(self) -> Any:
+        """`loop.policy.BreakerPolicy` 로 — 판정은 순수 함수가 한다(여기는 검증·기본값만)."""
+        from anograft.loop.policy import BreakerPolicy
+
+        return BreakerPolicy(
+            stale_rounds=self.stale_rounds,
+            min_correction_rate=self.min_correction_rate,
+            correction_rounds=self.correction_rounds,
+            max_class_shift=self.max_class_shift,
+        )
+
+
 class LoopConfig(BaseModel):
     """``loop.yaml`` 전체."""
 
@@ -139,6 +170,8 @@ class LoopConfig(BaseModel):
     promote: PromoteSettings = Field(default_factory=PromoteSettings)
     #: `loop tick` 이 "지금 돌 때인가"를 판정하는 기준(T14). 기본값은 제한 없음
     trigger: TriggerSettings = Field(default_factory=TriggerSettings)
+    #: **자동 정지** 기준(T12) — 나아지지 않거나 아무도 안 보고 있으면 멈춘다. 기본값은 제한 없음
+    breaker: BreakerSettings = Field(default_factory=BreakerSettings)
     #: 한 라운드에 만들 합성 장수. 없으면 레시피의 `output.count` 그대로
     synth_count: int | None = Field(default=None, ge=1)
     seed: int = 7

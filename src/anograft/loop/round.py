@@ -966,6 +966,9 @@ def _run_round(
     current = state.round if state.round else 0
     record = load_record(out / round_name(current)) if current else None
     if record is None or record.finished:
+        # 새 라운드를 **열기 전에만** 자동 정지를 본다(T12) — 진행 중인 라운드를 세우면 사람이 판정해 둔
+        # 큐가 썩는다(트리거의 첫 규칙과 같은 이유). 여기서 서므로 빈 라운드 폴더·원장 줄도 남지 않는다.
+        check_breaker(loop)
         current += 1
         has_champion = state.champion is not None
         phases = round_phases(has_champion=has_champion, has_field=loop.field is not None)
@@ -1037,6 +1040,7 @@ def _run_round(
     judge = record.data.get("judge") or {}
     train = record.data.get("train") or {}
     synth = record.data.get("synth") or {}
+    accept = record.data.get("accept") or {}
     log_event(
         loop,
         L.EVENT_ROUND_END,
@@ -1052,8 +1056,10 @@ def _run_round(
         bank_fingerprint=synth.get("bank_fingerprint", ""),
         bank_snapshot=synth.get("bank_snapshot", ""),
         bank_sources=int(synth.get("bank_sources", 0) or 0),
-        bank_classes=bank_classes(loop),
         bootstrap=record.bootstrap,
+        intake=int(accept.get("imported", 0) or 0),
+        # 자동 정지(T12)가 다음 라운드에 볼 사실 — 클래스 목록·분포·사람 수정률의 분모/분자
+        **bank_facts(loop),
     )
     message = (
         f"{round_name(record.number)} 완료 — "
@@ -1133,6 +1139,42 @@ def bank_classes(loop: ResolvedLoop) -> list[str]:
         return list(Bank.load(loop.bank).usable_classes)
     except (BankError, OSError, ValueError):
         return []
+
+
+def bank_facts(loop: ResolvedLoop) -> dict[str, Any]:
+    """원장 ``round_end`` 에 남길 보관함 사실 — **다음 라운드의 자동 정지가 이것만 보고 판정한다**(T12).
+
+    - ``bank_classes`` — 이름 있는 클래스 목록(클래스 신설 판정, T15).
+    - ``bank_per_class`` — 클래스별 조각 수(분포 변화 감시). 미분류도 센다 — 새 유형이 쏟아지는 것도
+      "로트·공정이 바뀌었나"를 물을 이유다.
+    - ``drafted``/``corrected`` — **사람 수정률**의 분모/분자(설계 §2 규약 4). 분모는 현장에서 들어온
+      조각(`origin:field` 태그 = 편입 당시 전부 ``pred:*``)이고, 분자는 지금 ``manual:*`` 인 것 =
+      사람이 결함 표시 화면에서 다듬은 것이다. 라운드 안에서는 잴 수 없으므로(사람은 라운드가 끝난 뒤에
+      다듬는다) **누계를 적어 두고 다음 라운드가 차이를 본다**.
+
+    보관함을 못 읽으면 빈 사실을 돌려준다(fail-soft — 원장 때문에 라운드를 죽이지 않는다).
+    """
+    from anograft.bank import Bank
+    from anograft.bank.bank import BankError, is_manual
+    from anograft.loop.queue import FIELD_TAG
+
+    empty: dict[str, Any] = {
+        "bank_classes": [],
+        "bank_per_class": {},
+        "drafted": 0,
+        "corrected": 0,
+    }
+    try:
+        bank = Bank.load(loop.bank)
+    except (BankError, OSError, ValueError):
+        return empty
+    from_field = [s for s in bank.sources() if FIELD_TAG in s.tags]
+    return {
+        "bank_classes": list(bank.usable_classes),
+        "bank_per_class": bank.counts(),
+        "drafted": len(from_field),
+        "corrected": sum(1 for s in from_field if is_manual(s.mask_origin)),
+    }
 
 
 def new_classes(loop: ResolvedLoop, led: Any | None = None) -> list[str]:
@@ -1294,6 +1336,102 @@ def note_tick(
 
 
 # --------------------------------------------------------------------------------------
+# 4c. 자동 정지 — 망가진 루프는 망가진 채로 계속 돈다 (설계 §6.5, T12)
+# --------------------------------------------------------------------------------------
+
+
+def breaker_history(loop: ResolvedLoop, led: Any | None = None) -> list[Any]:
+    """자동 정지가 볼 라운드들 — 원장 ``round_end`` 를 `policy.RoundOutcome` 으로.
+
+    **재설정 지점 뒤만 본다**: 기준선 재설정(T15)은 점수 비교를 끊고, 자동 정지 해제(T12)는 "무엇을
+    바꿨다"는 선언이다. 둘 중 뒤에 있는 것 이후의 라운드만 견준다 — 조건이 바뀐 앞 구간과 견주면
+    해제가 아무것도 사 주지 않는다.
+    """
+    from anograft.loop.policy import RoundOutcome
+
+    led = led if led is not None else L.read(ledger_path(loop))
+    after = 0
+    for event in (L.EVENT_BASELINE_RESET, L.EVENT_BREAKER_RESET):
+        mark = led.last(event)
+        if mark is not None:
+            after = max(after, int(mark.get("after_round", 0) or 0))
+    out: list[Any] = []
+    for e in led.of(L.EVENT_ROUND_END):
+        if e.round <= after:
+            continue
+        metric = e.get("metric")
+        out.append(
+            RoundOutcome(
+                round=e.round,
+                promoted=bool(e.get("promoted")),
+                metric=float(metric) if isinstance(metric, (int, float)) else None,
+                intake=int(e.get("intake", 0) or 0),
+                drafted=int(e.get("drafted", 0) or 0),
+                corrected=int(e.get("corrected", 0) or 0),
+                per_class={str(k): int(v) for k, v in (e.get("bank_per_class") or {}).items()},
+                bootstrap=bool(e.get("bootstrap")),
+            )
+        )
+    return out
+
+
+def breaker_verdict(loop: ResolvedLoop, led: Any | None = None) -> Any:
+    """``(멈출까?, 왜)`` — `loop run`·`loop tick`·`loop status` 가 **같은 답**을 보게 한 곳에서 판정한다."""
+    from anograft.loop.policy import circuit_break
+
+    return circuit_break(breaker_history(loop, led), loop.config.breaker.policy())
+
+
+def check_breaker(loop: ResolvedLoop) -> None:
+    """자동 정지가 걸렸으면 **라운드를 열지 않는다**(설계 §6.5).
+
+    멈추는 것은 실패가 아니라 **"데이터 말고 다른 걸 바꿀 때"라는 신호**다 — 조명·해상도·모델. 그래서
+    되돌리는 길은 `--force` 같은 무시 스위치가 아니라 `loop breaker-reset --note …` 하나다(사람이 무엇을
+    바꿨는지 적고, 그 지점이 원장에 남는다).
+    """
+    verdict = breaker_verdict(loop)
+    if not verdict.tripped:
+        return
+    raise LoopError(
+        f"자동 정지: {verdict.reason}\n"
+        "  라운드를 열지 않았습니다 — 멈춘 것은 실패가 아니라 데이터 말고 다른 것을 바꿀 때라는"
+        " 신호입니다(조명·해상도·모델·평가셋).\n"
+        '  무엇을 바꿨는지 적고 다시 돌리세요: anograft loop breaker-reset --note "..."\n'
+        "  (원장 rounds.jsonl 에 남고, 그 앞 라운드는 다음 판정에서 빠집니다)"
+    )
+
+
+def breaker_reset(loop: ResolvedLoop, *, note: str = "", log: Log | None = None) -> dict[str, Any]:
+    """**자동 정지 해제** — 무엇을 바꿨는지 적고 다시 돌린다. 자동으로 부르는 곳은 없다.
+
+    `baseline_reset` 과 같은 모양이다(원장에 지점 하나). 걸려 있던 사유를 함께 적어 둔다 — 나중에
+    "라운드 7에서 왜 멈췄고 무엇을 바꿔서 풀었나"에 답하는 것이 이 줄이다.
+    """
+    verdict = breaker_verdict(loop)
+    led = L.read(ledger_path(loop))
+    end = led.last_end
+    after = end.round if end is not None else load_state(loop.out).round
+    log_event(
+        loop,
+        L.EVENT_BREAKER_RESET,
+        log=log,
+        round_no=after,
+        after_round=after,
+        tripped=bool(verdict.tripped),
+        reason=verdict.reason,
+        kinds=list(verdict.kinds),
+        note=note,
+    )
+    return {
+        "after_round": after,
+        "tripped": bool(verdict.tripped),
+        "reason": verdict.reason,
+        "kinds": list(verdict.kinds),
+        "note": note,
+    }
+
+
+# --------------------------------------------------------------------------------------
 # 5. 지금 어디인가 (`loop status`)
 # --------------------------------------------------------------------------------------
 
@@ -1315,6 +1453,8 @@ class LoopStatus:
     tick: Any = None
     #: 지금 돌 때인가 + 그 사유(T14). `loop tick` 이 보는 것과 같은 답이다.
     trigger: Any = None
+    #: **자동 정지**(T12) — 걸려 있으면 트리거보다 먼저 답한다(사람이 무엇을 바꿔야 한다).
+    breaker: Any = None
     #: 최근 실패(원장 `failed`, T14).
     failures: list[Any] = field(default_factory=list)
 
@@ -1347,9 +1487,18 @@ class LoopStatus:
         )
         if phase == "review" and self.total:
             out.append("  " + review_line(self.judged, self.total))
+        if self.breaker is not None and self.breaker.tripped:
+            out.append(f"자동 정지: {self.breaker.reason}")
+            out.append('  풀려면: anograft loop breaker-reset --note "무엇을 바꿨는지"')
+        elif self.breaker is not None and self.breaker.reason:
+            out.append(f"자동 정지 감시: {self.breaker.reason}")
         if self.trigger is not None:
-            head = "지금 돌 때입니다" if self.trigger.start else "지금은 돌지 않습니다"
-            out.append(f"트리거: {head} — {self.trigger.reason}")
+            if self.breaker is not None and self.breaker.tripped:
+                # 자동 정지가 걸린 채로 "지금 돌 때입니다" 를 같이 찍으면 화면이 자기모순이 된다
+                out.append(f"트리거 판정(참고): {self.trigger.reason}")
+            else:
+                head = "지금 돌 때입니다" if self.trigger.start else "지금은 돌지 않습니다"
+                out.append(f"트리거: {head} — {self.trigger.reason}")
         if self.tick is not None:
             out.append(self.tick.line())
         for e in self.failures:
@@ -1384,6 +1533,7 @@ def status(loop: ResolvedLoop) -> LoopStatus:
         history=led.history(),
         tick=L.read_tick(tick_path(loop)),
         trigger=decision,
+        breaker=breaker_verdict(loop, led),
         failures=led.failures(limit=2),
     )
 
@@ -1401,8 +1551,13 @@ __all__ = [
     "RoundResult",
     "assemble_dataset",
     "bank_classes",
+    "bank_facts",
     "baseline_reset",
     "baseline_reset_after",
+    "breaker_history",
+    "breaker_reset",
+    "breaker_verdict",
+    "check_breaker",
     "check_label_classes",
     "check_new_classes",
     "check_trigger",
