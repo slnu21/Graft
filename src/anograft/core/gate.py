@@ -37,13 +37,18 @@ def gate(confidence: float | None, threshold: float) -> bool:
 
 
 def gate_reason(confidence: float | None, threshold: float) -> str:
-    """통과·거부의 **사유 한 줄**. 조용히 빠지는 조각을 만들지 않기 위한 것이다(로그·요약이 이걸 쓴다)."""
-    if threshold <= OFF:
-        return "신뢰도 게이트가 꺼져 있습니다"
+    """통과·거부의 **사유 한 줄**. 조용히 빠지는 조각을 만들지 않기 위한 것이다(로그·요약이 이걸 쓴다).
+
+    순서가 `gate` 와 같아야 한다 — **NaN 은 게이트를 꺼도 거부**이므로 "꺼져 있습니다"보다 먼저 답한다
+    (거부해 놓고 "게이트가 꺼져 있다"고 말하면 사유가 자기모순이 된다).
+    """
     if confidence is None:
         return "사람이 그린 마스크입니다(추정 점수 없음)"
     if math.isnan(confidence):
-        return f"추정 점수를 재지 못했습니다 — 게이트 {threshold:.2f}"
+        # 크기 불일치·읽기 실패로 타당성을 못 쟀다는 뜻이다 — 문턱과 무관하게 받지 않는다
+        return "추정 마스크를 재지 못했습니다(크기 불일치·읽기 실패) — 모르는 것은 받지 않습니다"
+    if threshold <= OFF:
+        return "신뢰도 게이트가 꺼져 있습니다"
     if confidence >= threshold:
         return f"추정 마스크 신뢰도 {confidence:.2f} ≥ {threshold:.2f}"
     return f"추정 마스크 신뢰도 {confidence:.2f} < {threshold:.2f}"
