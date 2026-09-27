@@ -8,6 +8,8 @@
 - **``margin >= MIN_MARGIN``(= Poisson ``mask_dilate_px`` 기본값 + 1 = 6)** — 블렌딩이 소스 마스크를 팽창한 풀이 영역을
   캔버스 안에 담을 수 있어야 한다. 더 작으면 임포트 자체를 거부한다(``check_margin``).
 - 같은 id가 이미 있으면 덮어쓰지 않고 ``-dup<n>``으로 저장 + 경고(은행은 여러 소스에서 누적된다).
+- **신뢰도 게이트**(T6) — ``min_confidence`` 를 주면 추정 마스크의 타당성(``mask_confidence``)이 그 아래인 레코드를
+  거부하고 **몇 건을 왜 뺐는지 남긴다**(`holdout.txt` 거부와 같은 한 지점·같은 정신). 판정은 ``core.gate.gate``.
 - ``bank.yaml``의 ``classes``는 **이름 기준 병합**: 새 이름은 끝에 붙고, 들어온 names 순서가 은행 순서와 다르면 경고
   (출력 ``data.yaml``은 은행 순서를 따른다).
 """
@@ -35,6 +37,7 @@ from anograft.bank.bank import (
 )
 from anograft.bank.holdout import is_held_out, read_holdout
 from anograft.core.channels import binarize, demote_from_bgr
+from anograft.core.gate import gate, gate_reason
 from anograft.core.recipe import PoissonBlendConfig
 from anograft.core.types import BBox
 from anograft.io import imgio
@@ -96,6 +99,8 @@ class ImportStats:
     warnings: list[str] = field(default_factory=list)
     #: `holdout.txt` 때문에 거부한 원본(감사용 — 조용히 건너뛰면 규칙이 있으나 마나다)
     held_out: list[str] = field(default_factory=list)
+    #: 신뢰도 게이트(``min_confidence``)가 거부한 ``(원본, 사유)`` — T6. 같은 이유로 조용히 빼지 않는다
+    low_confidence: list[tuple[str, str]] = field(default_factory=list)
 
     def per_class(self) -> dict[str, int]:
         out: dict[str, int] = {}
@@ -127,11 +132,18 @@ class BankWriter:
     """은행 폴더에 소스를 누적한다. 기존 은행이면 ``bank.yaml``을 읽어 이어 쓴다."""
 
     def __init__(
-        self, root: str | Path, *, name: str | None = None, log: Logger | None = None
+        self,
+        root: str | Path,
+        *,
+        name: str | None = None,
+        log: Logger | None = None,
+        min_confidence: float = 0.0,
     ) -> None:
         self.root = Path(root)
         self.log: Logger = log or (lambda _m: None)
         self.stats = ImportStats()
+        # 신뢰도 게이트(T6) — 0 = 끔. 강제는 `add` 한 지점이라 임포터·루프가 같은 규칙을 지난다
+        self.min_confidence = float(min_confidence)
         # 평가셋 누수 방지(설계 §6.3) — 목록은 은행 폴더가 들고 있고 **모든 임포터가 이 한 지점을 지난다**
         self.holdout = read_holdout(self.root)
         meta_path = self.root / BANK_FILE
@@ -193,11 +205,20 @@ class BankWriter:
 
         `holdout.txt` 에 적힌 원본은 **여기서 거부한다** — 평가셋이 학습 데이터로 새면 그 뒤의 모든
         라운드 비교가 조용히 무의미해진다. 사람 규율은 자동 루프에서 반드시 깨지므로 코드가 막는다.
+
+        ``min_confidence`` 가 있으면 **추정 마스크의 타당성**도 여기서 본다(T6) — 임포트 게이트(`bank
+        import-yolo --min-confidence`)와 루프의 자동 편입이 갈리면 "은행이 거부한 조각을 루프가 자동으로
+        넣는" 모순이 생기므로 판정은 `core.gate` 하나이고 강제는 이 한 지점이다.
         """
         check_margin(opts.margin)
         if is_held_out(rec.origin, self.holdout):
             self.stats.held_out.append(rec.origin)
             self._warn(f"{rec.origin}: 평가셋(holdout.txt)이라 은행에 넣지 않습니다")
+            return []
+        if self.min_confidence > 0 and not gate(rec.confidence, self.min_confidence):
+            reason = gate_reason(rec.confidence, self.min_confidence)
+            self.stats.low_confidence.append((rec.origin, reason))
+            self._warn(f"{rec.origin}: {reason} — 은행에 넣지 않습니다")
             return []
         if rec.cls not in self.meta["classes"]:
             # 미분류는 언제나 끝 — 가운데 끼면 뒤 클래스 id 가 밀린다(= 기존 모델과 비호환, T15)

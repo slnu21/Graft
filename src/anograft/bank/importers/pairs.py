@@ -46,6 +46,10 @@ class PairRecord:
     id_hint: str | None = None  # 기본 = 이미지 stem
     tags: tuple[str, ...] = ()
     mask_threshold: int = 127  # 마스크 이진화 문턱(``> threshold``). 0/1 라벨맵(VisA)은 0
+    #: 추정 마스크 타당성(`mask_confidence`) — **모델이 낸 마스크를 넣을 때만** 채워진다(루프 T6).
+    #: 사람이 준 마스크는 ``None`` 이고 그건 "정확하다"는 뜻이라 신뢰도 게이트를 그냥 지난다.
+    confidence: float | None = None
+    flags: tuple[str, ...] = ()
 
 
 @dataclass
@@ -145,6 +149,7 @@ def import_pair_records(
     um_per_px: float | None = None,
     tags: Sequence[str] = (),
     mask_origin: str = "png",
+    min_confidence: float = 0.0,
     entry: dict[str, Any] | None = None,
     log: Logger | None = None,
 ) -> PairsImportResult:
@@ -152,10 +157,13 @@ def import_pair_records(
 
     ``mask_origin`` 기본값 ``png`` 는 "사람이 준 정확한 마스크"라는 뜻이다. 모델이 낸 마스크를 넣을 때는
     ``pred:<학습기>`` 를 준다(루프 T5) — 추정 마스크는 추정이라고 적어야 `bank ls` 의 ``est`` 가 사실이 된다.
+
+    ``min_confidence`` 는 신뢰도 게이트(T6)다 — `PairRecord.confidence` 가 그 아래면 거부한다. 사람 마스크
+    (``confidence`` 없음)는 지나간다.
     """
     log = log or (lambda _m: None)
     check_margin(margin)
-    writer = BankWriter(out, log=log)
+    writer = BankWriter(out, log=log, min_confidence=min_confidence)
     opts = ImportOptions(margin=margin, min_area=min_area, keep_whole=keep_whole)
     warnings: list[str] = []
     n = 0
@@ -186,6 +194,8 @@ def import_pair_records(
             mask_origin=mask_origin,
             um_per_px=um_per_px,
             tags=tuple(tags) + tuple(pr.tags),
+            confidence=pr.confidence,
+            flags=tuple(pr.flags),
         )
         if not writer.add(rec, opts):
             warn(f"{origin}: 마스크가 비었거나 성분이 전부 min_area 미만 — 소스 없음")

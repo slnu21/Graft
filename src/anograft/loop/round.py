@@ -2,7 +2,7 @@
 
 한 라운드는 이렇게 돈다 — 그리고 **사람 앞에서 멈춘다**::
 
-    predict → queue → [사람이 검수 화면에서 판정] → accept → synth → train → judge
+    predict → [auto] → queue → [사람이 검수 화면에서 판정] → accept → synth → train → judge
 
 `anograft loop run` 은 **멱등**하다: 라운드 폴더에 남은 상태를 읽고 **다음 단계부터** 이어 간다. 사람이
 판정할 차례면 무엇을 해야 하는지 알려 주고 종료한다(데몬을 만들지 않는다 — 설계 §2b.1). 학습이 3시간 뒤
@@ -58,6 +58,7 @@ Trainer = tuple[Any, Path, Any]
 #: 한 라운드의 단계. 순서가 곧 계약이다(`round.json` 의 `done` 이 이 이름들을 담는다).
 PHASES: tuple[str, ...] = (
     "predict",
+    "auto",
     "queue",
     "review",
     "accept",
@@ -67,7 +68,7 @@ PHASES: tuple[str, ...] = (
     "judge",
 )
 #: 사람에게 보낼 것을 모으는 앞 넷 — 모델이 없으면 통째로 건너뛴다.
-COLLECT_PHASES: tuple[str, ...] = ("predict", "queue", "review", "accept")
+COLLECT_PHASES: tuple[str, ...] = ("predict", "auto", "queue", "review", "accept")
 
 STATE_FILE = "loop.state.json"
 ROUND_FILE = "round.json"
@@ -75,6 +76,7 @@ FIELD_LIST = "field.txt"
 
 PHASE_LABEL: dict[str, str] = {
     "predict": "현장 이미지 스코어링",
+    "auto": "자동 편입",
     "queue": "검토 대기 고르기",
     "review": "사람 판정 대기",
     "accept": "채택분 보관함 편입",
@@ -95,18 +97,20 @@ class LoopError(RuntimeError):
 
 
 def round_phases(
-    *, has_champion: bool, has_field: bool, has_rolling: bool = False
+    *, has_champion: bool, has_field: bool, has_rolling: bool = False, has_auto: bool = False
 ) -> tuple[str, ...]:
     """이 라운드가 지날 단계.
 
-    스코어링할 **모델이 없거나**(첫 라운드) 스코어링할 **현장 이미지가 없으면** 수집 넷은 의미가 없다 —
+    스코어링할 **모델이 없거나**(첫 라운드) 스코어링할 **현장 이미지가 없으면** 수집 다섯은 의미가 없다 —
     합성부터 돈다. 이것이 부트스트랩 라운드다.
 
-    ``rolling``(최근 평가셋, T16)은 **설정에 있을 때만** 지난다 — 아무 일도 안 하는 단계를 화면의 단계
-    줄에 세워 두면 "여기서 무엇을 기다리는가"를 사람이 묻게 된다. 옛 라운드는 자기 `phases` 를 들고
-    있으므로(`round.json`) 이 목록이 늘어나도 이어 가던 라운드는 그대로다.
+    ``auto``(자동 편입, T6)와 ``rolling``(최근 평가셋, T16)은 **설정에 있을 때만** 지난다 — 아무 일도 안
+    하는 단계를 화면의 단계 줄에 세워 두면 "여기서 무엇을 기다리는가"를 사람이 묻게 된다. 옛 라운드는 자기
+    `phases` 를 들고 있으므로(`round.json`) 이 목록이 늘어나도 이어 가던 라운드는 그대로다.
     """
     drop = set() if has_rolling else {"rolling"}
+    if not has_auto:
+        drop |= {"auto"}
     if not (has_champion and has_field):
         drop |= set(COLLECT_PHASES)
     return tuple(p for p in PHASES if p not in drop)
@@ -722,7 +726,89 @@ def _phase_predict(
     }
 
 
-def _phase_queue(loop: ResolvedLoop, round_dir: Path, number: int, log: Log) -> dict:
+def _phase_auto(loop: ResolvedLoop, round_dir: Path, number: int, log: Log) -> dict:
+    """**자동 편입**(T6) — 확신 높은 예측을 사람 큐를 거치지 않고 보관함으로.
+
+    순서가 `queue` **앞**인 데 뜻이 있다: 자동으로 받은 것은 검토 대기에서 빼야 한다(이미 은행에 있는 것을
+    다시 판정시키면 사람이 "이건 뭘 하는 건가"를 묻는다). 그래서 이 단계가 받은 stem 을 `queue` 가 제외한다
+    — 덤으로 큐의 **확신 몫이 자동 편입 문턱 바로 아래**를 보여 주게 되어, 게이트가 잘 잡는지 확인하는
+    자리가 된다(설계 §2 규약 1 의 "확신 몫 = 품질 확인").
+
+    자동 편입은 라운드를 죽이지 않는다 — 예측이 없거나 보관함을 못 읽으면 사유를 남기고 0 장으로 지난다.
+    """
+    from anograft.loop.auto import AUTO_FILE, run_auto, write_auto_csv
+    from anograft.loop.queue import QueueError, index_images, read_predictions
+
+    policy = loop.config.auto.policy()
+    if not (round_dir / "pred").is_dir():
+        log("예측이 없습니다 — 자동 편입도 건너뜁니다")
+        return {"count": 0, "imported": 0, "stems": [], "note": "예측 없음"}
+    try:
+        preds = read_predictions(round_dir / "pred")
+    except QueueError as exc:
+        raise LoopError(str(exc)) from exc
+    other = None
+    pred_b = loop.auto_pred_b
+    if pred_b is not None:
+        try:
+            other = read_predictions(pred_b)
+        except (QueueError, OSError) as exc:
+            log(f"경고: 두 번째 예측을 읽지 못했습니다 — {exc}")
+    _, paths, _ = _field_list(loop, round_dir, log)
+    images, _ = index_images(paths)
+    review = loop.config.review
+    summary = run_auto(
+        preds,
+        images,
+        loop.bank,
+        policy,
+        other=other,
+        iou_thresh=review.iou,
+        known_classes=bank_classes(loop),
+        refs=_bank_refs(loop, log),
+        novelty_threshold=review.novelty_threshold,
+        cls=review.accept_class,
+        trainer=loop.config.trainer,
+        round_no=number,
+        keep_whole=review.keep_whole,
+        log=log,
+    )
+    for w in summary.warnings:
+        log(f"경고: {w}")
+    if summary.admitted:
+        write_auto_csv(round_dir / AUTO_FILE, summary.admitted, summary.reasons, images)
+        log(
+            f"사람 없이 편입 {summary.imported}개 (후보 {len(summary.admitted)}장) — "
+            f"태그 auto · 기록 {AUTO_FILE}"
+        )
+    else:
+        log("자동 편입 문턱을 넘은 예측이 없습니다 — 전부 사람 큐로 갑니다")
+    return {
+        "count": len(summary.admitted),
+        "imported": summary.imported,
+        "stems": summary.stems,
+        "held": len(summary.held),
+        "below_score": summary.below_score,
+        "per_class": summary.per_class,
+        "held_out": len(summary.held_out),
+    }
+
+
+def _bank_refs(loop: ResolvedLoop, log: Log) -> list:
+    """처음 보는 형상 비교 기준(미분류는 빼고) — 못 읽으면 빈 목록(fail-soft)."""
+    from anograft.bank import Bank
+    from anograft.bank.bank import BankError
+
+    try:
+        return list(Bank.load(loop.bank).novelty_refs())
+    except (BankError, OSError, ValueError) as exc:
+        log(f"경고: 보관함을 읽지 못해 처음 보는 형상을 재지 않습니다 — {exc}")
+        return []
+
+
+def _phase_queue(
+    loop: ResolvedLoop, round_dir: Path, number: int, log: Log, *, exclude: Sequence[str] = ()
+) -> dict:
     from anograft.core.seeds import split_rng
     from anograft.loop.policy import ReviewMix
     from anograft.loop.queue import QueueError, build_queue, index_images, read_predictions
@@ -738,6 +824,13 @@ def _phase_queue(loop: ResolvedLoop, round_dir: Path, number: int, log: Log) -> 
         raise LoopError(str(exc)) from exc
     for w in preds.warnings:
         log(f"경고: {w}")
+    if exclude:
+        # 자동 편입(T6)이 이미 받은 것은 판정 대상이 아니다 — 큐에 넣으면 은행에 있는 것을 또 판정한다
+        taken = set(exclude)
+        preds.items = {k: v for k, v in preds.items.items() if k not in taken}
+        log(f"자동 편입한 {len(taken)}장은 검토 대기에서 뺍니다")
+        if not preds.items:
+            return {"count": 0, "reasons": {}, "note": "자동 편입이 전부 받았습니다"}
     _, paths, _ = _field_list(loop, round_dir, log)
     images, _ = index_images(paths)
 
@@ -1254,6 +1347,7 @@ def _run_round(
             has_champion=has_champion,
             has_field=loop.field is not None,
             has_rolling=loop.config.eval_rolling is not None,
+            has_auto=loop.config.auto.policy().enabled,
         )
         record = RoundRecord(
             number=current, phases=phases, bootstrap=not has_champion or loop.field is None
@@ -1324,6 +1418,7 @@ def _run_round(
     train = record.data.get("train") or {}
     synth = record.data.get("synth") or {}
     accept = record.data.get("accept") or {}
+    auto = record.data.get("auto") or {}
     rolling = record.data.get("rolling") or {}
     log_event(
         loop,
@@ -1345,6 +1440,9 @@ def _run_round(
         bank_sources=int(synth.get("bank_sources", 0) or 0),
         bootstrap=record.bootstrap,
         intake=int(accept.get("imported", 0) or 0),
+        # 자동 편입(T6) — 사람을 지나지 않은 편입 수. 이 값이 있어야 "자동 편입 비율"이 사람 수정률의
+        # 여집합이 아니라 **독립 지표**가 된다(설계 §6.5 마지막 절)
+        auto=int(auto.get("imported", 0) or 0),
         # 자동 정지(T12)가 다음 라운드에 볼 사실 — 클래스 목록·분포·사람 수정률의 분모/분자
         **bank_facts(loop),
     )
@@ -1384,8 +1482,16 @@ def _run_phase(
             phase,
             _phase_predict(loop, state, round_dir, record.number, log, trainer, since=since),
         )
+    elif phase == "auto":
+        record.mark(phase, _phase_auto(loop, round_dir, record.number, log))
     elif phase == "queue":
-        record.mark(phase, _phase_queue(loop, round_dir, record.number, log))
+        auto = record.data.get("auto") or {}
+        record.mark(
+            phase,
+            _phase_queue(
+                loop, round_dir, record.number, log, exclude=list(auto.get("stems") or ())
+            ),
+        )
     elif phase == "review":
         judged, total = _review_progress(round_dir)
         if total == 0:
@@ -1657,6 +1763,7 @@ def breaker_history(loop: ResolvedLoop, led: Any | None = None) -> list[Any]:
                 promoted=bool(e.get("promoted")),
                 metric=float(metric) if isinstance(metric, (int, float)) else None,
                 intake=int(e.get("intake", 0) or 0),
+                auto=int(e.get("auto", 0) or 0),
                 drafted=int(e.get("drafted", 0) or 0),
                 corrected=int(e.get("corrected", 0) or 0),
                 per_class={str(k): int(v) for k, v in (e.get("bank_per_class") or {}).items()},
@@ -1746,6 +1853,10 @@ class LoopStatus:
     rolling: Any = None
     #: 마지막으로 끝난 라운드의 최근 평가셋 점수(원장). 못 쟀으면 ``None``.
     rolling_last: float | None = None
+    #: **자동 편입**(T6)을 쓰는 설정인가 — 안 쓰면 그 줄을 찍지 않는다(없는 것을 묻지 않는다).
+    auto_enabled: bool = False
+    #: 전 구간 자동 편입 비율(`policy.AutoStats`) — 사람 수정률과 **짝을 이루는 독립 지표**다.
+    auto: Any = None
     #: 마지막 tick(돌았나 · 안 돌았으면 왜, T14).
     tick: Any = None
     #: 지금 돌 때인가 + 그 사유(T14). `loop tick` 이 보는 것과 같은 답이다.
@@ -1781,6 +1892,8 @@ class LoopStatus:
             out.append(f"지금 돌고 있습니다 — {self.lock.text()}")
         if self.processed:
             out.append(f"유입 커서: 이미 처리한 이미지 {self.processed}장")
+        if self.auto_enabled and self.auto is not None:
+            out.append(f"자동 편입: {self.auto.text()}")
         if self.record is None:
             out.append("라운드: 아직 없음 — `anograft loop run` 이 첫 라운드를 엽니다")
             return out
@@ -1828,6 +1941,8 @@ def status(loop: ResolvedLoop) -> LoopStatus:
     led = L.read(ledger_path(loop))
     decision, _facts = check_trigger(loop)
     end = led.last_end
+    from anograft.loop.policy import auto_window
+
     return LoopStatus(
         out=out,
         state=state,
@@ -1840,6 +1955,9 @@ def status(loop: ResolvedLoop) -> LoopStatus:
         rolling_configured=loop.config.eval_rolling is not None,
         rolling=state.rolling,
         rolling_last=_as_metric(end.get("rolling_metric")) if end is not None else None,
+        auto_enabled=loop.config.auto.policy().enabled,
+        # 전 구간으로 잰다 — 자동 정지의 note 는 자기 구간(`breaker.auto_rounds`)을 따로 말한다
+        auto=auto_window(breaker_history(loop, led)),
         tick=L.read_tick(tick_path(loop)),
         trigger=decision,
         breaker=breaker_verdict(loop, led),

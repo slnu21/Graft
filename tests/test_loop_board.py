@@ -28,9 +28,9 @@ def _ledger(tmp_path: Path) -> Path:
 
 
 def test_phase_steps_mark_done_current_and_todo() -> None:
-    steps = board.phase_steps(PHASES, ["predict", "queue"], PHASE_LABEL)
-    assert [s.state for s in steps] == ["done", "done", "current"] + ["todo"] * (len(PHASES) - 3)
-    assert steps[2].phase == "review" and steps[2].label == "사람 판정 대기"
+    steps = board.phase_steps(PHASES, ["predict", "auto", "queue"], PHASE_LABEL)
+    assert [s.state for s in steps] == ["done"] * 3 + ["current"] + ["todo"] * (len(PHASES) - 4)
+    assert steps[3].phase == "review" and steps[3].label == "사람 판정 대기"
 
 
 def test_phase_steps_all_done_has_no_current() -> None:

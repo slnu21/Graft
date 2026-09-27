@@ -651,6 +651,10 @@ export type LoopRoundRow = {
   promoted: boolean
   reason: string
   intake: number
+  /** **사람 없이** 편입된 조각 수(T6). 옛 원장엔 키가 없어 0 이다. */
+  auto: number
+  /** 그 라운드의 자동 편입 비율 — 편입이 0 이면 null(모르는 것과 0 은 다르다). */
+  autoRate: number | null
   sources: number
   snapshot: string
   pipelineHash: string
@@ -713,6 +717,20 @@ export type LoopState =
       lockText: string
       processed: number
       action: LoopAction
+      /** **자동 편입**(T6) — `configured: false` 면 화면에서 그 칸을 감춘다(최근 평가셋과 같은 규율). */
+      auto: {
+        configured: boolean
+        score: number
+        minConfidence: number
+        requireAgreement: boolean
+        allowNovel: boolean
+        maxPerRound: number
+        predB: string
+        rate: number | null
+        auto: number
+        reviewed: number
+        text: string
+      }
       corrections: { rate: number | null; drafted: number; corrected: number; text: string }
       bank: {
         sources: number

@@ -48,8 +48,9 @@ from tests.fixtures import blob_image, blob_mask, loop_workspace
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 NOOP = REPO_ROOT / "adapters" / "noop.py"
-#: 최근 평가셋(T16)을 안 쓰는 설정의 단계 목록 — 이 파일의 작업장(`loop_workspace`)이 그렇다.
-WITHOUT_ROLLING = tuple(p for p in PHASES if p != "rolling")
+#: 최근 평가셋(T16)·자동 편입(T6)을 안 쓰는 설정의 단계 목록 — 이 파일의 작업장(`loop_workspace`)이 그렇다.
+#: 둘은 **설정에 있을 때만** 지난다(아무 일도 안 하는 단계를 화면 단계 줄에 세우지 않는다).
+WITHOUT_ROLLING = tuple(p for p in PHASES if p not in ("rolling", "auto"))
 
 
 # --------------------------------------------------------------------- 순수
@@ -57,9 +58,13 @@ WITHOUT_ROLLING = tuple(p for p in PHASES if p != "rolling")
 
 def test_round_phases_skips_collection_without_a_model_or_field() -> None:
     """첫 라운드엔 스코어링할 모델이 없다 — 그게 부트스트랩이고, 합성이 그 자리를 메운다."""
-    # `rolling`(최근 평가셋, T16)은 **설정에 있을 때만** 지난다 — 아무 일도 안 하는 단계를 세우지 않는다
+    # `rolling`(T16)·`auto`(T6)는 **설정에 있을 때만** 지난다 — 아무 일도 안 하는 단계를 세우지 않는다
     assert round_phases(has_champion=True, has_field=True) == WITHOUT_ROLLING
-    assert round_phases(has_champion=True, has_field=True, has_rolling=True) == PHASES
+    assert (
+        round_phases(has_champion=True, has_field=True, has_rolling=True, has_auto=True) == PHASES
+    )
+    with_auto = round_phases(has_champion=True, has_field=True, has_auto=True)
+    assert "auto" in with_auto and with_auto.index("auto") == with_auto.index("predict") + 1
     boot = round_phases(has_champion=False, has_field=True)
     assert boot == ("synth", "train", "judge")
     assert not set(boot) & set(COLLECT_PHASES)
@@ -68,7 +73,7 @@ def test_round_phases_skips_collection_without_a_model_or_field() -> None:
 
 def test_next_phase_is_the_first_unfinished_one() -> None:
     assert next_phase(PHASES, []) == "predict"
-    assert next_phase(PHASES, ["predict", "queue"]) == "review"
+    assert next_phase(PHASES, ["predict", "auto", "queue"]) == "review"
     assert next_phase(PHASES, list(PHASES)) is None
     # 건너뛴 단계가 done 에 있어도 순서는 phases 가 정한다
     assert next_phase(("synth", "train"), ["synth"]) == "train"

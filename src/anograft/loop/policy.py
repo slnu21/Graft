@@ -8,12 +8,15 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from itertools import pairwise
 
 import numpy as np
+
+# 게이트 판정은 `core.gate` 에 있다(§2 참조) — 아래 `as` 별칭은 **일부러 다시 내보낸다**는 표시다.
+from anograft.core.gate import gate as gate
+from anograft.core.gate import partition_by_gate as partition_by_gate
 
 Box = tuple[float, float, float, float]  # x, y, w, h
 
@@ -116,29 +119,12 @@ def select_for_review(
 # 2. 자동 편입 게이트 — 신뢰도가 확실한 것만 사람 없이 받는다
 # --------------------------------------------------------------------------------------
 
+#: 판정 자체는 `core.gate` 에 있다 — **은행 임포트 게이트(`bank import-yolo --min-confidence`)와 루프
+#: 자동 편입(`loop auto`)이 같은 답을 봐야** 하고, `bank` 는 `loop` 를 import 하지 않기 때문이다(T6).
+#: 여기서 다시 내보내는 이유는 설계 §3 의 목록("루프의 순수 로직")을 이름으로 지키기 위한 것뿐이다
+#: (import 는 맨 위에 있고 `as` 별칭이 "일부러 다시 내보낸다"는 표시다 — 안 쓰면 린터가 지운다).
 
-def gate(confidence: float | None, threshold: float) -> bool:
-    """자동으로 은행에 넣어도 되는가.
-
-    ``confidence`` 가 ``None`` 이면 **사람이 그린 정확한 마스크**라는 뜻이라 통과시킨다
-    (`mask_origin` 이 ``png``·``manual:*`` 인 경우 — 은행 메타에서 confidence 는 그때 비어 있다).
-    """
-    if confidence is None:
-        return True
-    if math.isnan(confidence):
-        return False
-    return confidence >= threshold
-
-
-def partition_by_gate(
-    items: Sequence[tuple[str, float | None]], threshold: float
-) -> tuple[list[str], list[str]]:
-    """``(자동 편입, 사람 큐)`` 로 가른다."""
-    auto: list[str] = []
-    queue: list[str] = []
-    for item_id, conf in items:
-        (auto if gate(conf, threshold) else queue).append(item_id)
-    return auto, queue
+#: 자동 편입의 **정책과 판정**은 `loop.auto` 에 있다(파일·마스크를 읽는 부분이 붙어 있어서다).
 
 
 # --------------------------------------------------------------------------------------
@@ -440,8 +426,11 @@ class RoundOutcome:
     round: int
     promoted: bool = False
     metric: float | None = None
-    #: 이 라운드에 보관함으로 편입된 조각 수(`accept` 단계의 결과)
+    #: 이 라운드에 **사람 판정을 지나** 보관함으로 편입된 조각 수(`accept` 단계의 결과)
     intake: int = 0
+    #: 이 라운드에 **사람 없이** 편입된 조각 수(`auto` 단계, T6). 누계가 아니라 **그 라운드의 수**다 —
+    #: 사람 수정률과 달리 라운드 안에서 일어나는 일이라 차이를 낼 필요가 없다.
+    auto: int = 0
     #: 모델 초안(`mask_origin: pred:*`)으로 들어온 조각 **누계** — 사람 수정률의 분모
     drafted: int = 0
     #: 그중 사람이 다듬은 것(`manual:*`) **누계** — 분자
@@ -490,6 +479,47 @@ def correction_window(history: Sequence[RoundOutcome], rounds: int = 0) -> Corre
     return CorrectionStats(drafted=drafted, corrected=corrected)
 
 
+@dataclass(frozen=True)
+class AutoStats:
+    """**자동 편입 비율** (설계 §6.5) — 전체 편입 중 사람을 지나지 않은 몫.
+
+    T6 이 붙기 전에는 이 값을 따로 세지 않았다(모든 편입이 사람 판정을 지났으므로 사람 수정률의 여집합이
+    었다). 게이트가 생긴 지금은 **독립 지표**다 — 게이트를 너무 헐겁게 열면 아무도 안 본 초안이 은행을
+    채우고, 모델은 자기 예측을 다시 배운다(설계 §2 규약 1 의 "은행이 모델의 거울").
+    """
+
+    auto: int = 0
+    reviewed: int = 0
+
+    @property
+    def total(self) -> int:
+        return self.auto + self.reviewed
+
+    @property
+    def rate(self) -> float | None:
+        """분모가 0 이면 ``None`` — **모르는 것과 0 은 다르다**(편입이 없었던 구간은 판정하지 않는다)."""
+        return (self.auto / self.total) if self.total > 0 else None
+
+    def text(self) -> str:
+        rate = self.rate
+        if rate is None:
+            return "자동 편입 비율: 편입된 조각이 없습니다"
+        return f"자동 편입 {rate:.0%} (편입 {self.total}개 중 {self.auto}개를 사람 없이)"
+
+
+def auto_window(history: Sequence[RoundOutcome], rounds: int = 0) -> AutoStats:
+    """최근 ``rounds`` 라운드의 자동/사람 편입 수. ``rounds`` ≤ 0 이면 전 구간.
+
+    **사람 수정률과 셈법이 다르다**(차이가 아니라 합) — 편입은 라운드 안에서 일어나므로 그 라운드의 수가
+    곧 사실이다. 반면 마스크를 다듬는 일은 라운드가 끝난 **뒤에** 일어나 누계의 차이로만 잴 수 있다.
+    """
+    window = list(history) if rounds <= 0 else list(history[-rounds:])
+    return AutoStats(
+        auto=sum(max(0, o.auto) for o in window),
+        reviewed=sum(max(0, o.intake) for o in window),
+    )
+
+
 def class_shift(before: Mapping[str, int], after: Mapping[str, int]) -> float | None:
     """두 클래스 분포의 거리(0~1, total variation). 한쪽이 비면 ``None``(모르면 막지 않는다).
 
@@ -523,10 +553,19 @@ class BreakerPolicy:
     correction_rounds: int = 2
     #: 보관함 클래스 분포가 이보다 많이 바뀌면 정지(0~1, 0 = 안 봄)
     max_class_shift: float = 0.0
+    #: **자동 편입 비율** 상한 — 최근 구간이 이보다 높으면 정지(0~1, 0 = 안 봄, T6)
+    max_auto_rate: float = 0.0
+    #: 자동 편입 비율을 몇 라운드 구간으로 볼지
+    auto_rounds: int = 2
 
     @property
     def enabled(self) -> bool:
-        return self.stale_rounds > 0 or self.min_correction_rate > 0 or self.max_class_shift > 0
+        return (
+            self.stale_rounds > 0
+            or self.min_correction_rate > 0
+            or self.max_class_shift > 0
+            or self.max_auto_rate > 0
+        )
 
 
 @dataclass(frozen=True)
@@ -584,6 +623,19 @@ def circuit_break(
                 f"{stats.corrected}개만 다듬음) — 모델이 좋아진 게 아니라 아무도 안 보고 있을 수 있습니다"
             )
             kinds.append("correction")
+        else:
+            notes.append(stats.text())
+
+    if policy.max_auto_rate > 0:
+        stats = auto_window(history, policy.auto_rounds)
+        rate = stats.rate
+        if rate is not None and rate > policy.max_auto_rate:
+            reasons.append(
+                f"자동 편입 비율 {rate:.0%} > 기준 {policy.max_auto_rate:.0%} "
+                f"(최근 {policy.auto_rounds}라운드 · 편입 {stats.total}개 중 {stats.auto}개를 사람 없이) "
+                "— 게이트가 너무 헐겁습니다(모델이 자기 예측을 다시 배웁니다)"
+            )
+            kinds.append("auto_rate")
         else:
             notes.append(stats.text())
 

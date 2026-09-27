@@ -208,10 +208,16 @@ def import_yolo(
     min_area: int = DEFAULT_MIN_AREA,
     um_per_px: float | None = None,
     tags: Sequence[str] = (),
+    min_confidence: float = 0.0,
     list_normals: str | Path | None = None,
     log: Logger | None = None,
 ) -> YoloImportResult:
-    """보유 YOLO 라벨 → 은행. 이미지 하나가 깨져도 경고 후 계속(fail-soft)."""
+    """보유 YOLO 라벨 → 은행. 이미지 하나가 깨져도 경고 후 계속(fail-soft).
+
+    ``min_confidence`` 는 **임포트 품질 게이트**(T6) — 박스 추정 마스크의 타당성(`mask_confidence`)이 그
+    아래면 은행에 넣지 않고 사유를 남긴다. 폴리곤 라벨은 추정이 아니므로 게이트를 지나간다(점수가 없다).
+    채택 방법 자체는 바꾸지 않는다(폴백 사슬은 그대로 — 재현성).
+    """
     log = log or (lambda _m: None)
     if mask_from not in METHODS:
         raise ValueError(f"--mask-from {mask_from!r}: 선택은 {', '.join(METHODS)}")
@@ -223,7 +229,7 @@ def import_yolo(
         raise FileNotFoundError(f"라벨 폴더가 없습니다: {labels_dir}")
     name_list = list(names) if not isinstance(names, (str, Path)) else parse_names(names)
 
-    writer = BankWriter(out, log=log)
+    writer = BankWriter(out, log=log, min_confidence=min_confidence)
     writer.ensure_classes(name_list)
     opts = ImportOptions(margin=margin, min_area=min_area, keep_whole=True)
     warnings: list[str] = []
@@ -315,6 +321,7 @@ def import_yolo(
         "n_normals": len(normals),
         "mask_methods_used": methods_used,
         "low_confidence": low_confidence,
+        "min_confidence": min_confidence,
     }
     writer.finish(entry)
     if list_normals is not None:
