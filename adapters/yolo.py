@@ -18,6 +18,7 @@
     python adapters/yolo.py info
     python adapters/yolo.py fit --dataset <yolo 데이터셋|data.yaml> --out <model_dir> --seed 7 [--spec spec.json]
     python adapters/yolo.py predict --model <best.pt> --images list.txt --out <pred_dir>
+    python adapters/yolo.py eval --model <best.pt> --dataset <yolo 데이터셋|data.yaml> [--spec spec.json]
 
 규약 셋:
 
@@ -105,8 +106,9 @@ def cmd_info(_: argparse.Namespace) -> int:
             {
                 "name": NAME,
                 "version": getattr(ultralytics, "__version__", ""),
-                # 마스크는 seg 가중치일 때만 나온다 → 선언은 보수적으로(못 하는 걸 약속하지 않는다)
-                "capabilities": ["score", "box"],
+                # 마스크는 seg 가중치일 때만 나온다 → 선언은 보수적으로(못 하는 걸 약속하지 않는다).
+                # eval 은 선택 verb — ultralytics `val` 이 학습 없이 같은 지표를 내므로 선언한다(T16).
+                "capabilities": ["score", "box", "eval"],
                 "dataset_format": "yolo",
                 "trains_on": "labeled",
                 # 같은 seed·같은 데이터면 재현된다(BENCHMARKS §2: seed 7 소수 셋째 자리까지).
@@ -248,6 +250,37 @@ def write_mask_png(path: Path, res: Any) -> None:
     path.write_bytes(cv2.imencode(".png", acc)[1].tobytes())
 
 
+def cmd_eval(args: argparse.Namespace) -> int:
+    """``eval`` — 학습하지 않고 **이미 학습된 가중치**를 이 데이터셋의 ``val`` 에서 잰다(선택 verb, T16).
+
+    지표는 `fit` 이 쓰는 `flat_metrics` 그대로다 — 이중 평가셋의 고정·최근 점수가 **같은 계산**에서 나와야
+    견줄 수 있다. 여기도 stdout 은 결과 JSON 전용이라 ultralytics 출력을 stderr 로 돌린다.
+    """
+    from ultralytics import YOLO
+
+    spec = load_spec(args.spec)
+    data = data_yaml_of(Path(args.dataset))
+    if not data.is_file():
+        print(f"data.yaml 이 없습니다: {data}", file=sys.stderr)
+        return 2
+
+    t0 = time.perf_counter()
+    with contextlib.redirect_stdout(sys.stderr):
+        metrics = YOLO(str(args.model)).val(
+            data=str(data),
+            imgsz=int(spec["imgsz"]),
+            split="val",
+            device=str(spec["device"]),
+            plots=False,
+            verbose=False,
+            workers=int(spec["workers"]),
+        )
+    payload = flat_metrics(metrics)
+    payload["minutes"] = round((time.perf_counter() - t0) / 60, 1)
+    print(json.dumps({"metrics": payload}, ensure_ascii=False))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="yolo", description="YOLO(ultralytics) 학습기 어댑터")
     sub = ap.add_subparsers(dest="verb", required=True)
@@ -266,9 +299,18 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--out", required=True)
     p.add_argument("--spec")
 
+    e = sub.add_parser("eval")
+    e.add_argument("--model", required=True)
+    e.add_argument("--dataset", required=True)
+    # 재기만 하므로 시드를 쓰지 않는다 — 계약상 **거부하지 않는** 것이 중요하다
+    e.add_argument("--seed", type=int, default=0)
+    e.add_argument("--spec")
+
     args = ap.parse_args(argv)
     try:
-        return {"info": cmd_info, "fit": cmd_fit, "predict": cmd_predict}[args.verb](args)
+        return {"info": cmd_info, "fit": cmd_fit, "predict": cmd_predict, "eval": cmd_eval}[
+            args.verb
+        ](args)
     except ImportError as exc:  # 학습 환경이 없다 — 계약은 종료 코드로 말한다(fail-soft)
         print(f"ultralytics 를 import 할 수 없습니다: {exc}", file=sys.stderr)
         return 2

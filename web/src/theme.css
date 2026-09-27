@@ -1308,6 +1308,37 @@ select:focus-visible {
   font-weight: 600;
 }
 
+/* 계열 둘(고정·최근)을 한 그래프에 겹치므로 색·선 모양을 글로 한 번 밝힌다 — 선 모양만으로는
+   흑백 인쇄·색각에서 갈리지 않는다(실선 = 고정, 파선 = 최근). */
+.loop-legend {
+  display: flex;
+  gap: 14px;
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--tx2);
+}
+
+.loop-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.loop-legend span::before {
+  content: '';
+  width: 18px;
+  height: 0;
+  border-top-width: 2px;
+}
+
+.loop-legend .fixed::before {
+  border-top: 2px solid var(--teal);
+}
+
+.loop-legend .roll::before {
+  border-top: 2px dashed var(--amber);
+}
+
 /* viewBox 보다 크게 늘리지 않는다 — 넓은 창에서 100% 로 두면 높이가 400px 넘게 부풀어
    화면 한 장을 그래프가 다 먹는다(실물에서 그랬다). */
 .loop-chart {

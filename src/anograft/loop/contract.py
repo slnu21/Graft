@@ -4,10 +4,10 @@ Python ABC 가 아니다. ABC 면 학습 코드가 ``anograft`` 를 import 해�
 코어와 한 venv → "의존성은 전부 순수 wheel" 원칙이 깨진다. 프로세스 경계여야 **어떤 언어·어떤 환경·원격
 GPU 박스**든 붙는다. 여기서 쓰는 것은 ``subprocess``·``json`` 뿐 — 새 의존성 0.
 
-계약은 verb 세 개::
+계약은 verb 셋 + **선택 하나**(`eval`)::
 
     <command> info
-      → {"name", "version", "capabilities":[score|mask|box], "dataset_format":mvtec|yolo|coco|pairs,
+      → {"name", "version", "capabilities":[score|mask|box|eval], "dataset_format":mvtec|yolo|coco|pairs,
          "trains_on":normal_only|labeled, "deterministic":bool}
 
     <command> fit --dataset <p> --out <model_dir> --seed <N> --spec <json-path>
@@ -15,6 +15,9 @@ GPU 박스**든 붙는다. 여기서 쓰는 것은 ``subprocess``·``json`` 뿐 
 
     <command> predict --model <opaque> --images <list.txt> --out <pred_dir> [--spec <json-path>]
       → {"predictions":"<pred_dir>", "count":N}
+
+    <command> eval --model <opaque> --dataset <p> [--seed <N>] [--spec <json-path>]   # 선택
+      → {"metrics":{…}}
 
 약속:
 
@@ -24,6 +27,9 @@ GPU 박스**든 붙는다. 여기서 쓰는 것은 ``subprocess``·``json`` 뿐 
   결과 JSON 만 남기는 게 규약이다(`adapters/yolo.py` 의 ``redirect_stdout``).
 - ``fit`` 의 ``metrics`` 는 **평평한 float 맵**이다. 클래스별 값은 ``"<지표>/<클래스>"`` 키로 편다
   (예 ``{"mAP50": 0.41, "mAP50/bent": 0.62}``) — 중첩 오브젝트는 `parse_fit` 이 버린다.
+- ``eval`` 은 **선택**이다(`capabilities` 에 ``eval`` 을 선언한 어댑터만 부른다). 학습하지 않고 **이미
+  학습된 모델**을 다른 평가셋에서 재는 것이라 지표 모양은 `fit` 과 같다 — 이중 평가셋(T16)의 "최근
+  평가셋" 점수가 여기서 나온다. 선언이 없으면 루프는 고정 평가셋만으로 판정하고 사유를 남긴다(fail-soft).
 - 실패는 **fail-soft** — `TrainerError` 로 올리고 루프가 "라운드 실패"로 기록한다. 앱은 죽지 않는다.
 - ``model`` 과 ``--spec`` 은 **불투명**하다. Graft 는 해석하지 않고 그대로 들고 다닌다(설계 §1.3).
   ``--spec`` 은 **fit 과 predict 에 같은 값**이 간다(추론 해상도가 학습과 달라지면 조용히 나빠진다) —
@@ -49,7 +55,12 @@ LogSink = Callable[[str], None]
 """어댑터 stderr 한 줄을 받는 콜백 — 호출자가 배치 로그·터미널로 흘린다."""
 
 # 계약이 허용하는 어휘. 어댑터가 다른 값을 주면 계약 위반으로 거른다(오타를 조용히 넘기지 않는다).
-CAPABILITIES: tuple[str, ...] = ("score", "mask", "box")
+# ``score``·``mask``·``box`` 는 **예측 축**(검토 큐의 교차 검증에 쓸 수 있는 축, §1.2)이고
+# ``eval`` 은 **선택 verb 의 선언**이다 — "학습 없이 모델을 다시 잴 수 있다"(T16 이중 평가셋).
+# 한 칸에 둔 이유: 루프가 묻는 것은 언제나 "이 어댑터가 무엇을 해 줄 수 있나" 하나이고, 선언 필드를
+# 늘리면 어댑터마다 채워야 할 자리가 늘어난다(없으면 못 하는 것으로 읽는 규칙은 그대로다).
+CAPABILITY_EVAL = "eval"
+CAPABILITIES: tuple[str, ...] = ("score", "mask", "box", CAPABILITY_EVAL)
 DATASET_FORMATS: tuple[str, ...] = ("mvtec", "yolo", "coco", "pairs")
 TRAINS_ON: tuple[str, ...] = ("normal_only", "labeled")
 
@@ -86,6 +97,14 @@ class TrainerInfo:
     def can(self, capability: str) -> bool:
         return capability in self.capabilities
 
+    @property
+    def can_eval(self) -> bool:
+        """학습 없이 모델을 다시 잴 수 있는가 — **이중 평가셋의 최근 쪽이 이것에 달려 있다**(T16).
+
+        없으면 루프는 고정 평가셋만으로 판정한다(라운드를 죽이지 않는다 — 선택 verb 다).
+        """
+        return self.can(CAPABILITY_EVAL)
+
 
 @dataclass(frozen=True)
 class FitResult:
@@ -97,6 +116,13 @@ class FitResult:
 class PredictResult:
     predictions: Path
     count: int
+
+
+@dataclass(frozen=True)
+class EvalResult:
+    """``eval`` 결과 — 모델 참조를 새로 내지 않는다(학습하지 않았으니 모델은 그대로다)."""
+
+    metrics: Mapping[str, float] = field(default_factory=dict)
 
 
 def last_json_line(stdout: str) -> dict[str, Any]:
@@ -160,20 +186,33 @@ def parse_info(payload: Mapping[str, Any]) -> TrainerInfo:
     )
 
 
-def parse_fit(payload: Mapping[str, Any]) -> FitResult:
-    model = payload.get("model")
-    if not model:
-        raise TrainerError("fit 결과에 model 이 없습니다")
+def flat_metrics(payload: Mapping[str, Any], verb: str) -> dict[str, float]:
+    """``metrics`` → **평평한 float 맵**. `fit` 과 `eval` 이 같은 규칙을 쓴다(한 지점에서 판정한다)."""
     raw = payload.get("metrics") or {}
     if not isinstance(raw, Mapping):
-        raise TrainerError("fit 결과의 metrics 는 오브젝트여야 합니다")
+        raise TrainerError(f"{verb} 결과의 metrics 는 오브젝트여야 합니다")
     metrics: dict[str, float] = {}
     for k, v in raw.items():
         try:
             metrics[str(k)] = float(v)
         except (TypeError, ValueError):
             continue  # 숫자가 아닌 지표는 조용히 버린다(어댑터가 문자열을 섞어도 죽지 않게)
-    return FitResult(model=str(model), metrics=metrics)
+    return metrics
+
+
+def parse_fit(payload: Mapping[str, Any]) -> FitResult:
+    model = payload.get("model")
+    if not model:
+        raise TrainerError("fit 결과에 model 이 없습니다")
+    return FitResult(model=str(model), metrics=flat_metrics(payload, "fit"))
+
+
+def parse_eval(payload: Mapping[str, Any]) -> EvalResult:
+    """``eval`` 응답. 지표가 하나도 없으면 **오류**다 — 재지 않은 것을 "쟀다"로 넘기면 안 된다."""
+    metrics = flat_metrics(payload, "eval")
+    if not metrics:
+        raise TrainerError("eval 결과에 숫자 지표가 없습니다")
+    return EvalResult(metrics=metrics)
 
 
 def parse_predict(payload: Mapping[str, Any]) -> PredictResult:
@@ -362,3 +401,31 @@ def predict(
             args += ["--spec", str(sp)]
         payload, _ = call(command, "predict", args, cwd=cwd, timeout=timeout, on_log=on_log)
     return parse_predict(payload)
+
+
+def evaluate(
+    command: Sequence[str],
+    *,
+    model: str,
+    dataset: Path,
+    seed: int = 0,
+    spec: Mapping[str, Any] | None = None,
+    cwd: Path | None = None,
+    timeout: float = DEFAULT_TIMEOUT_S,
+    on_log: LogSink | None = None,
+) -> EvalResult:
+    """``eval`` verb (선택) — **학습하지 않고** 이미 학습된 모델을 이 데이터셋의 ``val`` 에서 잰다.
+
+    이중 평가셋(T16)이 이것을 부른다. 왜 `fit` 을 다시 부르지 않나: 한 바퀴의 학습은 몇 시간이고 평가는
+    추론 한 번이다. 왜 Graft 가 직접 지표를 계산하지 않나: **지표 정의는 어댑터 몫**이라(계약 §1.1) 우리가
+    따로 계산하면 champion 의 점수와 challenger 의 점수가 서로 다른 계산에서 나온다.
+
+    ``spec`` 은 `fit`·`predict` 와 **같은 불투명 dict** 다(해상도가 달라지면 값이 조용히 달라진다).
+    함수 이름이 `eval` 이 아닌 이유는 파이썬 내장 이름과 겹치기 때문이고, verb 이름은 그대로 ``eval`` 이다.
+    """
+    with spec_file(spec) as sp:
+        args = ["--model", str(model), "--dataset", str(dataset), "--seed", str(int(seed))]
+        if sp is not None:
+            args += ["--spec", str(sp)]
+        payload, _ = call(command, "eval", args, cwd=cwd, timeout=timeout, on_log=on_log)
+    return parse_eval(payload)

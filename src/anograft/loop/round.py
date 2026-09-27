@@ -11,13 +11,15 @@
 **부트스트랩 라운드**(champion 모델이 없거나 현장 이미지가 없을 때)는 수집 넷을 건너뛰고 `synth` 부터 돈다 —
 첫 라운드에는 스코어링할 모델이 없다. 그게 Graft 의 자리다(설계 §2b.5(4)).
 
-평가는 별도 predict 가 아니라 **학습 데이터셋의 `val` = 동결 평가셋**이고, `fit` 이 돌려주는 평평한 지표
-맵에서 `promote.metric` 을 읽는다 — `tools/train_mvtec_map.py` 가 이미 쓰는 그 경로다(계약 §1.1).
+평가는 별도 predict 가 아니라 **학습 데이터셋의 `val` = 고정(동결) 평가셋**이고, `fit` 이 돌려주는 평평한
+지표 맵에서 `promote.metric` 을 읽는다 — `tools/train_mvtec_map.py` 가 이미 쓰는 그 경로다(계약 §1.1).
+**최근 평가셋**(T16, 설정에 있을 때만)은 학습에 들어가지 않고 `rolling` 단계가 계약의 선택 verb `eval` 로
+따로 잰다 — 승급은 그때부터 **고정에서 회귀 없음 ∧ 최근에서 개선**이다(설계 §2b.6).
 
 상태는 셋이다(T14 에서 **이력이 원장으로 승격**됐다 — `loop/ledger.py`):
 
-- ``<out>/loop.state.json`` — **움직이는 포인터 둘**뿐이다(지금 라운드 번호 · champion). 롤백이 포인터를
-  되돌리는 일이라 이 파일은 덮어쓴다.
+- ``<out>/loop.state.json`` — **움직이는 포인터**뿐이다(지금 라운드 번호 · champion · 최근 평가셋
+  기준선). 롤백이 포인터를 되돌리는 일이라 이 파일은 덮어쓴다.
 - ``<out>/round-NNN/round.json`` — 이 라운드의 `done` 목록(= **다음 단계를 고르는 진실**)과 산출 요약.
 - ``<out>/rounds.jsonl`` — append-only 원장(시작·단계·끝·실패·안 돎). 감사·조회는 여기서 나오고,
   **다음 단계를 여기서 재생(replay)해 고르지 않는다** — 한 줄이 깨질 때마다 루프가 멈추는 구조가 된다.
@@ -38,6 +40,7 @@ from typing import Any
 
 from anograft.loop import ledger as L
 from anograft.loop.config import SUPPORTED_FORMATS, LoopConfigError, ResolvedLoop
+from anograft.loop.golden import RollingBaseline, rolling_plan, split_fingerprint
 from anograft.loop.ingest import (
     PROCESSED_FILE,
     FileStamp,
@@ -53,7 +56,16 @@ Log = Callable[[str], None]
 Trainer = tuple[Any, Path, Any]
 
 #: 한 라운드의 단계. 순서가 곧 계약이다(`round.json` 의 `done` 이 이 이름들을 담는다).
-PHASES: tuple[str, ...] = ("predict", "queue", "review", "accept", "synth", "train", "judge")
+PHASES: tuple[str, ...] = (
+    "predict",
+    "queue",
+    "review",
+    "accept",
+    "synth",
+    "train",
+    "rolling",
+    "judge",
+)
 #: 사람에게 보낼 것을 모으는 앞 넷 — 모델이 없으면 통째로 건너뛴다.
 COLLECT_PHASES: tuple[str, ...] = ("predict", "queue", "review", "accept")
 
@@ -67,7 +79,8 @@ PHASE_LABEL: dict[str, str] = {
     "review": "사람 판정 대기",
     "accept": "채택분 보관함 편입",
     "synth": "합성",
-    "train": "학습·평가",
+    "train": "학습·고정 평가셋",
+    "rolling": "최근 평가셋 재기",
     "judge": "승급 판정",
 }
 
@@ -81,14 +94,22 @@ class LoopError(RuntimeError):
 # --------------------------------------------------------------------------------------
 
 
-def round_phases(*, has_champion: bool, has_field: bool) -> tuple[str, ...]:
+def round_phases(
+    *, has_champion: bool, has_field: bool, has_rolling: bool = False
+) -> tuple[str, ...]:
     """이 라운드가 지날 단계.
 
     스코어링할 **모델이 없거나**(첫 라운드) 스코어링할 **현장 이미지가 없으면** 수집 넷은 의미가 없다 —
     합성부터 돈다. 이것이 부트스트랩 라운드다.
+
+    ``rolling``(최근 평가셋, T16)은 **설정에 있을 때만** 지난다 — 아무 일도 안 하는 단계를 화면의 단계
+    줄에 세워 두면 "여기서 무엇을 기다리는가"를 사람이 묻게 된다. 옛 라운드는 자기 `phases` 를 들고
+    있으므로(`round.json`) 이 목록이 늘어나도 이어 가던 라운드는 그대로다.
     """
-    rest = tuple(p for p in PHASES if p not in COLLECT_PHASES)
-    return PHASES if (has_champion and has_field) else rest
+    drop = set() if has_rolling else {"rolling"}
+    if not (has_champion and has_field):
+        drop |= set(COLLECT_PHASES)
+    return tuple(p for p in PHASES if p not in drop)
 
 
 def next_phase(phases: Sequence[str], done: Sequence[str]) -> str | None:
@@ -197,27 +218,35 @@ class RoundRecord:
 
 @dataclass
 class LoopState:
-    """``loop.state.json`` — **움직이는 포인터 둘**(지금 라운드 번호 · champion).
+    """``loop.state.json`` — **움직이는 포인터들**(지금 라운드 번호 · champion · 최근 평가셋 기준선).
 
     이력은 여기 없다(T14) — `rounds.jsonl` 이 든다. 덮어쓰는 파일과 더하는 파일을 나누는 이유는 롤백이
     "champion 포인터를 옛 라운드로 되돌리는 일"이고 감사는 "지워지지 않는 줄"이어야 하기 때문이다.
+
+    `rolling`(T16)이 여기 있는 이유도 같다 — champion 의 **최근 평가셋 점수**는 평가셋이 갱신되면 죽는
+    값이라 이력이 아니라 포인터다(죽으면 `eval` 로 다시 잰다).
     """
 
     round: int = 0
     champion: Champion | None = None
+    #: champion 이 **지금 최근 평가셋에서** 받은 점수(없으면 최근 평가셋을 안 쓰거나 아직 안 쟀다).
+    rolling: RollingBaseline | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "round": self.round,
             "champion": self.champion.to_dict() if self.champion else None,
+            "rolling": self.rolling.to_dict() if self.rolling else None,
         }
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> LoopState:
         champ = d.get("champion")
+        rolling = d.get("rolling")
         return cls(
             round=int(d.get("round", 0)),
             champion=Champion.from_dict(champ) if isinstance(champ, Mapping) else None,
+            rolling=RollingBaseline.from_dict(rolling) if isinstance(rolling, Mapping) else None,
         )
 
 
@@ -447,6 +476,69 @@ def assemble_dataset(
         raise LoopError("평가셋이 0장입니다 — 동결 평가셋 없이는 라운드를 비교할 수 없습니다")
     if n_train == 0:
         raise LoopError("학습 이미지가 0장입니다 (실제 학습분도 합성도 없습니다)")
+    return out, warnings
+
+
+def assemble_eval_dataset(
+    fmt: str,
+    out: Path,
+    *,
+    split: Mapping[str, Path | None],
+    names: Sequence[str],
+) -> tuple[Path, list[str]]:
+    """**재기만 하는** 데이터셋 — ``val`` 뿐이다(T16 최근 평가셋).
+
+    `assemble_dataset` 과 갈라 둔 이유: 저쪽은 "학습 이미지가 0장이면 오류"가 규칙이고 여기는 **학습이
+    없는 것이 정상**이다. 한 함수에 플래그로 두면 그 규칙이 흐려진다.
+
+    ``yolo`` 의 ``data.yaml`` 은 ``train`` 도 같은 val 폴더를 가리킨다 — `eval` 은 ``val`` 만 보지만
+    프레임워크가 키를 읽다가 죽지 않게 한다(어댑터가 무엇을 읽든 **학습은 일어나지 않는다**).
+    """
+    if fmt not in SUPPORTED_FORMATS:
+        raise LoopError(
+            f"학습 데이터셋 형식 {fmt!r} 은 아직 루프가 조립하지 않습니다 (지원: {', '.join(SUPPORTED_FORMATS)})"
+        )
+    out = Path(out)
+    if out.exists():
+        shutil.rmtree(out)
+    warnings: list[str] = []
+
+    if fmt == "yolo":
+        n_val, missing = _copy_pairs(
+            split["images"],
+            split.get("labels"),
+            out / "images" / "val",
+            out / "labels" / "val",
+            empty_when_missing=True,
+        )
+        if missing:
+            warnings.append(f"최근 평가셋 {missing}장에 라벨이 없어 빈 라벨(배경)로 넣었습니다")
+        warnings += check_label_classes(split.get("labels"), len(names))
+        if n_val == 0:
+            raise LoopError("최근 평가셋이 0장입니다")
+        import yaml
+
+        (out / "data.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "path": out.resolve().as_posix(),
+                    "train": "images/val",
+                    "val": "images/val",
+                    "nc": len(names),
+                    "names": list(names),
+                },
+                allow_unicode=True,
+                sort_keys=False,
+            ),
+            encoding="utf-8",
+        )
+        return out, warnings
+
+    n_val, _ = _copy_pairs(
+        split["images"], split.get("masks"), out / "val" / "images", out / "val" / "masks"
+    )
+    if n_val == 0:
+        raise LoopError("최근 평가셋이 0장입니다")
     return out, warnings
 
 
@@ -872,7 +964,174 @@ def _phase_train(loop: ResolvedLoop, round_dir: Path, fmt: str, log: Log, traine
     }
 
 
+def _phase_rolling(
+    loop: ResolvedLoop,
+    state: LoopState,
+    record: RoundRecord,
+    round_dir: Path,
+    fmt: str,
+    log: Log,
+    trainer: Trainer,
+) -> dict:
+    """**최근 평가셋**에서 challenger(와 필요하면 champion)를 잰다 (T16 · 설계 §2b.6).
+
+    셋을 지킨다:
+
+    1. **재지 못하면 라운드를 죽이지 않는다** — 학습이 이미 끝난 자리다(세 시간). `eval` 선언이 없거나
+       호출이 실패하면 사유를 남기고 고정 평가셋만으로 판정한다(fail-soft).
+    2. **champion 은 필요할 때만 다시 잰다** — 평가셋 지문이 그대로면 기준선을 그대로 쓴다(`rolling_plan`).
+    3. **갱신은 추이를 끊고 판정은 살린다** — 지문이 바뀌면 원장에 `rolling_update` 를 남기고(선이 끊긴다)
+       champion 을 새 평가셋에서 다시 재서(견줄 수 있게) 그 라운드의 판정은 그대로 한다.
+    """
+    from anograft.loop.contract import DEFAULT_TIMEOUT_S, TrainerError, evaluate, merge_spec
+
+    # 단계 자체가 안 들어오지만(round_phases) **이어 가는 옛 라운드**는 이 자리에 들어올 수 있다
+    split = loop.eval_rolling
+    if split is None:
+        return {"skipped": "최근 평가셋이 설정되지 않았습니다"}
+
+    spec, cwd, info = trainer
+    if not info.can_eval:
+        reason = (
+            f"학습기 {loop.config.trainer!r} 는 eval 을 선언하지 않아 최근 평가셋을 재지 못합니다 "
+            "— 고정 평가셋만으로 판정합니다(capabilities 에 eval 을 더하면 켜집니다)"
+        )
+        record.warnings.append(reason)
+        log(f"경고: {reason}")
+        return {"skipped": reason}
+
+    fingerprint, n_images = split_fingerprint(split)
+    if not fingerprint:
+        reason = f"최근 평가셋에 이미지가 없습니다({split['images']})"
+        record.warnings.append(reason)
+        log(f"경고: {reason}")
+        return {"skipped": reason}
+
+    train = record.data.get("train") or {}
+    model = str(train.get("model") or "")
+    if not model:
+        return {"skipped": "이번 라운드의 모델이 없습니다(학습 단계를 먼저 지납니다)"}
+
+    names = dataset_names(round_dir / "synth", fallback=bank_classes(loop))
+    try:
+        dataset, warns = assemble_eval_dataset(fmt, round_dir / "rolling", split=split, names=names)
+    except LoopError as exc:  # 조립도 fail-soft — 학습이 끝난 라운드를 평가셋 때문에 버리지 않는다
+        reason = f"최근 평가셋을 조립하지 못했습니다: {exc}"
+        record.warnings.append(reason)
+        log(f"경고: {reason}")
+        return {"skipped": reason}
+    for w in warns:
+        log(f"경고: {w}")
+    merged = merge_spec(spec.spec, loop.config.spec)
+    timeout = spec.timeout or DEFAULT_TIMEOUT_S
+
+    def _measure(model_ref: str, who: str) -> float | None:
+        try:
+            result = evaluate(
+                spec.command,
+                model=model_ref,
+                dataset=dataset,
+                seed=loop.config.seed,
+                spec=merged,
+                cwd=cwd,
+                timeout=timeout,
+                on_log=log,
+            )
+        except TrainerError as exc:
+            reason = f"최근 평가셋에서 {who} 를 재지 못했습니다: {exc}"
+            record.warnings.append(reason)
+            log(f"경고: {reason}")
+            return None
+        name = loop.config.promote.metric
+        if name not in result.metrics:
+            reason = (
+                f"최근 평가셋 지표에 {name!r} 이 없습니다 "
+                f"(받은 것: {', '.join(sorted(result.metrics)) or '없음'})"
+            )
+            record.warnings.append(reason)
+            log(f"경고: {reason}")
+            return None
+        return float(result.metrics[name])
+
+    champ = state.champion
+    plan = rolling_plan(
+        baseline=state.rolling,
+        fingerprint=fingerprint,
+        champion_model=champ.model if champ else "",
+    )
+    log(f"최근 평가셋 {n_images}장 · 지문 {fingerprint} — {plan.reason}")
+
+    # 옛 지문은 **재측정 전에** 붙잡아 둔다 — 아래에서 기준선을 갈아 끼우므로 그 뒤엔 사라진다
+    previous_fingerprint = state.rolling.fingerprint if state.rolling is not None else ""
+    challenger = _measure(model, "이번 모델")
+    baseline_metric = state.rolling.metric if state.rolling is not None else None
+    remeasured = False
+    if plan.remeasure and champ is not None:
+        baseline_metric = _measure(champ.model, "champion")
+        if baseline_metric is not None:  # 못 쟀으면 기준선을 갈지 않는다 — 다음 라운드가 다시 잰다
+            remeasured = True
+            state.rolling = RollingBaseline(
+                fingerprint=fingerprint,
+                metric=baseline_metric,
+                round=champ.round,
+                model=champ.model,
+            )
+    if plan.changed:
+        # 갱신 지점을 남긴다 — 화면이 그 앞뒤로 선을 잇지 않는다(견줄 수 없는 값이다)
+        log_event(
+            loop,
+            L.EVENT_ROLLING_UPDATE,
+            log=log,
+            round_no=record.number,
+            after_round=max(0, record.number - 1),
+            fingerprint=fingerprint,
+            previous=previous_fingerprint,
+            images=n_images,
+            note=plan.reason,
+        )
+    return {
+        "dataset": str(dataset),
+        "fingerprint": fingerprint,
+        "images": n_images,
+        "metric": challenger,
+        "champion_metric": baseline_metric,
+        "changed": plan.changed,
+        "remeasured": remeasured,
+        "reason": plan.reason,
+    }
+
+
+def _as_metric(value: Any) -> float | None:
+    """지표 한 값 — 숫자가 아니면 ``None``(못 잰 것을 0 으로 읽지 않는다)."""
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _rolling_fields(rolling: Mapping[str, Any]) -> dict[str, Any]:
+    """원장 ``round_end`` 에 남길 최근 평가셋 사실 — **잰 것만** 적는다(T16).
+
+    지문은 값이 있을 때만 뜻이 있다: 지문만 있고 점수가 없으면 "무엇을 재려 했는지"는 남지만 추이는
+    점이 없어 끊긴 것처럼 보인다 — 그게 맞는 모양이다(재지 못한 라운드에 점을 찍지 않는다).
+    """
+    out: dict[str, Any] = {}
+    metric = _as_metric(rolling.get("metric"))
+    if metric is not None:
+        out["rolling_metric"] = metric
+    champion = _as_metric(rolling.get("champion_metric"))
+    if champion is not None:
+        out["rolling_champion"] = champion
+    fingerprint = str(rolling.get("fingerprint") or "")
+    if fingerprint:
+        out["rolling_fingerprint"] = fingerprint
+        out["rolling_images"] = int(rolling.get("images", 0) or 0)
+    return out
+
+
 def _phase_judge(loop: ResolvedLoop, state: LoopState, record: RoundRecord, log: Log) -> dict:
+    """승급 판정 — **고정에서 회귀 없음 ∧ 최근에서 개선**(설계 §2b.6).
+
+    최근 평가셋이 없거나 못 쟀으면 `should_promote` 가 고정만으로 판단한다(인자 자리가 비면 그렇게
+    동작한다 — 그래서 여기 분기가 없다).
+    """
     from anograft.loop.policy import should_promote
 
     train = record.data.get("train") or {}
@@ -886,38 +1145,58 @@ def _phase_judge(loop: ResolvedLoop, state: LoopState, record: RoundRecord, log:
     challenger = float(metrics[name])
     model = str(train.get("model") or "")
 
-    if state.champion is None:
+    rolling = record.data.get("rolling") or {}
+    roll_challenger = _as_metric(rolling.get("metric"))
+    roll_champion = _as_metric(rolling.get("champion_metric"))
+    roll_fingerprint = str(rolling.get("fingerprint") or "")
+
+    def adopt() -> None:
+        """이 모델을 champion 으로 — **최근 평가셋 기준선도 같이 옮긴다**(안 옮기면 다음 라운드가 다시 잰다)."""
         state.champion = Champion(
             round=record.number, model=model, metric=challenger, metric_name=name
         )
+        if roll_challenger is not None and roll_fingerprint:
+            state.rolling = RollingBaseline(
+                fingerprint=roll_fingerprint,
+                metric=roll_challenger,
+                round=record.number,
+                model=model,
+            )
+
+    def result(promote: bool, reason: str, **extra: Any) -> dict:
+        out: dict[str, Any] = {"promote": promote, "reason": reason, "metric": challenger}
+        if roll_challenger is not None:
+            out["rolling_metric"] = roll_challenger
+        if roll_champion is not None:
+            out["rolling_champion"] = roll_champion
+        out.update(extra)
+        return out
+
+    if state.champion is None:
+        adopt()
         log(f"기준선이 없어 이 모델을 champion 으로 둡니다 ({name} {challenger:.4f})")
-        return {"promote": True, "reason": "기준선 없음 — 첫 모델", "metric": challenger}
+        return result(True, "기준선 없음 — 첫 모델")
 
     if baseline_reset_after(loop, state.champion.round):
-        state.champion = Champion(
-            round=record.number, model=model, metric=challenger, metric_name=name
-        )
+        adopt()
         log(
             f"기준선 재설정 뒤 첫 라운드 — 점수를 견주지 않고 champion 을 세웁니다 ({name} {challenger:.4f})"
         )
-        return {
-            "promote": True,
-            "reason": "기준선 재설정 뒤 첫 라운드 — 점수를 견주지 않습니다",
-            "metric": challenger,
-            "baseline_reset": True,
-        }
+        return result(
+            True, "기준선 재설정 뒤 첫 라운드 — 점수를 견주지 않습니다", baseline_reset=True
+        )
 
     verdict = should_promote(
         fixed_champion=state.champion.metric,
         fixed_challenger=challenger,
+        rolling_champion=roll_champion,
+        rolling_challenger=roll_challenger,
         noise=loop.config.promote.noise,
     )
     log(f"승급 판정: {'승급' if verdict.promote else '유지'} — {verdict.reason}")
     if verdict.promote:
-        state.champion = Champion(
-            round=record.number, model=model, metric=challenger, metric_name=name
-        )
-    return {"promote": verdict.promote, "reason": verdict.reason, "metric": challenger}
+        adopt()
+    return result(verdict.promote, verdict.reason)
 
 
 def run_round(
@@ -971,7 +1250,11 @@ def _run_round(
         check_breaker(loop)
         current += 1
         has_champion = state.champion is not None
-        phases = round_phases(has_champion=has_champion, has_field=loop.field is not None)
+        phases = round_phases(
+            has_champion=has_champion,
+            has_field=loop.field is not None,
+            has_rolling=loop.config.eval_rolling is not None,
+        )
         record = RoundRecord(
             number=current, phases=phases, bootstrap=not has_champion or loop.field is None
         )
@@ -1041,6 +1324,7 @@ def _run_round(
     train = record.data.get("train") or {}
     synth = record.data.get("synth") or {}
     accept = record.data.get("accept") or {}
+    rolling = record.data.get("rolling") or {}
     log_event(
         loop,
         L.EVENT_ROUND_END,
@@ -1048,6 +1332,9 @@ def _run_round(
         round_no=record.number,
         metric=judge.get("metric"),
         metric_name=loop.config.promote.metric,
+        # 최근 평가셋(T16) — **못 쟀으면 키를 적지 않는다**(0 으로 적으면 "점수가 0" 이 되고,
+        # 읽는 쪽은 옛 원장처럼 키가 없으면 판정하지 않는다: "모르는 것과 0 은 다르다")
+        **_rolling_fields(rolling),
         promoted=bool(judge.get("promote")),
         reason=judge.get("reason", ""),
         model=train.get("model", ""),
@@ -1061,10 +1348,12 @@ def _run_round(
         # 자동 정지(T12)가 다음 라운드에 볼 사실 — 클래스 목록·분포·사람 수정률의 분모/분자
         **bank_facts(loop),
     )
+    roll = _as_metric(rolling.get("metric"))
     message = (
         f"{round_name(record.number)} 완료 — "
-        f"{loop.config.promote.metric} {judge.get('metric', float('nan')):.4f} · "
-        f"{'승급' if judge.get('promote') else '유지'}({judge.get('reason', '')})"
+        f"{loop.config.promote.metric} 고정 {judge.get('metric', float('nan')):.4f}"
+        + (f" · 최근 {roll:.4f}" if roll is not None else "")
+        + f" · {'승급' if judge.get('promote') else '유지'}({judge.get('reason', '')})"
     )
     return RoundResult(
         record=record, state=state, round_dir=round_dir, message=message, warnings=record.warnings
@@ -1120,6 +1409,8 @@ def _run_phase(
         record.mark(phase, _phase_synth(loop, round_dir, fmt, log, workers))
     elif phase == "train":
         record.mark(phase, _phase_train(loop, round_dir, fmt, log, trainer))
+    elif phase == "rolling":
+        record.mark(phase, _phase_rolling(loop, state, record, round_dir, fmt, log, trainer))
     elif phase == "judge":
         record.mark(phase, _phase_judge(loop, state, record, log))
     return None
@@ -1449,6 +1740,12 @@ class LoopStatus:
     processed: int = 0
     #: 최근 라운드 이력 — **원장에서** 온다(T14).
     history: list[dict[str, Any]] = field(default_factory=list)
+    #: **최근 평가셋**(T16)을 쓰는 설정인가 — 안 쓰면 그 줄을 아예 찍지 않는다(없는 것을 묻지 않는다).
+    rolling_configured: bool = False
+    #: champion 의 최근 평가셋 기준선(`RollingBaseline`) — 아직 안 쟀으면 ``None``.
+    rolling: Any = None
+    #: 마지막으로 끝난 라운드의 최근 평가셋 점수(원장). 못 쟀으면 ``None``.
+    rolling_last: float | None = None
     #: 마지막 tick(돌았나 · 안 돌았으면 왜, T14).
     tick: Any = None
     #: 지금 돌 때인가 + 그 사유(T14). `loop tick` 이 보는 것과 같은 답이다.
@@ -1468,10 +1765,18 @@ class LoopStatus:
         out: list[str] = []
         champ = self.state.champion
         out.append(
-            f"champion: 라운드 {champ.round} · {champ.metric_name} {champ.metric:.4f} · {champ.model}"
+            f"champion: 라운드 {champ.round} · {champ.metric_name} 고정 {champ.metric:.4f} · {champ.model}"
             if champ
             else "champion: 없음 (아직 승급한 모델이 없습니다)"
         )
+        if self.rolling_configured:
+            last = f"{self.rolling_last:.4f}" if self.rolling_last is not None else "아직 없음"
+            base = (
+                f"champion {self.rolling.metric:.4f} · 지문 {self.rolling.fingerprint}"
+                if self.rolling is not None
+                else "champion 미측정"
+            )
+            out.append(f"최근 평가셋: 마지막 라운드 {last} · {base}")
         if self.lock is not None:
             out.append(f"지금 돌고 있습니다 — {self.lock.text()}")
         if self.processed:
@@ -1522,6 +1827,7 @@ def status(loop: ResolvedLoop) -> LoopStatus:
         judged, total = _review_progress(out / round_name(record.number))
     led = L.read(ledger_path(loop))
     decision, _facts = check_trigger(loop)
+    end = led.last_end
     return LoopStatus(
         out=out,
         state=state,
@@ -1531,6 +1837,9 @@ def status(loop: ResolvedLoop) -> LoopStatus:
         lock=read_lock(out / LOCK_FILE),
         processed=len(read_processed(cursor_path(loop))),
         history=led.history(),
+        rolling_configured=loop.config.eval_rolling is not None,
+        rolling=state.rolling,
+        rolling_last=_as_metric(end.get("rolling_metric")) if end is not None else None,
         tick=L.read_tick(tick_path(loop)),
         trigger=decision,
         breaker=breaker_verdict(loop, led),
@@ -1547,9 +1856,11 @@ __all__ = [
     "LoopError",
     "LoopState",
     "LoopStatus",
+    "RollingBaseline",
     "RoundRecord",
     "RoundResult",
     "assemble_dataset",
+    "assemble_eval_dataset",
     "bank_classes",
     "bank_facts",
     "baseline_reset",
@@ -1570,6 +1881,7 @@ __all__ = [
     "new_classes",
     "next_phase",
     "note_tick",
+    "rolling_plan",
     "round_name",
     "round_phases",
     "run_round",

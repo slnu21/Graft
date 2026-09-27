@@ -153,7 +153,7 @@ def test_promote_requires_rolling_gain_beyond_noise() -> None:
         noise=0.04,
     )
     assert v.promote is True
-    assert "롤링" in v.reason
+    assert "최근 평가셋" in v.reason
 
 
 def test_hold_when_gain_is_within_seed_noise() -> None:
@@ -170,7 +170,7 @@ def test_hold_when_gain_is_within_seed_noise() -> None:
 
 
 def test_fixed_regression_blocks_even_with_rolling_gain() -> None:
-    """고정 골든셋은 회귀 감시 — 떨어지면 무조건 정지."""
+    """고정 평가셋은 회귀 감시 — 떨어지면 무조건 정지."""
     v = should_promote(
         fixed_champion=0.41,
         fixed_challenger=0.30,

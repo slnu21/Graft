@@ -250,7 +250,8 @@ def test_round_scores_each_image_once_and_the_list_is_frozen(loop_ws: dict[str, 
     assert (again.round_dir / "field.txt").read_text(encoding="utf-8") == field_txt
 
     _judge_all(second.round_dir / "queue")
-    assert run_round(loop).record.done == list(PHASES)
+    # 최근 평가셋(T16)을 안 쓰는 작업장이라 `rolling` 단계는 들어오지 않는다
+    assert run_round(loop).record.done == [p for p in PHASES if p != "rolling"]
 
     # 3라운드 — 새로 들어온 것이 없으니 스코어링을 건너뛰고 **합성만** 돈다
     third = run_round(loop)

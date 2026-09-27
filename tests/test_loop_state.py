@@ -110,8 +110,16 @@ def test_ledger_round_trip_keeps_unknown_fields(tmp_path: Path) -> None:
     assert len(led) == 2 and not led.warnings
     end = led.last_end
     assert end is not None and end.round == 1 and end.get("breaker") == "open"
+    # 최근 평가셋(T16) 자리는 옛 줄에 없다 — **키가 없으면 None**(0 이라고 말하지 않는다)
     assert led.history() == [
-        {"round": 1, "metric": 0.42, "promoted": True, "reason": "", "finished": end.at}
+        {
+            "round": 1,
+            "metric": 0.42,
+            "rolling": None,
+            "promoted": True,
+            "reason": "",
+            "finished": end.at,
+        }
     ]
 
 
@@ -194,7 +202,8 @@ def test_round_writes_the_ledger_and_a_bank_snapshot(loop_ws: dict[str, Path]) -
 
     # 포인터 파일에는 이력이 없다
     saved = json.loads((loop_ws["out"] / "loop.state.json").read_text(encoding="utf-8"))
-    assert set(saved) == {"round", "champion"}
+    # 포인터가 셋이다 — 라운드·champion·**최근 평가셋 기준선**(T16)
+    assert set(saved) == {"round", "champion", "rolling"}
     assert load_state(loop_ws["out"]).champion is not None
 
 

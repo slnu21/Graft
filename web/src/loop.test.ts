@@ -6,6 +6,8 @@ import {
   NONE,
   actionTone,
   chart,
+  chartPair,
+  chartRange,
   deltaText,
   latestDelta,
   metricText,
@@ -32,6 +34,9 @@ const row = (over: Partial<LoopRoundRow> = {}): LoopRoundRow => ({
   at: '2026-09-26T14:03:00+09:00',
   metric: 0.41,
   metricName: 'mAP50',
+  rolling: 0.46,
+  rollingChampion: 0.41,
+  rollingFingerprint: 'ab12cd34ef567890',
   promoted: true,
   reason: '개선',
   intake: 6,
@@ -47,6 +52,9 @@ const row = (over: Partial<LoopRoundRow> = {}): LoopRoundRow => ({
   marker: '',
   markerLabel: '',
   markerNote: '',
+  rollingMarker: '',
+  rollingMarkerLabel: '',
+  rollingMarkerNote: '',
   ...over,
 })
 
@@ -61,6 +69,15 @@ const openState = (over: Partial<Extract<LoopState, { open: true }>> = {}) =>
     trainer: 'yolo',
     metricName: 'mAP50',
     champion: null,
+    rolling: {
+      configured: false,
+      images: '',
+      metric: null,
+      championMetric: null,
+      fingerprint: '',
+      round: 0,
+      lastFingerprint: '',
+    },
     round: null,
     review: { judged: 0, total: 0, waiting: false, queueDir: '' },
     trigger: null,
@@ -194,5 +211,56 @@ describe('추이 그래프', () => {
     const c = chart([])
     expect(c.dots).toHaveLength(0)
     expect(c.lines).toHaveLength(0)
+  })
+})
+
+describe('이중 평가셋 추이', () => {
+  const fixed = [point(1, 0.3), point(2, 0.34), point(3, 0.36)]
+
+  it('두 계열이 같은 축·같은 배율에 놓인다', () => {
+    const recent = [point(1, 0.31), point(2, 0.35), point(3, 0.6)]
+    const c = chartPair(fixed, recent)
+    expect(c.fixed.min).toBe(c.rolling.min)
+    expect(c.fixed.max).toBe(c.rolling.max)
+    // 최근 쪽 최고점이 범위를 넓히므로 고정 선도 그만큼 아래로 눌린다(따로 잡으면 눈속임이 된다)
+    expect(c.fixed.max).toBeGreaterThan(chartRange(fixed.map((p) => p.metric)).max)
+    expect(c.fixed.dots.map((d) => d.x)).toEqual(c.rolling.dots.map((d) => d.x))
+  })
+
+  it('점이 적은 계열도 같은 라운드가 같은 x 에 놓인다', () => {
+    // 최근 평가셋을 R3 부터 붙인 경우 — 순서(index)로 놓으면 R3 이 맨 왼쪽으로 간다
+    const c = chartPair(fixed, [point(3, 0.28)])
+    expect(c.rolling.dots).toHaveLength(1)
+    expect(c.rolling.dots[0].x).toBeCloseTo(c.fixed.dots[2].x)
+    expect(c.rolling.dots[0].x).toBeCloseTo(CHART.width - CHART.right)
+  })
+
+  it('최근 계열이 비어도 고정 선은 그려진다', () => {
+    const c = chartPair(fixed, [])
+    expect(c.fixed.lines).toHaveLength(1)
+    expect(c.rolling.lines).toHaveLength(0)
+    expect(c.rolling.dots).toHaveLength(0)
+  })
+
+  it('갱신 지점에서 최근 선만 끊긴다', () => {
+    const recent = [point(1, 0.31), point(2, 0.35), point(3, 0.28, { segment: 1 })]
+    const c = chartPair(fixed, recent)
+    expect(c.fixed.lines.map((l) => l.segment)).toEqual([0])
+    expect(c.rolling.lines.map((l) => l.segment)).toEqual([0])
+    expect(c.rolling.lines[0].points.split(' ')).toHaveLength(2) // R3 은 끊겨 혼자 남는다
+  })
+
+  it('두 계열이 다 비어도 죽지 않는다', () => {
+    const c = chartPair([], [])
+    expect(c.fixed.dots).toHaveLength(0)
+    expect(c.rolling.dots).toHaveLength(0)
+    expect(c.fixed.max).toBeGreaterThan(c.fixed.min)
+  })
+})
+
+describe('빈 최근 점수', () => {
+  it('없는 최근 점수는 0 이 아니라 —', () => {
+    expect(metricText(row({ rolling: null }).rolling)).toBe(NONE)
+    expect(metricText(row().rolling)).toBe('0.4600')
   })
 })

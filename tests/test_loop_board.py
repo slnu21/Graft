@@ -29,7 +29,7 @@ def _ledger(tmp_path: Path) -> Path:
 
 def test_phase_steps_mark_done_current_and_todo() -> None:
     steps = board.phase_steps(PHASES, ["predict", "queue"], PHASE_LABEL)
-    assert [s.state for s in steps] == ["done", "done", "current", "todo", "todo", "todo", "todo"]
+    assert [s.state for s in steps] == ["done", "done", "current"] + ["todo"] * (len(PHASES) - 3)
     assert steps[2].phase == "review" and steps[2].label == "사람 판정 대기"
 
 
