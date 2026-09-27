@@ -420,6 +420,7 @@ def cmd_bank_import_yolo(args: argparse.Namespace) -> int:
             min_area=args.min_area,
             um_per_px=args.um_per_px,
             tags=_split_csv(args.tags),
+            min_confidence=args.min_confidence,
             list_normals=args.list_normals,
             log=(lambda m: _err(f"  {m}")) if args.verbose else None,
         )
@@ -438,6 +439,14 @@ def cmd_bank_import_yolo(args: argparse.Namespace) -> int:
             f"평가셋(holdout.txt)이라 {len(st.held_out)}건을 넣지 않았습니다: "
             + ", ".join(st.held_out[:5])
             + (" …" if len(st.held_out) > 5 else "")
+        )
+    if st.low_confidence:
+        # 게이트도 holdout 과 같은 규율 — 몇 건을 왜 뺐는지 말한다(T6)
+        _err(
+            f"신뢰도 게이트(--min-confidence {args.min_confidence})가 {len(st.low_confidence)}건을 "
+            "넣지 않았습니다: "
+            + ", ".join(f"{origin}({reason})" for origin, reason in st.low_confidence[:3])
+            + (" …" if len(st.low_confidence) > 3 else "")
         )
     per = st.per_class()
     if per:
@@ -963,6 +972,125 @@ def _review_mix(spec: str | None):
     except ValueError as exc:
         raise ValueError(f"--mix 값이 숫자가 아닙니다: {spec!r}") from exc
     return ReviewMix(boundary=b, confident=c, random=r)
+
+
+def cmd_loop_auto(args: argparse.Namespace) -> int:
+    """예측 → (게이트) → 결함 보관함. **사람 큐 앞에 서는 단계**(T6).
+
+    라운드의 `auto` 단계와 **같은 함수**(`loop.auto.run_auto`)를 부른다 — CLI·라운드가 다른 판정을 하면
+    사람이 "왜 여기선 들어가고 저기선 안 들어가나"를 묻게 된다.
+    """
+    from anograft.io.targets import TargetsError, list_targets
+    from anograft.loop.auto import AUTO_FILE, AutoPolicy, run_auto, write_auto_csv
+    from anograft.loop.queue import QueueError, index_images, read_predictions
+
+    try:
+        preds = read_predictions(args.pred)
+        other = read_predictions(args.pred_b) if args.pred_b else None
+        images, dup_warnings = index_images(list_targets(args.images))
+    except (QueueError, TargetsError, ValueError, OSError) as exc:
+        _err(f"오류: {exc}")
+        return EXIT_RECIPE_ERROR
+    for w in preds.warnings + (other.warnings if other else []) + dup_warnings:
+        _err(f"  경고: {w}")
+
+    policy = AutoPolicy(
+        score=args.score,
+        min_confidence=args.min_confidence,
+        require_agreement=not args.no_agreement,
+        allow_novel=args.allow_novel,
+        max_per_round=args.max_per_round,
+    )
+    novelty_threshold = NOVELTY_THRESHOLD if args.novelty is None else float(args.novelty)
+    known: list[str] = []
+    refs: list = []
+    try:
+        bank = Bank.load(args.bank)
+        known = list(bank.usable_classes)
+        refs = list(bank.novelty_refs())
+    except (BankError, OSError, ValueError) as exc:
+        # 처음 만드는 보관함이면 정상이다 — 클래스 검사·처음 보는 형상만 못 한다
+        _err(f"  경고: 보관함을 읽지 못했습니다 — {exc}")
+    try:
+        summary = run_auto(
+            preds,
+            images,
+            args.bank,
+            policy,
+            other=other,
+            iou_thresh=args.iou,
+            known_classes=known,
+            refs=refs,
+            novelty_threshold=novelty_threshold,
+            cls=args.cls,
+            trainer=args.trainer or "",
+            round_no=args.round,
+            tags=_split_csv(args.tags),
+            keep_whole=args.keep_whole,
+            min_area=args.min_area,
+            margin=args.margin,
+            um_per_px=args.um_per_px,
+            dry_run=args.dry_run,
+            log=(lambda m: _err(f"  {m}")) if args.verbose else None,
+        )
+    except (QueueError, BankError, OSError, ValueError) as exc:
+        _err(f"오류: {exc}")
+        return EXIT_RECIPE_ERROR
+
+    out_csv = Path(args.out) if args.out else None
+    if out_csv is not None:
+        write_auto_csv(out_csv, summary.admitted, summary.reasons, images)
+
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "bank": str(summary.bank),
+                    "dryRun": bool(args.dry_run),
+                    "admitted": summary.stems,
+                    "imported": summary.imported,
+                    "held": [{"stem": s, "reason": r} for s, r in summary.held],
+                    "belowScore": summary.below_score,
+                    "perClass": summary.per_class,
+                    "heldOut": summary.held_out,
+                    "csv": out_csv.as_posix() if out_csv else "",
+                },
+                ensure_ascii=False,
+            )
+        )
+        return EXIT_OK
+
+    head = "자동 편입 후보" if args.dry_run else "자동 편입"
+    print(
+        f"{head} {len(summary.admitted)}장"
+        + ("" if args.dry_run else f" → 결함 조각 {summary.imported}개: {summary.bank.as_posix()}")
+    )
+    for stem in summary.stems[:10]:
+        print(f"  + {stem} — {summary.reasons.get(stem, '')}")
+    if len(summary.stems) > 10:
+        print(f"  … {len(summary.stems) - 10}장 더")
+    if summary.per_class:
+        print("  클래스별: " + " · ".join(f"{k} {v}" for k, v in sorted(summary.per_class.items())))
+    print(
+        f"  사람 큐로 {len(summary.held)}장 · 점수 문턱 아래 {summary.below_score}장"
+        " (자동이 못 받은 것은 여전히 판정 대상입니다)"
+    )
+    for stem, reason in summary.held[:5]:
+        _err(f"    − {stem}: {reason}")
+    for w in summary.warnings:
+        _err(f"  경고: {w}")
+    if summary.held_out:
+        _err(f"  평가셋이라 뺀 것 {len(summary.held_out)}장 (holdout.txt)")
+    if out_csv is not None:
+        print(f"  기록: {out_csv.as_posix()}")
+    if not args.dry_run and summary.imported:
+        print(
+            "  태그 auto 로 들어갔습니다 — 아무도 안 본 조각이라 `bank ls` 의 tags 열(auto:N)로 감사하세요"
+            f" (라운드 안에서는 {AUTO_FILE} 에 남습니다)"
+        )
+    if args.dry_run:
+        print("  --dry-run 이라 보관함은 그대로입니다")
+    return EXIT_OK
 
 
 def cmd_loop_queue(args: argparse.Namespace) -> int:
@@ -1908,6 +2036,13 @@ def build_parser() -> argparse.ArgumentParser:
     bi.add_argument("--um-per-px", type=float, default=None)
     bi.add_argument("--tags", default=None, help="a,b")
     bi.add_argument(
+        "--min-confidence",
+        type=float,
+        default=0.0,
+        metavar="0..1",
+        help="추정 마스크 타당성이 이 아래면 은행에 넣지 않는다(0 = 끔 · 폴리곤 라벨은 해당 없음)",
+    )
+    bi.add_argument(
         "--list-normals", default=None, help="라벨이 빈 이미지 경로 목록 파일 → inputs.targets"
     )
     bi.add_argument("--verbose", action="store_true", help="이미지별 경고 전부 출력")
@@ -2160,6 +2295,73 @@ def build_parser() -> argparse.ArgumentParser:
         help="학습 루프 — 예측에서 검토 대기 목록을 만들고, 판정된 것을 결함 보관함으로 (v1.x)",
     )
     lsub = p.add_subparsers(dest="loop_cmd", required=True)
+    lg = lsub.add_parser(
+        "auto",
+        help="예측 중 **확신이 아주 높은 것**을 사람 없이 결함 보관함으로 (자동 편입 게이트)",
+        description="사람 큐 앞에 서는 단계입니다. 게이트는 다섯을 전부 넘어야 열립니다 — 마스크가 있고, "
+        "처음 보는 형상이 아니고, 보관함에 이미 있는 클래스이고, 검출 점수와 추정 마스크 타당성이 문턱 "
+        "위여야 합니다. --pred-b 를 주면 두 모델이 일치한 것만 받습니다(교차 검증). 먼저 --dry-run 으로 "
+        "무엇이 열리는지 보세요.",
+    )
+    lg.add_argument(
+        "--pred", required=True, help="예측 폴더(trainer predict 출력 — scores/·masks/)"
+    )
+    lg.add_argument("--pred-b", help="교차 검증할 다른 모델의 예측 폴더(일치한 것만 받는다)")
+    lg.add_argument("--images", required=True, help="예측에 쓴 이미지 폴더 또는 목록 .txt")
+    lg.add_argument("--bank", required=True, help="결함 보관함 폴더(없으면 만든다)")
+    lg.add_argument(
+        "--score",
+        type=float,
+        required=True,
+        metavar="0..1",
+        help="검출 점수 문턱 — 운영 임계값보다 **한참 위**여야 뜻이 있습니다",
+    )
+    lg.add_argument(
+        "--min-confidence",
+        type=float,
+        default=0.0,
+        metavar="0..1",
+        help="추정 마스크 타당성(mask_confidence) 하한 (0 = 끔)",
+    )
+    lg.add_argument(
+        "--no-agreement",
+        action="store_true",
+        help="두 번째 예측과의 일치를 요구하지 않는다(기본은 요구 — 상대가 없으면 아무것도 안 받는다)",
+    )
+    lg.add_argument(
+        "--allow-novel",
+        action="store_true",
+        help="처음 보는 형상도 자동으로 받는다(기본 거부 — 이름은 사람이 준다)",
+    )
+    lg.add_argument(
+        "--max", type=int, default=0, dest="max_per_round", help="이번에 받을 상한(0 = 없음)"
+    )
+    lg.add_argument(
+        "--iou",
+        type=float,
+        default=DEFAULT_IOU,
+        help=f"두 예측을 같은 검출로 볼 IoU (기본 {DEFAULT_IOU})",
+    )
+    lg.add_argument(
+        "--novelty",
+        type=float,
+        metavar="T",
+        help=f"처음 보는 형상 임계 0~1 (기본 {NOVELTY_THRESHOLD} · 0 = 끔)",
+    )
+    lg.add_argument("--class", dest="cls", help="클래스 이름 고정(기본: 예측 클래스)")
+    lg.add_argument("--tags", help="추가 태그 (쉼표 구분 — auto·origin:field 는 항상 붙는다)")
+    lg.add_argument("--trainer", help="예측을 만든 학습기 이름(mask_origin 에 남는다)")
+    lg.add_argument("--round", type=int, help="라운드 번호(태그 round-n)")
+    lg.add_argument("--margin", type=int, help=f"크롭 여유 px (기본 {DEFAULT_MARGIN})")
+    lg.add_argument("--min-area", type=int, help=f"최소 면적 px (기본 {DEFAULT_MIN_AREA})")
+    lg.add_argument("--keep-whole", action="store_true", help="마스크를 통째로 한 조각으로")
+    lg.add_argument("--um-per-px", type=float, help="픽셀 피치(µm/px)")
+    lg.add_argument("--out", help="감사 기록 CSV 경로 (기본: 안 씀)")
+    lg.add_argument("--dry-run", action="store_true", help="판정만 하고 보관함을 만지지 않는다")
+    lg.add_argument("--json", action="store_true")
+    lg.add_argument("--verbose", action="store_true")
+    lg.set_defaults(func=cmd_loop_auto)
+
     lq = lsub.add_parser(
         "queue",
         help="예측 → 검토 대기 폴더(검수 화면이 그대로 연다)",

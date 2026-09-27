@@ -49,6 +49,21 @@ review:
   # (틀린 이름은 그 클래스를 오염시키지만 미분류는 `bank promote` 한 줄로 되돌립니다).
   novelty_threshold: 0.6
 
+# 자동 편입(선택) — 확신이 아주 높은 예측을 **사람 큐를 거치지 않고** 보관함에 넣습니다.
+# 기본은 끔(score: 0)입니다. 켜는 것은 "아무도 안 본 조각이 은행에 들어간다"는 뜻이라 문턱을 사람이 적습니다.
+# 게이트는 다섯을 전부 넘어야 열립니다: 마스크가 있고 · 처음 보는 형상이 아니고 · 보관함에 이미 있는
+# 클래스이고 · 검출 점수가 score 위이고 · 추정 마스크 타당성이 min_confidence 위여야 합니다.
+# 못 받은 것은 버리지 않고 **사람 큐로** 갑니다(자동이 못 받았다고 판정 대상이 아닌 게 아닙니다).
+# 들어온 조각은 태그 auto 가 붙습니다 — `anograft bank ls <보관함>` 의 tags 열(auto:N)로 감사하세요.
+# 켜면 아래 breaker.max_auto_rate 로 그 비율을 감시하는 것이 짝입니다.
+auto:
+  score: 0 # 검출 점수 문턱 (실무 제안: 0.95 — 운영 임계값 0.5 보다 한참 위)
+  min_confidence: 0 # 추정 마스크 타당성 하한 (실무 제안: 0.6 = mask_from_box 의 LOW_CONFIDENCE)
+  require_agreement: true # 두 모델이 일치한 것만 — 켜고 pred_b 가 없으면 **아무것도 받지 않습니다**
+  # pred_b: preds/patchcore   # 비지도 모델의 예측 폴더(anograft trainer predict 로 미리 만들어 둡니다)
+  # allow_novel: false        # 처음 보는 형상도 자동으로? 기본 거부(이름은 사람이 줍니다)
+  # max_per_round: 20         # 한 라운드 상한(0 = 없음) — 넘은 것은 사람 큐로
+
 promote:
   metric: mAP50 # fit 이 내는 평평한 지표 맵의 키
   noise: 0.04 # 학습 시드 요동(BENCHMARKS §2) — 이보다 작은 Δ 는 개선이 아닙니다
@@ -74,6 +89,10 @@ breaker:
   #   아니라 아무도 안 보고 있다는 뜻입니다(설계 §2 규약 4).
   correction_rounds: 2 # 수정률을 몇 라운드 구간으로 볼지
   max_class_shift: 0 # 보관함 클래스 분포가 이보다 많이 바뀌면 정지 0~1 (실무 제안: 0.35)
+  max_auto_rate: 0 # 자동 편입 비율 상한 — 최근 구간이 이보다 높으면 정지 (실무 제안: 0.8)
+  #   = 편입된 조각 중 사람을 지나지 않은 비율(위 auto 게이트). 너무 높으면 모델이 자기 예측을
+  #   다시 배웁니다 — 사람 수정률과 **짝을 이루는 독립 지표**입니다.
+  auto_rounds: 2 # 자동 편입 비율을 몇 라운드 구간으로 볼지
 
 # synth_count: 200          # 한 라운드에 만들 합성 장수(기본: 레시피의 output.count)
 seed: 7

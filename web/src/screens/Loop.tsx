@@ -101,6 +101,10 @@ export function Loop() {
   // 최근 평가셋 열은 **쓰는 설정일 때만** 보여 준다 — 안 쓰면 전부 "—" 인 열이 하나 늘 뿐이다
   const showRolling =
     rolling?.configured === true || (rounds?.rounds ?? []).some((r) => r.rolling !== null)
+  // 자동 편입 열도 같은 규율 — 켜지 않았고 기록도 없으면 0 만 찍히는 열이 하나 늘 뿐이다(T6)
+  const showAuto =
+    (state?.open === true && state.auto.configured) ||
+    (rounds?.rounds ?? []).some((r) => r.auto > 0)
   // x 자리는 두 계열을 합쳐 정했으므로 라운드 라벨도 합쳐서 찍는다
   const axisDots = [
     ...c.fixed.dots,
@@ -246,6 +250,26 @@ export function Loop() {
               <div className="stat mono">{rateText(state.corrections.rate)}</div>
               <div className="sub">{state.corrections.text}</div>
             </section>
+
+            {state.auto.configured && (
+              <section className="card">
+                <h2>자동 편입</h2>
+                <div className="sub">
+                  사람을 지나지 않고 들어온 비율 · 문턱 {state.auto.score.toFixed(2)}
+                  {state.auto.minConfidence > 0 &&
+                    ` · 마스크 신뢰도 ${state.auto.minConfidence.toFixed(2)}`}
+                </div>
+                <div className="stat mono">{rateText(state.auto.rate)}</div>
+                <div className="sub">{state.auto.text}</div>
+                <div className="sub">
+                  {state.auto.requireAgreement
+                    ? state.auto.predB
+                      ? '두 모델이 일치한 것만 받습니다'
+                      : '교차 검증할 두 번째 예측이 없어 아무것도 받지 않습니다'
+                    : '교차 검증 없이 받습니다 — 태그 auto 로 감사하세요'}
+                </div>
+              </section>
+            )}
           </div>
 
           {state.round && (
@@ -512,6 +536,7 @@ export function Loop() {
                   </th>
                   {showRolling && <th className="num">최근</th>}
                   <th className="num">편입</th>
+                  {showAuto && <th className="num">자동</th>}
                   <th className="num">조각</th>
                   <th className="num">사람 수정률</th>
                   <th>설정 지문</th>
@@ -531,6 +556,11 @@ export function Loop() {
                       </td>
                     )}
                     <td className="num mono">{r.intake}</td>
+                    {showAuto && (
+                      <td className="num mono" title={rateText(r.autoRate)}>
+                        {r.auto}
+                      </td>
+                    )}
                     <td className="num mono">{r.sources}</td>
                     <td className="num mono">{rateText(r.correctionRate)}</td>
                     <td className="mono">{shortHash(r.pipelineHash)}</td>
@@ -542,7 +572,7 @@ export function Loop() {
                 ))}
                 {(rounds?.rounds.length ?? 0) === 0 && (
                   <tr>
-                    <td colSpan={showRolling ? 9 : 8} className="sub">
+                    <td colSpan={8 + (showRolling ? 1 : 0) + (showAuto ? 1 : 0)} className="sub">
                       아직 끝난 라운드가 없습니다.
                     </td>
                   </tr>

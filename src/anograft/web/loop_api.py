@@ -114,6 +114,33 @@ def _rolling_json(loop: Any, status: Any, last: Any) -> dict:
     }
 
 
+def _auto_json(loop: Any, outcomes: Any) -> dict:
+    """**자동 편입**(T6) — 켰는가 · 문턱 · 전 구간 비율. 사람 수정률 카드와 **짝을 이루는 독립 지표**다.
+
+    켜지 않았으면 `configured: false` 만 준다 — 화면이 없는 것을 묻지 않게(최근 평가셋과 같은 규율).
+    비율은 `policy.auto_window` 가 낸 값 그대로다(여기서 새로 세지 않는다).
+    """
+    from anograft.loop.policy import auto_window
+
+    settings = loop.config.auto
+    policy = settings.policy()
+    stats = auto_window(outcomes)
+    pred_b = loop.auto_pred_b
+    return {
+        "configured": policy.enabled,
+        "score": settings.score,
+        "minConfidence": settings.min_confidence,
+        "requireAgreement": settings.require_agreement,
+        "allowNovel": settings.allow_novel,
+        "maxPerRound": settings.max_per_round,
+        "predB": pred_b.as_posix() if pred_b is not None else "",
+        "rate": stats.rate,
+        "auto": stats.auto,
+        "reviewed": stats.reviewed,
+        "text": stats.text(),
+    }
+
+
 def _state_payload(loop: Any, path: Path | None) -> dict:
     from anograft.loop.round import (
         PHASE_LABEL,
@@ -177,6 +204,8 @@ def _state_payload(loop: Any, path: Path | None) -> dict:
         "lockText": st.lock.text() if st.lock else "",
         "processed": st.processed,
         "action": action.to_json(),
+        # 자동 편입(T6) — 사람 수정률과 나란히 놓는다(둘이 짝이다: 아무도 안 보는 중인가)
+        "auto": _auto_json(loop, outcomes),
         "corrections": {
             "rate": corrections.rate,
             "drafted": corrections.drafted,

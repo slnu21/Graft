@@ -79,6 +79,43 @@ class ReviewSettings(BaseModel):
         return v
 
 
+class AutoSettings(BaseModel):
+    """**자동 편입** 게이트 (설계 §3 `gate`·§4 L2, T6) — 확신 높은 예측을 사람 큐 없이 보관함으로.
+
+    `trigger`·`breaker` 와 같은 규율이다: **기본값은 전부 0 = 끔**이고 숫자는 사람이 정한다(설계 §8 확인
+    게이트). 자동 편입을 켜는 것은 "아무도 안 본 조각이 은행에 들어간다"는 뜻이라, 켜는 사람이 문턱을
+    적어야 한다. 켜면 `breaker.max_auto_rate` 로 그 비율을 감시하는 것이 짝이다.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: 검출 점수 하한(0 = 자동 편입 안 함). 운영 임계값(`review.threshold`)보다 **한참 위**여야 뜻이 있다
+    score: float = Field(default=0.0, ge=0.0, le=1.0)
+    #: 추정 마스크 타당성(`mask_confidence`) 하한. 실무 제안: 0.6
+    min_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    #: 두 번째 예측과 **일치**해야 여는가(설계 §4 열쇠 1). 켜져 있고 상대가 없으면 **아무것도 안 받는다**
+    require_agreement: bool = True
+    #: 처음 보는 형상도 자동으로 받을지 — 기본 거부(T15: 이름은 사람이 준다)
+    allow_novel: bool = False
+    #: 한 라운드 상한(0 = 없음). 잘린 것은 버리지 않고 사람 큐로 간다
+    max_per_round: int = Field(default=0, ge=0)
+    #: 두 번째 예측 폴더 — 라운드가 자기 champion 으로만 스코어링하므로 **비지도 모델의 예측을 사람이
+    #: 따로 만들어 두는 자리**다(`trainer predict` → 이 경로). 없으면 교차 검증을 못 한다
+    pred_b: str | None = None
+
+    def policy(self) -> Any:
+        """`loop.auto.AutoPolicy` 로 — 판정은 순수 함수가 한다(여기는 검증·기본값만)."""
+        from anograft.loop.auto import AutoPolicy
+
+        return AutoPolicy(
+            score=self.score,
+            min_confidence=self.min_confidence,
+            require_agreement=self.require_agreement,
+            allow_novel=self.allow_novel,
+            max_per_round=self.max_per_round,
+        )
+
+
 class PromoteSettings(BaseModel):
     """승급 판정 — 설계 §2 규약 2("Δ 가 시드 요동 이하면 개선이 아니다")."""
 
@@ -138,6 +175,10 @@ class BreakerSettings(BaseModel):
     correction_rounds: int = Field(default=2, ge=1)
     #: 보관함 클래스 분포가 이보다 많이 바뀌면 정지(0~1, 0 = 안 봄). 실무 제안: 0.35
     max_class_shift: float = Field(default=0.0, ge=0.0, le=1.0)
+    #: **자동 편입 비율** 상한 — 최근 구간이 이보다 높으면 정지(0 = 안 봄, T6). 실무 제안: 0.8
+    max_auto_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    #: 자동 편입 비율을 몇 라운드 구간으로 볼지
+    auto_rounds: int = Field(default=2, ge=1)
 
     def policy(self) -> Any:
         """`loop.policy.BreakerPolicy` 로 — 판정은 순수 함수가 한다(여기는 검증·기본값만)."""
@@ -148,6 +189,8 @@ class BreakerSettings(BaseModel):
             min_correction_rate=self.min_correction_rate,
             correction_rounds=self.correction_rounds,
             max_class_shift=self.max_class_shift,
+            max_auto_rate=self.max_auto_rate,
+            auto_rounds=self.auto_rounds,
         )
 
 
@@ -171,6 +214,8 @@ class LoopConfig(BaseModel):
     #: 실제 학습분(있으면 train 에 함께 들어간다). 없으면 train 은 합성만
     train_base: DataSplit | None = None
     review: ReviewSettings = Field(default_factory=ReviewSettings)
+    #: **자동 편입** 게이트(T6). 기본값은 끔 — 켜면 라운드에 `auto` 단계가 선다
+    auto: AutoSettings = Field(default_factory=AutoSettings)
     promote: PromoteSettings = Field(default_factory=PromoteSettings)
     #: `loop tick` 이 "지금 돌 때인가"를 판정하는 기준(T14). 기본값은 제한 없음
     trigger: TriggerSettings = Field(default_factory=TriggerSettings)
@@ -219,6 +264,12 @@ class ResolvedLoop:
     @property
     def trainers_file(self) -> Path | None:
         return self.path(self.config.trainers_file) if self.config.trainers_file else None
+
+    @property
+    def auto_pred_b(self) -> Path | None:
+        """자동 편입의 교차 검증 상대 — 두 번째 예측 폴더(없으면 ``None``)."""
+        raw = self.config.auto.pred_b
+        return self.path(raw) if raw else None
 
     @property
     def eval_rolling(self) -> dict[str, Path | None] | None:

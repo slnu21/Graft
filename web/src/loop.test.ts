@@ -40,6 +40,8 @@ const row = (over: Partial<LoopRoundRow> = {}): LoopRoundRow => ({
   promoted: true,
   reason: '개선',
   intake: 6,
+  auto: 0,
+  autoRate: 0,
   sources: 137,
   snapshot: 'round-003/bank.snapshot.json',
   pipelineHash: 'aa40f71b9c',

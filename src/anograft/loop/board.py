@@ -27,7 +27,13 @@ from typing import Any
 
 from anograft.core.classes import UNSORTED
 from anograft.loop import ledger as L
-from anograft.loop.policy import CorrectionStats, RoundOutcome, correction_window
+from anograft.loop.policy import (
+    AutoStats,
+    CorrectionStats,
+    RoundOutcome,
+    auto_window,
+    correction_window,
+)
 
 #: 화면이 기본으로 보여 주는 라운드 수. 원장은 계속 자라므로 표는 끝에서 잘라 본다.
 DEFAULT_LIMIT = 12
@@ -119,8 +125,10 @@ class RoundRow:
     rolling_fingerprint: str = ""
     promoted: bool = False
     reason: str = ""
-    #: 이 라운드에 보관함으로 편입된 조각 수(`accept` 단계)
+    #: 이 라운드에 **사람 판정을 지나** 편입된 조각 수(`accept` 단계)
     intake: int = 0
+    #: 이 라운드에 **사람 없이** 편입된 조각 수(`auto` 단계, T6). 옛 원장엔 키가 없어 0 이다
+    auto: int = 0
     #: 합성이 본 보관함 조각 수 · 그 라운드의 스냅샷 파일
     sources: int = 0
     snapshot: str = ""
@@ -160,6 +168,9 @@ class RoundRow:
             "promoted": self.promoted,
             "reason": self.reason,
             "intake": self.intake,
+            "auto": self.auto,
+            # 그 라운드의 자동 편입 비율(분모가 0 이면 null — 모르는 것과 0 은 다르다)
+            "autoRate": AutoStats(auto=self.auto, reviewed=self.intake).rate,
             "sources": self.sources,
             "snapshot": self.snapshot,
             "pipelineHash": self.pipeline_hash,
@@ -190,6 +201,7 @@ def _outcome(event: L.Event) -> RoundOutcome:
         promoted=bool(event.get("promoted")),
         metric=float(metric) if isinstance(metric, (int, float)) else None,
         intake=int(event.get("intake", 0) or 0),
+        auto=int(event.get("auto", 0) or 0),
         drafted=int(event.get("drafted", 0) or 0),
         corrected=int(event.get("corrected", 0) or 0),
         per_class={str(k): int(v) for k, v in (event.get("bank_per_class") or {}).items()},
@@ -237,6 +249,7 @@ def round_rows(led: L.Ledger, *, limit: int = DEFAULT_LIMIT) -> list[RoundRow]:
                 promoted=outcome.promoted,
                 reason=e.reason,
                 intake=outcome.intake,
+                auto=outcome.auto,
                 sources=int(e.get("bank_sources", 0) or 0),
                 snapshot=str(e.get("bank_snapshot", "") or ""),
                 pipeline_hash=str(e.get("pipeline_hash", "") or ""),
@@ -435,6 +448,19 @@ def next_action(
     )
 
 
+def auto_totals(rows: Sequence[RoundRow], *, rounds: int = 0) -> AutoStats:
+    """표에 있는 라운드들의 **자동 편입 비율** — 화면 카드 하나(U8 의 사람 수정률 카드와 짝).
+
+    `policy.auto_window` 를 그대로 쓴다(여기서 판정을 새로 하지 않는다). 행은 최신이 위라 구간을 자를 때는
+    **앞에서부터** 잘라야 한다 — `auto_window` 는 옛것부터의 목록을 기대한다.
+    """
+    ordered = [
+        RoundOutcome(round=r.round, intake=r.intake, auto=r.auto)
+        for r in sorted(rows, key=lambda r: r.round)
+    ]
+    return auto_window(ordered, rounds)
+
+
 __all__ = [
     "DEFAULT_LIMIT",
     "MARKER_LABEL",
@@ -445,6 +471,7 @@ __all__ = [
     "MetricPoint",
     "PhaseStep",
     "RoundRow",
+    "auto_totals",
     "class_rows",
     "metric_label",
     "metric_points",

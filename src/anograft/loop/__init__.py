@@ -7,6 +7,18 @@
 어댑터가 하나도 없어도 `anograft run` 은 그대로 돌아간다 — 이게 이 계층의 시험대다.
 """
 
+from anograft.loop.auto import (
+    AUTO_TAG,
+    AutoCandidate,
+    AutoPolicy,
+    AutoSummary,
+    AutoVerdict,
+    admit_to_bank,
+    auto_admit,
+    cheap_candidates,
+    partition_auto,
+    run_auto,
+)
 from anograft.loop.config import (
     LoopConfig,
     LoopConfigError,
@@ -54,6 +66,7 @@ from anograft.loop.ledger import Ledger, Tick
 from anograft.loop.lock import LockBusyError, LockInfo, RoundLock, read_lock
 from anograft.loop.policy import (
     Agreement,
+    AutoStats,
     BreakerPolicy,
     BreakerVerdict,
     CorrectionStats,
@@ -66,6 +79,7 @@ from anograft.loop.policy import (
     TriggerPolicy,
     TriggerState,
     agreement,
+    auto_window,
     circuit_break,
     class_shift,
     correction_window,
@@ -128,9 +142,15 @@ from anograft.loop.round import (
 )
 
 __all__ = [
+    "AUTO_TAG",
     "FIELD_TAG",
     "AcceptSummary",
     "Agreement",
+    "AutoCandidate",
+    "AutoPolicy",
+    "AutoStats",
+    "AutoSummary",
+    "AutoVerdict",
     "BreakerPolicy",
     "BreakerVerdict",
     "Champion",
@@ -176,14 +196,18 @@ __all__ = [
     "TriggerPolicy",
     "TriggerState",
     "accept_to_bank",
+    "admit_to_bank",
     "agreement",
     "append_processed",
     "assemble_dataset",
     "assemble_eval_dataset",
+    "auto_admit",
+    "auto_window",
     "breaker_reset",
     "breaker_verdict",
     "build_queue",
     "call",
+    "cheap_candidates",
     "check_breaker",
     "check_trigger",
     "circuit_break",
@@ -210,6 +234,7 @@ __all__ = [
     "parse_info",
     "parse_predict",
     "parse_scores",
+    "partition_auto",
     "partition_by_gate",
     "plan_ingest",
     "predict",
@@ -223,6 +248,7 @@ __all__ = [
     "rolling_plan",
     "round_phases",
     "round_plan",
+    "run_auto",
     "run_round",
     "select_for_review",
     "select_queue",

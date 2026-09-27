@@ -202,3 +202,24 @@ def test_screen_says_nothing_about_the_recent_set_when_it_is_not_configured(
     assert payload["rolling"]["metric"] is None
     assert "rolling" not in [s["phase"] for s in payload["round"]["steps"]]
     assert handle(Request("/api/loop/rounds")).payload["rollingPoints"] == []
+
+
+def test_auto_block_is_hidden_until_the_gate_is_configured(ws: dict[str, Path]) -> None:
+    """⑥ 화면은 **켰을 때만** 자동 편입 칸을 보여 준다 — 최근 평가셋과 같은 규율(T6).
+
+    비율은 `policy.auto_window` 가 낸 것 그대로다(편입이 없으면 null — 모르는 것과 0 은 다르다).
+    """
+    import yaml
+
+    payload = _open(ws["loop"])
+    assert payload["auto"]["configured"] is False
+
+    doc = yaml.safe_load(ws["loop"].read_text(encoding="utf-8"))
+    doc["auto"] = {"score": 0.9, "min_confidence": 0.6, "require_agreement": False}
+    ws["loop"].write_text(
+        yaml.safe_dump(doc, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+    auto = _open(ws["loop"])["auto"]
+    assert auto["configured"] is True and auto["score"] == pytest.approx(0.9)
+    assert auto["requireAgreement"] is False and auto["predB"] == ""
+    assert auto["rate"] is None and "편입된 조각이 없습니다" in auto["text"]
