@@ -147,3 +147,58 @@ def test_corrections_are_reported_as_unknown_when_nothing_was_drafted(ws: dict[s
     payload = _open(ws["loop"])
     assert payload["corrections"]["rate"] is None
     assert "모델 초안" in payload["corrections"]["text"]
+
+
+# --------------------------------------------------------------------- 이중 평가셋(T16)
+
+
+def _add_rolling(ws: dict[str, Path]) -> Path:
+    """작업장에 **최근 평가셋**을 붙인다 — 화면의 두 칸이 이것에 달려 있다."""
+    import yaml
+
+    from anograft.io import imgio
+    from tests.fixtures import blob_image, blob_mask
+
+    root = ws["root"] / "recent"
+    (root / "images").mkdir(parents=True)
+    (root / "masks").mkdir(parents=True)
+    for s in ("c0", "c1"):
+        imgio.write_image(root / "images" / f"{s}.png", blob_image(64, [(32, 32, 7)]))
+        imgio.write_image(root / "masks" / f"{s}.png", blob_mask(64, [(32, 32, 7)]))
+    doc = yaml.safe_load(ws["loop"].read_text(encoding="utf-8"))
+    doc["eval_rolling"] = {"images": str(root / "images"), "masks": str(root / "masks")}
+    ws["loop"].write_text(
+        yaml.safe_dump(doc, allow_unicode=True, sort_keys=False), encoding="utf-8"
+    )
+    return root
+
+
+def test_screen_shows_both_eval_sets_when_the_recent_one_is_configured(ws: dict[str, Path]) -> None:
+    _add_rolling(ws)
+    run_round(load_loop_config(ws["loop"]))
+    payload = _open(ws["loop"])
+
+    rolling = payload["rolling"]
+    assert rolling["configured"] is True and rolling["images"].endswith("images")
+    assert rolling["metric"] is not None and rolling["fingerprint"]
+    assert rolling["lastFingerprint"] == rolling["fingerprint"]
+    # 단계 줄에 "최근 평가셋 재기" 가 들어온다 — 라벨은 **서버가** 준다(프론트에 사전 사본 금지)
+    steps = {s["phase"]: s["label"] for s in payload["round"]["steps"]}
+    assert steps["rolling"] == "최근 평가셋 재기"
+
+    res = handle(Request("/api/loop/rounds"))
+    assert res.status == 200
+    assert res.payload["rounds"][0]["rolling"] is not None
+    # 최근 계열은 **따로** 온다(갱신 지점에서 한 번 더 끊기므로)
+    assert [p["round"] for p in res.payload["rollingPoints"]] == [1]
+
+
+def test_screen_says_nothing_about_the_recent_set_when_it_is_not_configured(
+    ws: dict[str, Path],
+) -> None:
+    run_round(load_loop_config(ws["loop"]))
+    payload = _open(ws["loop"])
+    assert payload["rolling"]["configured"] is False
+    assert payload["rolling"]["metric"] is None
+    assert "rolling" not in [s["phase"] for s in payload["round"]["steps"]]
+    assert handle(Request("/api/loop/rounds")).payload["rollingPoints"] == []

@@ -643,6 +643,11 @@ export type LoopRoundRow = {
   at: string
   metric: number | null
   metricName: string
+  /** **최근 평가셋**(T16) 점수. 안 쓰거나 못 쟀으면 null(옛 원장엔 키가 없다). */
+  rolling: number | null
+  /** 그 라운드의 champion 이 같은 최근 평가셋에서 받은 점수 · 무엇을 재고 있었나(지문). */
+  rollingChampion: number | null
+  rollingFingerprint: string
   promoted: boolean
   reason: string
   intake: number
@@ -659,6 +664,10 @@ export type LoopRoundRow = {
   marker: string
   markerLabel: string
   markerNote: string
+  /** 이 라운드 뒤에 **최근 평가셋이 갱신된** 지점 — 최근 추이만 끊는다(고정은 이어진다). */
+  rollingMarker: string
+  rollingMarkerLabel: string
+  rollingMarkerNote: string
 }
 
 export type LoopPoint = {
@@ -685,6 +694,16 @@ export type LoopState =
       metricLabel: string
       metricHint: string
       champion: LoopChampion | null
+      /** 이중 평가셋의 **최근** 쪽(T16) — `configured: false` 면 화면에서 그 칸을 감춘다. */
+      rolling: {
+        configured: boolean
+        images: string
+        metric: number | null
+        championMetric: number | null
+        fingerprint: string
+        round: number
+        lastFingerprint: string
+      }
       round: LoopRoundView | null
       review: LoopReview
       trigger: { start: boolean; reason: string } | null
@@ -707,7 +726,10 @@ export type LoopState =
 
 export type LoopRounds = {
   rounds: LoopRoundRow[]
+  /** 고정 평가셋 추이 — 판정 지점에서만 끊긴다. */
   points: LoopPoint[]
+  /** 최근 평가셋 추이 — **평가셋 갱신에서 한 번 더** 끊긴다(서버가 갈라 준다). */
+  rollingPoints: LoopPoint[]
   metricName: string
   metricLabel: string
   metricHint: string

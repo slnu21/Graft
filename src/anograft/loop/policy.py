@@ -233,23 +233,26 @@ def should_promote(
     """새 모델(challenger)을 배포할지.
 
     ``noise`` 기본값 0.04 는 BENCHMARKS §2 에서 잰 **학습 시드 요동**이다 — 그보다 작은 Δ 는 개선이 아니다.
-    고정 골든은 회귀 감시(떨어지면 무조건 정지), 롤링 골든은 현재 공정 성능(승급 판단). 둘 다 본다(설계 §2b.6).
+    **고정** 평가셋은 회귀 감시(떨어지면 무조건 정지), **최근** 평가셋은 지금 공정 성능(승급 판단) —
+    둘 다 본다(설계 §2b.6). 화면 용어는 "평가셋"이고 코드 이름은 `rolling` 이다(용어 사전 §3.5).
     """
     d_fixed = fixed_challenger - fixed_champion
     if d_fixed < -noise:
-        return PromotionVerdict(False, f"고정 골든셋이 회귀했습니다 (Δ {d_fixed:+.3f})")
+        return PromotionVerdict(False, f"고정 평가셋이 회귀했습니다 (Δ {d_fixed:+.3f})")
 
     if rolling_champion is not None and rolling_challenger is not None:
         d_roll = rolling_challenger - rolling_champion
         if d_roll > noise:
-            return PromotionVerdict(True, f"롤링 골든셋 개선 (Δ {d_roll:+.3f}) · 고정 회귀 없음")
+            return PromotionVerdict(
+                True, f"최근 평가셋 개선 (Δ {d_roll:+.3f}) · 고정 평가셋 회귀 없음"
+            )
         return PromotionVerdict(
-            False, f"롤링 개선이 시드 노이즈 이하입니다 (Δ {d_roll:+.3f} ≤ {noise:.3f})"
+            False, f"최근 평가셋 개선이 시드 노이즈 이하입니다 (Δ {d_roll:+.3f} ≤ {noise:.3f})"
         )
 
     # 롤링이 아직 없는 초기 라운드 — 고정만으로 판단한다
     if d_fixed > noise:
-        return PromotionVerdict(True, f"고정 골든셋 개선 (Δ {d_fixed:+.3f})")
+        return PromotionVerdict(True, f"고정 평가셋 개선 (Δ {d_fixed:+.3f})")
     return PromotionVerdict(
         False, f"개선이 시드 노이즈 이하입니다 (Δ {d_fixed:+.3f} ≤ {noise:.3f})"
     )

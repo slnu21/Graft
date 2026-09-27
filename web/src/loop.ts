@@ -124,14 +124,8 @@ export type Chart = {
   max: number
 }
 
-/**
- * 점 목록 → 좌표. x 는 **순서**로 고르게 놓는다(라운드 번호로 놓으면 지표 없는 라운드가 빈칸을 만든다).
- *
- * 선은 `segment` 가 같은 이웃끼리만 잇는다. 값이 하나뿐이거나 전부 같으면 위아래로 조금 벌려
- * 가운데 선으로 그린다(0 높이 그래프는 축이 무너진다).
- */
-export function chart(points: LoopPoint[], box: ChartBox = CHART): Chart {
-  const values = points.map((p) => p.metric)
+/** 값 범위 — 하나뿐이거나 전부 같으면 위아래로 벌린다(0 높이 그래프는 축이 무너진다). */
+export function chartRange(values: number[]): { min: number; max: number } {
   let min = values.length ? Math.min(...values) : 0
   let max = values.length ? Math.max(...values) : 1
   if (max - min < 1e-9) {
@@ -142,18 +136,37 @@ export function chart(points: LoopPoint[], box: ChartBox = CHART): Chart {
     min -= pad
     max += pad
   }
+  return { min, max }
+}
+
+/**
+ * 점 목록 → 좌표. x 는 **라운드 순서**로 고르게 놓는다(라운드 번호를 그대로 쓰면 지표 없는 라운드가
+ * 빈칸을 만든다). `rounds`·`range` 를 주면 **다른 계열과 축을 공유**한다 — 고정/최근을 한 그래프에
+ * 겹쳐 그릴 때 그 둘이 같은 자리·같은 배율이어야 한다.
+ *
+ * 선은 `segment` 가 같은 이웃끼리만 잇는다.
+ */
+export function chart(
+  points: LoopPoint[],
+  box: ChartBox = CHART,
+  axis?: { rounds: number[]; range: { min: number; max: number } },
+): Chart {
+  const rounds = axis ? axis.rounds : points.map((p) => p.round)
+  const { min, max } = axis ? axis.range : chartRange(points.map((p) => p.metric))
   const innerW = box.width - box.left - box.right
   const innerH = box.height - box.top - box.bottom
-  const x = (i: number) =>
-    points.length < 2 ? box.left + innerW / 2 : box.left + (innerW * i) / (points.length - 1)
+  const x = (round: number) => {
+    const i = Math.max(0, rounds.indexOf(round))
+    return rounds.length < 2 ? box.left + innerW / 2 : box.left + (innerW * i) / (rounds.length - 1)
+  }
   const y = (v: number) => box.top + innerH * (1 - (v - min) / (max - min))
 
-  const dots: ChartDot[] = points.map((p, i) => ({
+  const dots: ChartDot[] = points.map((p) => ({
     round: p.round,
     metric: p.metric,
     promoted: p.promoted,
     marker: p.marker,
-    x: x(i),
+    x: x(p.round),
     y: y(p.metric),
   }))
   const lines: ChartLine[] = []
@@ -176,6 +189,26 @@ export function chart(points: LoopPoint[], box: ChartBox = CHART): Chart {
 
   const ticks: ChartTick[] = [min, (min + max) / 2, max].map((v) => ({ value: v, y: y(v) }))
   return { lines, dots, ticks, min, max }
+}
+
+export type ChartPair = { fixed: Chart; rolling: Chart }
+
+/**
+ * 고정·최근 두 계열을 **한 축 위에** 놓는다(T16). 축을 따로 잡으면 두 선의 높이가 서로 다른 배율로
+ * 그려져 "최근이 더 높다"가 눈속임이 된다 — 같은 지표를 다른 평가셋에서 잰 값이므로 배율은 하나다.
+ *
+ * x 자리는 **두 계열의 라운드를 합친 목록**으로 정한다(최근을 늦게 붙였으면 점이 적다 — 그때도
+ * 같은 라운드가 같은 x 에 놓여야 한다).
+ */
+export function chartPair(
+  fixed: LoopPoint[],
+  rolling: LoopPoint[],
+  box: ChartBox = CHART,
+): ChartPair {
+  const rounds = [...new Set([...fixed, ...rolling].map((p) => p.round))].sort((a, b) => a - b)
+  const range = chartRange([...fixed, ...rolling].map((p) => p.metric))
+  const axis = { rounds, range }
+  return { fixed: chart(fixed, box, axis), rolling: chart(rolling, box, axis) }
 }
 
 function round2(v: number): number {

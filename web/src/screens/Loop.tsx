@@ -14,7 +14,7 @@ import {
   CHART,
   NONE,
   actionTone,
-  chart,
+  chartPair,
   deltaText,
   latestDelta,
   metricText,
@@ -91,9 +91,24 @@ export function Loop() {
   }
 
   const points = rounds?.points ?? []
-  const c = chart(points)
+  const rollingPoints = rounds?.rollingPoints ?? []
+  // 두 계열은 **한 축 위에** 놓는다(배율이 갈리면 "최근이 더 높다"가 눈속임이 된다)
+  const c = chartPair(points, rollingPoints)
   const delta = latestDelta(points)
+  const rollingDelta = latestDelta(rollingPoints)
   const lastRow = rounds?.rounds[0] ?? null
+  const rolling = state?.open === true ? state.rolling : null
+  // 최근 평가셋 열은 **쓰는 설정일 때만** 보여 준다 — 안 쓰면 전부 "—" 인 열이 하나 늘 뿐이다
+  const showRolling =
+    rolling?.configured === true || (rounds?.rounds ?? []).some((r) => r.rolling !== null)
+  // x 자리는 두 계열을 합쳐 정했으므로 라운드 라벨도 합쳐서 찍는다
+  const axisDots = [
+    ...c.fixed.dots,
+    ...c.rolling.dots.filter((d) => !c.fixed.dots.some((f) => f.round === d.round)),
+  ].sort((a, b) => a.round - b.round)
+  const markerDots = axisDots.filter((d) =>
+    [...c.fixed.dots, ...c.rolling.dots].some((o) => o.round === d.round && o.marker),
+  )
 
   return (
     <>
@@ -158,10 +173,11 @@ export function Loop() {
 
           <div className="loop-stats">
             <section className="card">
-              <h2>현재 모델</h2>
-              <div className="sub">
+              <h2>{showRolling ? '고정 평가셋' : '현재 모델'}</h2>
+              <div className="sub" title={state.champion?.model}>
+                {showRolling && '회귀 감시(동결) · '}
                 {state.champion
-                  ? `라운드 ${state.champion.round} · ${shortenPath(state.champion.model, 38) || '(이름 없음)'}`
+                  ? `${showRolling ? '현재 모델 ' : ''}라운드 ${state.champion.round} · ${shortenPath(state.champion.model, 30) || '(이름 없음)'}`
                   : '아직 승급한 모델이 없습니다'}
               </div>
               <div className="stat mono" title={state.metricHint}>
@@ -172,6 +188,27 @@ export function Loop() {
                 {deltaText(delta) || '지난 라운드와 견줄 것이 없습니다'}
               </div>
             </section>
+
+            {showRolling && (
+              <section className="card">
+                <h2>최근 평가셋</h2>
+                <div className="sub">
+                  승급 판단 — 사람이 주기적으로 새로 채우는 평가셋입니다.
+                  {rolling?.fingerprint && ` 지문 ${rolling.fingerprint}`}
+                </div>
+                <div className="stat mono" title={state.metricHint}>
+                  {metricText(rolling?.metric ?? null)}
+                  <span className="u"> {state.metricName}</span>
+                </div>
+                <div className="sub mono">
+                  {rolling?.championMetric === null || rolling?.championMetric === undefined
+                    ? '아직 현재 모델을 이 평가셋에서 재지 않았습니다'
+                    : `현재 모델 ${metricText(rolling.championMetric)}${
+                        deltaText(rollingDelta) ? ` · ${deltaText(rollingDelta)}` : ''
+                      }`}
+                </div>
+              </section>
+            )}
 
             <section className="card">
               <h2>라운드</h2>
@@ -248,88 +285,133 @@ export function Loop() {
           <section className="card">
             <h2>라운드별 {rounds?.metricLabel ?? state.metricLabel}</h2>
             <div className="sub">
-              {state.metricHint && <>{state.metricHint}. </>}지점(기준선 재설정 · 자동 정지 해제)
-              앞뒤로는 <b>선을 잇지 않습니다</b> — 그 구간은 견주지 않기로 한 자리입니다.
+              {state.metricHint && <>{state.metricHint}. </>}지점(기준선 재설정 · 자동 정지 해제 ·
+              최근 평가셋 갱신) 앞뒤로는 <b>선을 잇지 않습니다</b> — 그 구간은 견주지 않기로 한
+              자리입니다.
+              {showRolling &&
+                ' 최근 평가셋을 새로 채우면 그 선만 끊기고, 현재 모델을 새 평가셋에서 다시 재기 때문에 그 라운드의 판정은 그대로 삽니다.'}
             </div>
-            {c.dots.length === 0 ? (
+            {axisDots.length === 0 ? (
               <p className="sub">아직 점수가 있는 라운드가 없습니다.</p>
             ) : (
-              <svg className="loop-chart" viewBox={`0 0 ${CHART.width} ${CHART.height}`} role="img">
-                <g stroke="var(--line)" strokeWidth="1">
-                  <line
-                    x1={CHART.left}
-                    y1={CHART.top}
-                    x2={CHART.left}
-                    y2={CHART.height - CHART.bottom}
-                  />
-                  <line
-                    x1={CHART.left}
-                    y1={CHART.height - CHART.bottom}
-                    x2={CHART.width - CHART.right}
-                    y2={CHART.height - CHART.bottom}
-                  />
-                  {c.ticks.map((t) => (
+              <>
+                {showRolling && (
+                  <div className="loop-legend">
+                    <span className="fixed">고정 평가셋</span>
+                    <span className="roll">최근 평가셋</span>
+                  </div>
+                )}
+                <svg
+                  className="loop-chart"
+                  viewBox={`0 0 ${CHART.width} ${CHART.height}`}
+                  role="img"
+                >
+                  <g stroke="var(--line)" strokeWidth="1">
                     <line
-                      key={t.value}
                       x1={CHART.left}
-                      y1={t.y}
+                      y1={CHART.top}
+                      x2={CHART.left}
+                      y2={CHART.height - CHART.bottom}
+                    />
+                    <line
+                      x1={CHART.left}
+                      y1={CHART.height - CHART.bottom}
                       x2={CHART.width - CHART.right}
-                      y2={t.y}
-                      strokeDasharray="2 4"
+                      y2={CHART.height - CHART.bottom}
                     />
-                  ))}
-                </g>
-                <g fill="var(--tx3)" fontSize="10" fontFamily="var(--mono)">
-                  {c.ticks.map((t) => (
-                    <text key={t.value} x={CHART.left - 6} y={t.y + 3} textAnchor="end">
-                      {t.value.toFixed(2)}
-                    </text>
-                  ))}
-                  {c.dots.map((d) => (
-                    <text
-                      key={d.round}
-                      x={d.x}
-                      y={CHART.height - CHART.bottom + 14}
-                      textAnchor="middle"
-                    >
-                      R{d.round}
-                    </text>
-                  ))}
-                </g>
-                {c.lines.map((l) => (
-                  <polyline
-                    key={l.segment}
-                    points={l.points}
-                    fill="none"
-                    stroke="var(--teal)"
-                    strokeWidth="2"
-                  />
-                ))}
-                {c.dots.map((d) => (
-                  <g key={d.round}>
-                    <circle
-                      cx={d.x}
-                      cy={d.y}
-                      r={d.promoted ? 3.5 : 2.5}
-                      fill={d.promoted ? 'var(--teal)' : 'var(--tx3)'}
-                    />
-                    {d.marker && (
+                    {c.fixed.ticks.map((t) => (
                       <line
-                        x1={d.x}
-                        y1={CHART.top}
-                        x2={d.x}
-                        y2={CHART.height - CHART.bottom}
-                        stroke="var(--warn)"
-                        strokeWidth="1"
-                        strokeDasharray="3 3"
+                        key={t.value}
+                        x1={CHART.left}
+                        y1={t.y}
+                        x2={CHART.width - CHART.right}
+                        y2={t.y}
+                        strokeDasharray="2 4"
                       />
-                    )}
-                    <title>
-                      R{d.round} · {metricText(d.metric)} · {d.promoted ? '승급' : '유지'}
-                    </title>
+                    ))}
                   </g>
-                ))}
-              </svg>
+                  <g fill="var(--tx3)" fontSize="10" fontFamily="var(--mono)">
+                    {c.fixed.ticks.map((t) => (
+                      <text key={t.value} x={CHART.left - 6} y={t.y + 3} textAnchor="end">
+                        {t.value.toFixed(2)}
+                      </text>
+                    ))}
+                    {axisDots.map((d) => (
+                      <text
+                        key={d.round}
+                        x={d.x}
+                        y={CHART.height - CHART.bottom + 14}
+                        textAnchor="middle"
+                      >
+                        R{d.round}
+                      </text>
+                    ))}
+                  </g>
+                  {/* 지점 — 라운드 하나에 한 줄(고정·최근 어느 쪽이 끊겼든 같은 자리다) */}
+                  {markerDots.map((d) => (
+                    <line
+                      key={`m${d.round}`}
+                      x1={d.x}
+                      y1={CHART.top}
+                      x2={d.x}
+                      y2={CHART.height - CHART.bottom}
+                      stroke="var(--warn)"
+                      strokeWidth="1"
+                      strokeDasharray="3 3"
+                    />
+                  ))}
+                  {c.rolling.lines.map((l) => (
+                    <polyline
+                      key={`r${l.segment}`}
+                      points={l.points}
+                      fill="none"
+                      stroke="var(--amber)"
+                      strokeWidth="2"
+                      strokeDasharray="5 3"
+                    />
+                  ))}
+                  {c.fixed.lines.map((l) => (
+                    <polyline
+                      key={l.segment}
+                      points={l.points}
+                      fill="none"
+                      stroke="var(--teal)"
+                      strokeWidth="2"
+                    />
+                  ))}
+                  {c.fixed.dots.map((d) => (
+                    <g key={d.round}>
+                      <circle
+                        cx={d.x}
+                        cy={d.y}
+                        r={d.promoted ? 3.5 : 2.5}
+                        fill={d.promoted ? 'var(--teal)' : 'var(--tx3)'}
+                      />
+                      <title>
+                        R{d.round} · {showRolling ? '고정 평가셋 ' : ''}
+                        {metricText(d.metric)} · {d.promoted ? '승급' : '유지'}
+                      </title>
+                    </g>
+                  ))}
+                  {/* 최근 점은 **테두리 원**으로 맨 위에 — 두 값이 가까우면 채운 점 뒤로 숨는다
+                      (실물에서 0.3085 와 0.3140 이 3px 차이라 아예 안 보였다). */}
+                  {c.rolling.dots.map((d) => (
+                    <g key={`rd${d.round}`}>
+                      <circle
+                        cx={d.x}
+                        cy={d.y}
+                        r="4.5"
+                        fill="none"
+                        stroke="var(--amber)"
+                        strokeWidth="1.5"
+                      />
+                      <title>
+                        R{d.round} · 최근 평가셋 {metricText(d.metric)}
+                      </title>
+                    </g>
+                  ))}
+                </svg>
+              </>
             )}
           </section>
 
@@ -426,8 +508,9 @@ export function Loop() {
                   <th>#</th>
                   <th>끝난 때</th>
                   <th className="num" title={state.metricHint}>
-                    {rounds?.metricName ?? state.metricName}
+                    {showRolling ? '고정' : (rounds?.metricName ?? state.metricName)}
                   </th>
+                  {showRolling && <th className="num">최근</th>}
                   <th className="num">편입</th>
                   <th className="num">조각</th>
                   <th className="num">사람 수정률</th>
@@ -441,6 +524,12 @@ export function Loop() {
                     <td className="mono">R{r.round}</td>
                     <td className="mono">{whenText(r.at)}</td>
                     <td className="num mono">{metricText(r.metric)}</td>
+                    {showRolling && (
+                      <td className="num mono" title={r.rollingFingerprint}>
+                        {metricText(r.rolling)}
+                        {r.rollingMarkerLabel && <span className="why"> 갱신</span>}
+                      </td>
+                    )}
                     <td className="num mono">{r.intake}</td>
                     <td className="num mono">{r.sources}</td>
                     <td className="num mono">{rateText(r.correctionRate)}</td>
@@ -453,7 +542,7 @@ export function Loop() {
                 ))}
                 {(rounds?.rounds.length ?? 0) === 0 && (
                   <tr>
-                    <td colSpan={8} className="sub">
+                    <td colSpan={showRolling ? 9 : 8} className="sub">
                       아직 끝난 라운드가 없습니다.
                     </td>
                   </tr>
@@ -482,6 +571,12 @@ export function Loop() {
               <dd className="mono">{state.recipePath}</dd>
               <dt>현장 이미지</dt>
               <dd className="mono">{state.fieldPath || '(없음 — 합성만 도는 라운드)'}</dd>
+              <dt>최근 평가셋</dt>
+              <dd className="mono">
+                {rolling?.configured
+                  ? rolling.images
+                  : '(없음 — 고정 평가셋만으로 판정합니다)'}
+              </dd>
             </dl>
           </section>
         </div>

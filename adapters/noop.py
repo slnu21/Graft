@@ -13,6 +13,7 @@
     python adapters/noop.py info
     python adapters/noop.py fit --dataset <p> --out <model_dir> --seed 7 [--spec spec.json]
     python adapters/noop.py predict --model <model> --images list.txt --out <pred_dir> [--spec spec.json]
+    python adapters/noop.py eval --model <model> --dataset <p> [--seed 7] [--spec spec.json]
 """
 
 from __future__ import annotations
@@ -104,13 +105,29 @@ def ellipse_mask_rows(width: int, height: int, box: tuple[int, int, int, int]) -
 # ---------------------------------------------------------------- verbs
 
 
+def count_files(dataset: Path) -> int:
+    """데이터셋 안의 파일 수 — 가짜 지표의 유일한 재료(크기가 곧 '어려움'인 셈)."""
+    return sum(1 for _ in dataset.rglob("*")) if dataset.exists() else 0
+
+
+def fake_metric(n_files: int, bias: float, seed: int) -> float:
+    """가짜 지표 — **데이터셋 · 모델 · 시드**의 함수. `fit` 과 `eval` 이 같은 규칙을 쓴다.
+
+    셋이 다 들어가야 더미로 이중 평가셋을 테스트할 수 있다: 평가셋을 바꾸면(파일 수) 값이 바뀌고,
+    모델을 바꾸면(bias) 값이 바뀌어야 champion 과 challenger 를 견주는 코드가 실제로 시험된다.
+    """
+    base = 0.30 + min(0.40, n_files / 2000.0)
+    return round(base + bias + (int(seed) % 7) / 1000.0, 4)
+
+
 def cmd_info(_: argparse.Namespace) -> int:
     print(
         json.dumps(
             {
                 "name": NAME,
                 "version": VERSION,
-                "capabilities": ["score", "mask", "box"],
+                # eval = **선택 verb**(학습 없이 모델을 다시 잴 수 있다) — 이중 평가셋(T16)이 이걸 본다
+                "capabilities": ["score", "mask", "box", "eval"],
                 "dataset_format": "pairs",
                 "trains_on": "labeled",
                 "deterministic": True,
@@ -134,15 +151,21 @@ def cmd_fit(args: argparse.Namespace) -> int:
             spec = {}
 
     # 학습은 하지 않는다. 데이터셋 크기와 시드에서 '지표'를 결정적으로 만든다.
-    n_files = sum(1 for _ in dataset.rglob("*")) if dataset.exists() else 0
-    base = 0.30 + min(0.40, n_files / 2000.0)
+    n_files = count_files(dataset)
     bias = float(spec.get("bias", 0.0) or 0.0)  # 테스트에서 challenger 를 만들 때 쓴다
-    seed_jitter = (int(args.seed) % 7) / 1000.0
 
     model = out / "model.json"
     model.write_text(
         json.dumps(
-            {"trained_on": str(dataset), "files": n_files, "seed": args.seed, "spec": spec},
+            {
+                "trained_on": str(dataset),
+                "files": n_files,
+                "seed": args.seed,
+                # eval 이 이 값을 읽는다 — **어느 모델을 재는가**에 따라 점수가 달라져야
+                # 이중 평가셋(champion vs challenger) 비교를 더미로 테스트할 수 있다
+                "bias": bias,
+                "spec": spec,
+            },
             ensure_ascii=False,
             indent=2,
         ),
@@ -153,7 +176,7 @@ def cmd_fit(args: argparse.Namespace) -> int:
         json.dumps(
             {
                 "model": str(model),
-                "metrics": {"mAP50": round(base + bias + seed_jitter, 4), "files": n_files},
+                "metrics": {"mAP50": fake_metric(n_files, bias, args.seed), "files": n_files},
             },
             ensure_ascii=False,
         )
@@ -208,6 +231,30 @@ def cmd_predict(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_eval(args: argparse.Namespace) -> int:
+    """``eval`` — **학습하지 않고** 주어진 모델을 이 데이터셋에서 잰다(선택 verb, T16).
+
+    모델 파일에 적어 둔 ``bias`` 를 읽어 `fit` 과 **같은 규칙**으로 점수를 만든다. 그래서 champion 과
+    challenger 를 같은 평가셋에서 재면 값이 다르고(모델이 다르니), 평가셋을 갈면 둘 다 달라진다.
+    """
+    dataset = Path(args.dataset)
+    model = Path(args.model)
+    bias = 0.0
+    try:
+        bias = float(json.loads(model.read_text(encoding="utf-8")).get("bias", 0.0) or 0.0)
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        print(f"[noop] 모델을 읽지 못해 bias 0 으로 잽니다: {model}", file=sys.stderr)
+    n_files = count_files(dataset)
+    print(f"[noop] 재기만 함 — 파일 {n_files}개 · model {model.name}", file=sys.stderr)
+    print(
+        json.dumps(
+            {"metrics": {"mAP50": fake_metric(n_files, bias, args.seed), "files": n_files}},
+            ensure_ascii=False,
+        )
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="noop", description="더미 학습기 어댑터 (계약 검증용)")
     sub = ap.add_subparsers(dest="verb", required=True)
@@ -226,8 +273,16 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--out", required=True)
     p.add_argument("--spec")  # 계약: predict 도 --spec 을 받는다(쓰지 않아도 거부하면 안 된다)
 
+    e = sub.add_parser("eval")
+    e.add_argument("--model", required=True)
+    e.add_argument("--dataset", required=True)
+    e.add_argument("--seed", type=int, default=0)
+    e.add_argument("--spec")
+
     args = ap.parse_args(argv)
-    return {"info": cmd_info, "fit": cmd_fit, "predict": cmd_predict}[args.verb](args)
+    return {"info": cmd_info, "fit": cmd_fit, "predict": cmd_predict, "eval": cmd_eval}[args.verb](
+        args
+    )
 
 
 if __name__ == "__main__":

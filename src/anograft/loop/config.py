@@ -162,8 +162,12 @@ class LoopConfig(BaseModel):
     out: str  # 라운드 폴더 루트
     #: 스코어링할 현장 이미지(폴더 또는 .txt 목록). 없으면 **수집 단계를 건너뛴다**(합성만 도는 라운드)
     field: str | None = None
-    #: 동결 평가셋 — 조립한 학습 데이터셋의 **val** 로 들어가고, `fit` 의 지표가 곧 라운드 점수다
+    #: **고정** 평가셋(동결) — 조립한 학습 데이터셋의 **val** 로 들어가고, `fit` 의 지표가 곧 라운드 점수다
     eval: DataSplit
+    #: **최근** 평가셋(주기 갱신, T16 · 설계 §2b.6) — 학습에 쓰지 않고 `eval` verb 로만 잰다.
+    #: 없으면 고정 평가셋만으로 판정한다(그래서 기본은 없음 — 운영이 자리 잡은 뒤에 붙이는 것이다).
+    #: 창 길이(최근 N개월)는 **Graft 가 정하지 않는다** — 폴더를 사람이 갱신하고, 루프는 갱신을 알아챈다.
+    eval_rolling: DataSplit | None = None
     #: 실제 학습분(있으면 train 에 함께 들어간다). 없으면 train 은 합성만
     train_base: DataSplit | None = None
     review: ReviewSettings = Field(default_factory=ReviewSettings)
@@ -215,6 +219,12 @@ class ResolvedLoop:
     @property
     def trainers_file(self) -> Path | None:
         return self.path(self.config.trainers_file) if self.config.trainers_file else None
+
+    @property
+    def eval_rolling(self) -> dict[str, Path | None] | None:
+        """**최근 평가셋**(T16) — 설정에 없으면 ``None``(고정만으로 판정한다)."""
+        rolling = self.config.eval_rolling
+        return None if rolling is None else self.split(rolling)
 
     def split(self, split: DataSplit) -> dict[str, Path | None]:
         return {

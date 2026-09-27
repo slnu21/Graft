@@ -14,6 +14,9 @@
   둘을 한 함수가 내지 않고 이름으로 갈라 두었다 — 섞이면 그래프가 거꾸로 그려진다.
 * **기준선 재설정·자동 정지 해제 지점은 선을 끊는다**(`segment`). 그 앞뒤는 견주지 않기로 한 구간이라
   이어 그리면 화면이 "떨어졌다/올랐다"는 거짓말을 한다(설계 §2b.5(3)).
+* **평가셋이 둘이면 끊는 자리도 둘이다**(T16) — `metric_points`(고정)는 판정 지점에서만 끊고,
+  `rolling_points`(최근)는 **평가셋 갱신**에서도 끊는다. 한 함수에 섞으면 최근 평가셋을 갈았을 때
+  고정 추이까지 끊겨 "회귀 감시가 끊겼다"는 없는 사실이 화면에 생긴다.
 """
 
 from __future__ import annotations
@@ -48,7 +51,12 @@ def metric_label(name: str) -> tuple[str, str]:
 MARKER_LABEL: dict[str, str] = {
     L.EVENT_BASELINE_RESET: "기준선 재설정",
     L.EVENT_BREAKER_RESET: "자동 정지 해제",
+    L.EVENT_ROLLING_UPDATE: "최근 평가셋 갱신",
 }
+
+#: **최근 평가셋만** 끊는 지점(T16) — 고정 평가셋 추이는 그대로 이어진다. 갱신된 것은 최근 쪽이고,
+#: champion 을 새 평가셋에서 다시 재므로 판정도 끊기지 않는다(설계 §2b.6).
+ROLLING_ONLY_MARKERS: tuple[str, ...] = (L.EVENT_ROLLING_UPDATE,)
 
 
 # --------------------------------------------------------------------------------------
@@ -104,6 +112,11 @@ class RoundRow:
     at: str = ""
     metric: float | None = None
     metric_name: str = ""
+    #: **최근 평가셋** 점수(T16) — 안 쓰거나 못 쟀으면 ``None``(옛 원장엔 키가 없다)
+    rolling: float | None = None
+    #: 그 라운드의 champion 이 같은 최근 평가셋에서 받은 점수 · 무엇을 재고 있었나(지문)
+    rolling_champion: float | None = None
+    rolling_fingerprint: str = ""
     promoted: bool = False
     reason: str = ""
     #: 이 라운드에 보관함으로 편입된 조각 수(`accept` 단계)
@@ -121,10 +134,18 @@ class RoundRow:
     #: 이 라운드 **뒤에** 사람이 찍은 지점(기준선 재설정·자동 정지 해제). 없으면 빈 문자열
     marker: str = ""
     marker_note: str = ""
+    #: 이 라운드 뒤에 **최근 평가셋이 갱신된** 지점(T16) — `marker` 와 갈라 둔 이유는 이것이
+    #: **최근 추이만** 끊기 때문이다(고정 평가셋은 그대로이므로 그 선을 끊으면 거짓말이 된다).
+    rolling_marker: str = ""
+    rolling_marker_note: str = ""
 
     @property
     def marker_label(self) -> str:
         return MARKER_LABEL.get(self.marker, "")
+
+    @property
+    def rolling_marker_label(self) -> str:
+        return MARKER_LABEL.get(self.rolling_marker, "")
 
     def to_json(self) -> dict[str, Any]:
         rate = self.corrections.rate
@@ -133,6 +154,9 @@ class RoundRow:
             "at": self.at,
             "metric": self.metric,
             "metricName": self.metric_name,
+            "rolling": self.rolling,
+            "rollingChampion": self.rolling_champion,
+            "rollingFingerprint": self.rolling_fingerprint,
             "promoted": self.promoted,
             "reason": self.reason,
             "intake": self.intake,
@@ -148,7 +172,15 @@ class RoundRow:
             "marker": self.marker,
             "markerLabel": self.marker_label,
             "markerNote": self.marker_note,
+            "rollingMarker": self.rolling_marker,
+            "rollingMarkerLabel": self.rolling_marker_label,
+            "rollingMarkerNote": self.rolling_marker_note,
         }
+
+
+def _number(value: Any) -> float | None:
+    """원장에 적힌 값 → 숫자. 키가 없거나 숫자가 아니면 ``None``(**모르는 것과 0 은 다르다**)."""
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
 
 def _outcome(event: L.Event) -> RoundOutcome:
@@ -165,10 +197,10 @@ def _outcome(event: L.Event) -> RoundOutcome:
     )
 
 
-def _markers(led: L.Ledger) -> dict[int, tuple[str, str]]:
+def _markers(led: L.Ledger, names: Sequence[str]) -> dict[int, tuple[str, str]]:
     """``after_round`` → (이벤트 이름, 메모). 같은 라운드에 둘이 찍혔으면 뒤엣것이 남는다."""
     out: dict[int, tuple[str, str]] = {}
-    for name in (L.EVENT_BASELINE_RESET, L.EVENT_BREAKER_RESET):
+    for name in names:
         for e in led.of(name):
             out[int(e.get("after_round", 0) or 0)] = (name, str(e.get("note", "") or ""))
     return out
@@ -181,7 +213,8 @@ def round_rows(led: L.Ledger, *, limit: int = DEFAULT_LIMIT) -> list[RoundRow]:
     첫 행의 수정률이 사라진다).
     """
     ends = led.of(L.EVENT_ROUND_END)
-    markers = _markers(led)
+    markers = _markers(led, (L.EVENT_BASELINE_RESET, L.EVENT_BREAKER_RESET))
+    rolling_markers = _markers(led, ROLLING_ONLY_MARKERS)
     rows: list[RoundRow] = []
     previous: RoundOutcome | None = None
     for e in ends:
@@ -191,12 +224,16 @@ def round_rows(led: L.Ledger, *, limit: int = DEFAULT_LIMIT) -> list[RoundRow]:
         )
         per_class = dict(outcome.per_class)
         marker, note = markers.get(e.round, ("", ""))
+        roll_marker, roll_note = rolling_markers.get(e.round, ("", ""))
         rows.append(
             RoundRow(
                 round=e.round,
                 at=e.at,
                 metric=outcome.metric,
                 metric_name=str(e.get("metric_name", "") or ""),
+                rolling=_number(e.get("rolling_metric")),
+                rolling_champion=_number(e.get("rolling_champion")),
+                rolling_fingerprint=str(e.get("rolling_fingerprint", "") or ""),
                 promoted=outcome.promoted,
                 reason=e.reason,
                 intake=outcome.intake,
@@ -209,6 +246,8 @@ def round_rows(led: L.Ledger, *, limit: int = DEFAULT_LIMIT) -> list[RoundRow]:
                 corrections=stats,
                 marker=marker,
                 marker_note=note,
+                rolling_marker=roll_marker,
+                rolling_marker_note=roll_note,
             )
         )
         previous = outcome
@@ -242,24 +281,42 @@ class MetricPoint:
 
 
 def metric_points(rows: Sequence[RoundRow]) -> list[MetricPoint]:
-    """지표가 있는 라운드만, **옛것부터**. 지점 뒤로는 `segment` 가 하나 올라간다.
+    """**고정 평가셋** 추이 — 지표가 있는 라운드만, **옛것부터**. 지점 뒤로는 `segment` 가 하나 올라간다.
 
     지표가 없는 라운드(학습 전에 멈춘 것)는 건너뛴다 — 0 으로 그리면 "점수가 0 이 됐다"가 된다.
+    최근 평가셋 갱신은 여기를 끊지 **않는다** — 고정 평가셋은 그대로이므로 그 선은 이어진다.
     """
+    return _points(rows, fixed=True)
+
+
+def rolling_points(rows: Sequence[RoundRow]) -> list[MetricPoint]:
+    """**최근 평가셋** 추이 — 갱신 지점에서 한 번 더 끊긴다(T16).
+
+    끊는 것이 둘이다: 판정 지점(기준선 재설정·자동 정지 해제)과 **평가셋 갱신**. 갱신 앞뒤의 값은 서로
+    다른 평가셋에서 나온 값이라 견줄 수 없다 — 그래도 그 라운드의 *판정* 은 살아 있다(champion 을 새
+    평가셋에서 다시 쟀다). 화면은 선을 끊고, 판정은 표의 결과 열이 그대로 말한다.
+    """
+    return _points(rows, fixed=False)
+
+
+def _points(rows: Sequence[RoundRow], *, fixed: bool) -> list[MetricPoint]:
+    """추이 점 만들기 — 고정/최근이 **같은 규칙**을 쓰고 값과 끊는 지점만 다르다."""
     out: list[MetricPoint] = []
     segment = 0
     for row in sorted(rows, key=lambda r: r.round):
-        if row.metric is not None:
+        value = row.metric if fixed else row.rolling
+        marker = row.marker if fixed else (row.rolling_marker or row.marker)
+        if value is not None:
             out.append(
                 MetricPoint(
                     round=row.round,
-                    metric=float(row.metric),
+                    metric=float(value),
                     promoted=row.promoted,
                     segment=segment,
-                    marker=row.marker,
+                    marker=marker,
                 )
             )
-        if row.marker:  # 이 라운드 **뒤에** 찍힌 지점이므로 다음 점부터 끊는다
+        if marker:  # 이 라운드 **뒤에** 찍힌 지점이므로 다음 점부터 끊는다
             segment += 1
     return out
 
@@ -382,6 +439,7 @@ __all__ = [
     "DEFAULT_LIMIT",
     "MARKER_LABEL",
     "METRIC_HELP",
+    "ROLLING_ONLY_MARKERS",
     "Action",
     "ClassRow",
     "MetricPoint",
@@ -392,5 +450,6 @@ __all__ = [
     "metric_points",
     "next_action",
     "phase_steps",
+    "rolling_points",
     "round_rows",
 ]

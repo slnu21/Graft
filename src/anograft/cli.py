@@ -767,6 +767,14 @@ def cmd_trainer_info(args: argparse.Namespace) -> int:
     )
     print(f"  할 수 있는 것  {', '.join(info.capabilities)}")
     print(
+        "  재기(eval)     "
+        + (
+            "예 — 최근 평가셋을 따로 잽니다(이중 평가셋)"
+            if info.can_eval
+            else "아니오 — 고정 평가셋만으로 판정합니다"
+        )
+    )
+    print(
         f"  결정적         {'예' if info.deterministic else '아니오 — 루프가 시드 여러 개로 평균 냅니다'}"
     )
     if spec.spec:
@@ -901,6 +909,43 @@ def cmd_trainer_predict(args: argparse.Namespace) -> int:
         print(
             "  masks/ 는 bank import-pairs · scores/ 의 instances 는 bank import-yolo 로 들어갑니다"
         )
+    return EXIT_OK
+
+
+def cmd_trainer_eval(args: argparse.Namespace) -> int:
+    """등록된 학습기를 계약대로 부른다 — ``eval``(선택). **학습하지 않고** 지표만 받는다.
+
+    이중 평가셋(T16)의 "최근 평가셋" 점수가 이 경로로 나온다. 루프가 부르는 것과 **같은 진입점**이라
+    손으로 한 번 쳐 보면 어댑터가 계약을 지키는지 확인된다.
+    """
+    from anograft.loop.contract import DEFAULT_TIMEOUT_S, TrainerError, evaluate, merge_spec
+    from anograft.loop.registry import resolve_cwd
+
+    try:
+        found = _trainer_spec(args)
+        if found is None:
+            return EXIT_RECIPE_ERROR
+        path, spec = found
+        result = evaluate(
+            spec.command,
+            model=args.model,
+            dataset=Path(args.dataset),
+            seed=args.seed,
+            # 학습·예측과 같은 spec 을 준다 — 해상도가 달라지면 점수가 조용히 달라진다
+            spec=merge_spec(spec.spec, _spec_override(args.spec)),
+            cwd=resolve_cwd(spec, path.parent),
+            timeout=spec.timeout or DEFAULT_TIMEOUT_S,
+            on_log=_stderr_line,
+        )
+    except (TrainerError, OSError, ValueError, json.JSONDecodeError) as exc:
+        print(f"오류: {exc}", file=sys.stderr)
+        return EXIT_RECIPE_ERROR
+
+    if args.json:
+        print(json.dumps({"metrics": dict(result.metrics)}, ensure_ascii=False))
+    else:
+        for k, v in result.metrics.items():
+            print(f"  {k:<16} {v}")
     return EXIT_OK
 
 
@@ -1334,6 +1379,13 @@ def cmd_loop_status(args: argparse.Namespace) -> int:
                     "round": st.state.round,
                     "next": st.next,
                     "champion": st.state.champion.to_dict() if st.state.champion else None,
+                    # 최근 평가셋(T16) — 안 쓰는 설정이면 configured=false 하나만 뜬다
+                    "rolling": {
+                        "configured": st.rolling_configured,
+                        "metric": st.rolling_last,
+                        "championMetric": st.rolling.metric if st.rolling else None,
+                        "fingerprint": st.rolling.fingerprint if st.rolling else "",
+                    },
                     "judged": st.judged,
                     "total": st.total,
                     "history": st.history,
@@ -2087,6 +2139,21 @@ def build_parser() -> argparse.ArgumentParser:
     tp.add_argument("--file", help="trainers.yaml 경로")
     tp.add_argument("--json", action="store_true")
     tp.set_defaults(func=cmd_trainer_predict)
+
+    te = tsub.add_parser(
+        "eval",
+        help="등록된 학습기로 **재기만** — 학습 없이 모델을 이 데이터셋의 val 에서 잰다(선택 verb)",
+        description="이중 평가셋(고정/최근)의 최근 쪽이 이 verb 로 나옵니다. 어댑터가 capabilities 에 "
+        "eval 을 선언해야 합니다 — 없으면 루프는 고정 평가셋만으로 판정합니다.",
+    )
+    te.add_argument("name")
+    te.add_argument("--model", required=True, help="fit 이 돌려준 모델 참조(불투명)")
+    te.add_argument("--dataset", required=True, help="val 이 들어 있는 데이터셋 루트")
+    te.add_argument("--seed", type=int, default=0)
+    te.add_argument("--spec", help="추가 spec JSON 파일(학습 때와 같은 값을 주는 게 기본)")
+    te.add_argument("--file", help="trainers.yaml 경로")
+    te.add_argument("--json", action="store_true")
+    te.set_defaults(func=cmd_trainer_eval)
 
     p = sub.add_parser(
         "loop",

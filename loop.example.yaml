@@ -16,11 +16,22 @@ out: loop/ # 라운드 폴더 루트
 # 없으면 수집 단계를 건너뛰고 합성만 도는 라운드가 됩니다.
 field: field/
 
-# 동결 평가셋 — 조립한 학습 데이터셋의 val 로 들어가고, fit 의 지표가 곧 라운드 점수입니다.
+# 고정 평가셋(동결) — 조립한 학습 데이터셋의 val 로 들어가고, fit 의 지표가 곧 라운드 점수입니다.
 # **루프에 절대 넣지 않습니다**(<bank>/holdout.txt 에 같은 stem 을 적어 두면 코드가 막습니다).
 eval:
   images: golden/images
   labels: golden/labels # yolo 형식. pairs 형식이면 masks: golden/masks
+
+# 최근 평가셋(선택) — 고정 평가셋은 늙습니다(조명·렌즈·로트가 바뀌면 지금 공정을 대표하지 못합니다).
+# 그래서 둘을 둡니다: **고정 = 회귀 감시**(떨어지면 승급 없음) · **최근 = 승급 판단**(개선이 있어야 승급).
+# 이 폴더는 **사람이 주기적으로 새로 채웁니다**(최근 N개월을 몇 달로 볼지는 현장이 정합니다) — 루프는
+# 폴더가 바뀐 것을 지문으로 알아채고, champion 을 새 평가셋에서 다시 재서 비교를 이어 갑니다
+# (추이 그래프의 선은 그 지점에서 끊깁니다 · rounds.jsonl 의 rolling_update).
+# 학습기가 capabilities 에 eval 을 선언해야 합니다(없으면 고정만으로 판정하고 그 사유를 알려 줍니다).
+# 여기 이미지도 **보관함에 넣지 않습니다** — holdout.txt 에 stem 을 같이 적어 두세요.
+# eval_rolling:
+#   images: golden-recent/images
+#   labels: golden-recent/labels
 
 # 실제 학습분(있으면 train 에 합성과 함께 들어갑니다). 없으면 train 은 합성만.
 train_base:

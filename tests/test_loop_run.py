@@ -48,6 +48,8 @@ from tests.fixtures import blob_image, blob_mask, loop_workspace
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 NOOP = REPO_ROOT / "adapters" / "noop.py"
+#: 최근 평가셋(T16)을 안 쓰는 설정의 단계 목록 — 이 파일의 작업장(`loop_workspace`)이 그렇다.
+WITHOUT_ROLLING = tuple(p for p in PHASES if p != "rolling")
 
 
 # --------------------------------------------------------------------- 순수
@@ -55,7 +57,9 @@ NOOP = REPO_ROOT / "adapters" / "noop.py"
 
 def test_round_phases_skips_collection_without_a_model_or_field() -> None:
     """첫 라운드엔 스코어링할 모델이 없다 — 그게 부트스트랩이고, 합성이 그 자리를 메운다."""
-    assert round_phases(has_champion=True, has_field=True) == PHASES
+    # `rolling`(최근 평가셋, T16)은 **설정에 있을 때만** 지난다 — 아무 일도 안 하는 단계를 세우지 않는다
+    assert round_phases(has_champion=True, has_field=True) == WITHOUT_ROLLING
+    assert round_phases(has_champion=True, has_field=True, has_rolling=True) == PHASES
     boot = round_phases(has_champion=False, has_field=True)
     assert boot == ("synth", "train", "judge")
     assert not set(boot) & set(COLLECT_PHASES)
@@ -231,7 +235,7 @@ def test_full_round_trip_with_the_noop_adapter(loop_ws: dict[str, Path]) -> None
     assert n > 0
     third = run_round(loop, on_log=logs.append)
     assert third.record.number == 2 and not third.waiting_for_human
-    assert third.record.done == list(PHASES)
+    assert third.record.done == list(WITHOUT_ROLLING)
     assert third.record.data["accept"]["accepted"] == n
     assert third.record.data["train"]["metrics"]["mAP50"] > 0
     # 이력은 `loop.state.json` 이 아니라 **원장**에 있다(T14)

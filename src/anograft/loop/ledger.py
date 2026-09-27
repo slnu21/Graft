@@ -5,7 +5,8 @@
 
 - ``<out>/rounds.jsonl`` — 라운드 시작 · 단계 완료 · 끝(지표·승급·champion·해시·은행 스냅샷) · 실패 · 안 돎.
   **중단·재개·감사·조회·롤백이 전부 이 파일에서 나온다.** 사람이 읽을 수 있어야 한다.
-- ``<out>/loop.state.json`` — 남는 것은 **움직이는 포인터 둘**뿐이다(지금 라운드 번호 · champion).
+- ``<out>/loop.state.json`` — 남는 것은 **움직이는 포인터**뿐이다(지금 라운드 번호 · champion ·
+  최근 평가셋 기준선).
   롤백이 포인터를 되돌리는 일이라 이건 덮어쓰는 파일이어야 하고, 이력은 원장이 든다.
 - ``<out>/round-NNN/round.json`` — 그 라운드의 `done` 목록(부분 진행 재사용의 진실). 원장은 감사용이고
   **다음 단계를 고르는 것은 여전히 `round.json`** 이다 — 재생(replay)으로 상태를 복원하는 구조를 만들면
@@ -40,6 +41,10 @@ EVENT_BASELINE_RESET = "baseline_reset"
 #: **자동 정지 해제**(T12) — 사람이 "무엇을 바꿨는지" 적고 다시 돌린 지점. 이 앞의 라운드는 자동 정지
 #: 판정에서 빠진다(기준선 재설정과 같은 규율 — 조건이 바뀌었으면 그 앞과 견주지 않는다).
 EVENT_BREAKER_RESET = "breaker_reset"
+#: **최근 평가셋 갱신**(T16) — 사람이 롤링 폴더를 새로 채운 것을 루프가 알아챈 지점. 이 앞뒤의 *최근*
+#: 점수는 서로 다른 평가셋에서 나온 값이라 **추이를 끊는다**. 다만 champion 을 새 평가셋에서 다시 재므로
+#: **판정은 끊기지 않는다** — 기준선 재설정과 다른 점이 여기다(설계 §2b.6).
+EVENT_ROLLING_UPDATE = "rolling_update"
 
 
 def _now() -> str:
@@ -140,6 +145,8 @@ class Ledger:
                 {
                     "round": e.round,
                     "metric": e.get("metric"),
+                    # 최근 평가셋(T16) — 옛 줄에는 없다(키가 없으면 화면·줄이 "—" 로 둔다)
+                    "rolling": e.get("rolling_metric"),
                     "promoted": bool(e.get("promoted")),
                     "reason": e.reason,
                     "finished": e.at,
@@ -247,6 +254,7 @@ __all__ = [
     "EVENT_BREAKER_RESET",
     "EVENT_FAILED",
     "EVENT_PHASE",
+    "EVENT_ROLLING_UPDATE",
     "EVENT_ROUND_END",
     "EVENT_ROUND_START",
     "EVENT_SKIPPED",

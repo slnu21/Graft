@@ -93,6 +93,27 @@ def _review_json(loop: Any, status: Any) -> dict:
     }
 
 
+def _rolling_json(loop: Any, status: Any, last: Any) -> dict:
+    """**최근 평가셋**(T16) — 쓰는 설정인가 · champion 의 기준선 · 마지막 라운드 점수 · 무엇을 재고 있나.
+
+    여기서도 계산은 없다: 지문을 다시 재지 않고 **원장·상태에 적힌 것**을 옮긴다(state 는 화면이
+    폴링하는 자리인데 지문은 평가셋을 통째로 읽는 일이라, 그건 라운드가 한 번만 한다).
+    """
+    split = loop.eval_rolling  # 경로가 풀린 것(없으면 None)
+    images = split.get("images") if split else None
+    baseline = status.state.rolling
+    return {
+        "configured": split is not None,
+        "images": images.as_posix() if images is not None else "",
+        "metric": status.rolling_last,
+        "championMetric": baseline.metric if baseline is not None else None,
+        "fingerprint": baseline.fingerprint if baseline is not None else "",
+        "round": baseline.round if baseline is not None else 0,
+        # 마지막 라운드가 무엇을 재고 있었나(기준선과 다르면 그 라운드 뒤에 평가셋이 갈렸다는 뜻)
+        "lastFingerprint": last.rolling_fingerprint if last is not None else "",
+    }
+
+
 def _state_payload(loop: Any, path: Path | None) -> dict:
     from anograft.loop.round import (
         PHASE_LABEL,
@@ -136,6 +157,7 @@ def _state_payload(loop: Any, path: Path | None) -> dict:
         "metricLabel": board.metric_label(loop.config.promote.metric)[0],
         "metricHint": board.metric_label(loop.config.promote.metric)[1],
         "champion": _champion_json(st.state),
+        "rolling": _rolling_json(loop, st, last),
         "round": _round_json(st, PHASE_LABEL),
         "review": review,
         "trigger": (
@@ -206,6 +228,8 @@ def _rounds(req: Request) -> ApiResult:
         {
             "rounds": [r.to_json() for r in rows],
             "points": [p.to_json() for p in board.metric_points(rows)],
+            # 최근 평가셋(T16)은 **갱신 지점에서 한 번 더 끊긴다** — 그래서 계열을 따로 준다
+            "rollingPoints": [p.to_json() for p in board.rolling_points(rows)],
             "metricName": loop.config.promote.metric,
             "metricLabel": board.metric_label(loop.config.promote.metric)[0],
             "metricHint": board.metric_label(loop.config.promote.metric)[1],
