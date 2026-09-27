@@ -132,6 +132,18 @@ def test_gate_reason_always_says_something() -> None:
     assert "<" in gate_reason(0.1, 0.5)
 
 
+def test_gate_reason_does_not_say_off_while_refusing() -> None:
+    """**NaN 은 게이트를 꺼도 거부**다 — 거부해 놓고 "꺼져 있습니다"라고 말하면 사유가 자기모순이 된다."""
+    assert gate(float("nan"), 0.0) is False
+    assert "재지 못했" in gate_reason(float("nan"), 0.0)
+    verdict = auto_admit(
+        _cand(confidence=float("nan"), disagreement=None),
+        AutoPolicy(score=0.5, require_agreement=False),
+        known_classes=["scratch"],
+    )
+    assert not verdict.admit and "꺼져" not in verdict.reason
+
+
 def test_partition_by_gate() -> None:
     auto, queue = partition_by_gate([("a", 0.9), ("b", 0.4), ("c", None)], 0.8)
     assert auto == ["a", "c"] and queue == ["b"]
